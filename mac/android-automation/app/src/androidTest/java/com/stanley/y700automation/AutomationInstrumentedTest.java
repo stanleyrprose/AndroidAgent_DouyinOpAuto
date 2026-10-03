@@ -107,6 +107,15 @@ public class AutomationInstrumentedTest {
 
             boolean failed = false;
             for (int i = 0; i < actions.length(); i++) {
+                if (isCancellationRequested()) {
+                    JSONObject action = actions.getJSONObject(i);
+                    emitHeartbeat(i, action.optString("action", "unknown"), "CANCELLED");
+                    result.put("status", "CANCELLED");
+                    result.put("error", error("WORKFLOW_CANCELLED",
+                            "cancellation observed at action boundary index=" + i, false));
+                    failed = true;
+                    break;
+                }
                 if (SystemClock.elapsedRealtime() - workflowStart > workflowDeadline) {
                     result.put("status", "TIMEOUT");
                     result.put("error", error("WORKFLOW_TIMEOUT", "workflow deadline exceeded", false));
@@ -884,6 +893,13 @@ public class AutomationInstrumentedTest {
         data.put("path", out.getAbsolutePath());
         data.put("size", out.length());
         return data;
+    }
+
+    private boolean isCancellationRequested() throws Exception {
+        if (jobId == null || !jobId.matches("[A-Za-z0-9._-]{1,128}")) return false;
+        String cancelPath = "/data/local/y700-agent/ui-jobs/" + jobId + "/cancel.json";
+        String out = shell("su 0 -c 'if [ -f " + cancelPath + " ]; then echo CANCELLED; fi'");
+        return out.contains("CANCELLED");
     }
 
     private String shell(String command) throws Exception {

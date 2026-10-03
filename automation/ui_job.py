@@ -7,16 +7,23 @@ import json
 import os
 import re
 import secrets
+import sys
 import time
 from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from bridge import bridge_client as bridge_v2
 
 os.umask(0o077)
 
 ROOT = Path("/opt/y700")
 UI_JOBS = ROOT / "ui-jobs"
 BRIDGE_JOBS = ROOT / "jobs"
-BRIDGE_HISTORY = ROOT / "runtime" / "job-history"
+BRIDGE_PATHS = bridge_v2.BridgePaths(jobs=BRIDGE_JOBS, runtime=ROOT / "runtime")
 DRIVER_COMPONENT = "com.stanley.y700automation.test/androidx.test.runner.AndroidJUnitRunner"
 DRIVER_CLASS = "com.stanley.y700automation.AutomationInstrumentedTest#runWorkflow"
 JOB_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
@@ -88,19 +95,16 @@ def validate_request(req: dict[str, Any]) -> None:
         raise UiJobError("JOB_PAYLOAD_INVALID: max_duration_ms out of range")
 
 
-def bridge_submit(command: str, bridge_id: str) -> Path:
-    d = BRIDGE_JOBS / bridge_id
-    d.mkdir(parents=True, mode=0o700)
-    os.chmod(d, 0o700)
-    (d / "artifacts").mkdir(mode=0o700)
-    atomic_json(d / "state.json", {"status": "PENDING"})
-    payload = {
-        "version": 1,
-        "action": "root_exec",
-        "command_b64": base64.b64encode(command.encode()).decode(),
-    }
-    atomic_write(d / "request.json", (json.dumps(payload, separators=(",", ":")) + "\n").encode())
-    return d
+def bridge_submit(command: str, bridge_id: str, timeout_sec: int) -> str:
+    try:
+        return bridge_v2.submit_root(
+            command,
+            timeout_ms=max(1000, min(3_600_000, timeout_sec * 1000)),
+            job_id=bridge_id,
+            paths=BRIDGE_PATHS,
+        )
+    except bridge_v2.BridgeError as exc:
+        raise UiJobError(f"BRIDGE_SUBMIT_FAILED: {exc}") from exc
 
 
 def decode_markers(text: str, regex: re.Pattern[str]) -> list[dict[str, Any]]:
@@ -115,14 +119,22 @@ def decode_markers(text: str, regex: re.Pattern[str]) -> list[dict[str, Any]]:
 
 def run_bridge_command(command: str, ui_dir: Path, timeout_sec: int = 660) -> tuple[int, str, str, list[dict[str, Any]]]:
     bridge_id = "uihost-" + ui_dir.name[:64] + "-" + secrets.token_hex(4)
-    bridge = bridge_submit(command, bridge_id)
+    bridge_submit(command, bridge_id, timeout_sec)
+    atomic_json(ui_dir / "bridge.json", {"bridge_job_id": bridge_id, "protocol_version": 2})
     deadline = time.monotonic() + timeout_sec
     seen_heartbeats = 0
     heartbeats: list[dict[str, Any]] = []
+    snapshot: dict[str, Any] | None = None
+    bridge = BRIDGE_JOBS / "active" / bridge_id
 
-    while not (bridge / "result.json").exists():
+    while True:
         if time.monotonic() >= deadline:
             raise UiJobError("WORKFLOW_TIMEOUT: host bridge did not finish")
+        try:
+            snapshot = bridge_v2.status(bridge_id, paths=BRIDGE_PATHS)
+        except bridge_v2.BridgeError as exc:
+            raise UiJobError(f"BRIDGE_STATUS_FAILED: {exc}") from exc
+        bridge = Path(snapshot["location"])
         stdout = (bridge / "stdout.log").read_text(encoding="utf-8", errors="replace") if (bridge / "stdout.log").exists() else ""
         current = decode_markers(stdout, HEARTBEAT_RE)
         if len(current) > seen_heartbeats:
@@ -131,9 +143,11 @@ def run_bridge_command(command: str, ui_dir: Path, timeout_sec: int = 660) -> tu
                 atomic_json(ui_dir / "heartbeat.json", {**hb, "updated_at": now_iso()})
                 append_journal(ui_dir / "journal.jsonl", {"timestamp": now_iso(), "phase": "HEARTBEAT", **hb})
             seen_heartbeats = len(current)
+        if bridge_v2.terminal_status(snapshot):
+            break
         time.sleep(0.20)
 
-    bridge_result = read_json(bridge / "result.json", {}) or {}
+    bridge_result = (snapshot or {}).get("result") or {}
     rc = int(bridge_result.get("exit_code", 1))
     stdout = (bridge / "stdout.log").read_text(encoding="utf-8", errors="replace") if (bridge / "stdout.log").exists() else ""
     stderr = (bridge / "stderr.log").read_text(encoding="utf-8", errors="replace") if (bridge / "stderr.log").exists() else ""
@@ -143,11 +157,6 @@ def run_bridge_command(command: str, ui_dir: Path, timeout_sec: int = 660) -> tu
         heartbeats.append(hb)
         atomic_json(ui_dir / "heartbeat.json", {**hb, "updated_at": now_iso()})
         append_journal(ui_dir / "journal.jsonl", {"timestamp": now_iso(), "phase": "HEARTBEAT", **hb})
-
-    BRIDGE_HISTORY.mkdir(parents=True, exist_ok=True, mode=0o700)
-    archive = BRIDGE_HISTORY / bridge_id
-    if bridge.exists() and not archive.exists():
-        os.replace(bridge, archive)
     return rc, stdout, stderr, heartbeats
 
 
@@ -285,8 +294,7 @@ def run_workflow(path: Path) -> dict[str, Any]:
     if result.get("status") == "PASS":
         write_checkpoint(ui_dir, req, completed_index, all_safe)
     elif markers:
-        last_action = req["actions"][completed_index] if completed_index >= 0 else {}
-        safe = completed_index >= 0 and last_action.get("action") in SAFE_ACTIONS
+        safe = True if completed_index < 0 else all_safe
         write_checkpoint(ui_dir, req, completed_index, safe)
 
     result["host_duration_ms"] = round((time.monotonic() - started) * 1000, 1)
@@ -314,6 +322,22 @@ def status(job_id: str) -> dict[str, Any]:
     }
 
 
+def cancel(job_id: str, reason: str = "user_requested") -> dict[str, Any]:
+    if not JOB_RE.fullmatch(job_id):
+        raise UiJobError("invalid job id")
+    d = UI_JOBS / job_id
+    if not d.is_dir():
+        raise UiJobError("job not found")
+    existing = read_json(d / "result.json")
+    if existing:
+        return status(job_id)
+    payload = {"requested_at": now_iso(), "requested_by": "controller", "reason": reason[:256]}
+    atomic_json(d / "cancel.json", payload)
+    append_journal(d / "journal.jsonl", {"timestamp": now_iso(), "phase": "CANCEL_REQUESTED", **payload})
+    atomic_json(d / "state.json", {"status": "CANCELLING", "updated_at": now_iso()})
+    return status(job_id)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest="cmd", required=True)
@@ -321,11 +345,16 @@ def main() -> int:
     p.add_argument("workflow")
     p = sp.add_parser("status")
     p.add_argument("job_id")
+    p = sp.add_parser("cancel")
+    p.add_argument("job_id")
+    p.add_argument("--reason", default="user_requested")
     args = ap.parse_args()
 
     try:
         if args.cmd == "run":
             out = run_workflow(Path(args.workflow))
+        elif args.cmd == "cancel":
+            out = cancel(args.job_id, args.reason)
         else:
             out = status(args.job_id)
         print(json.dumps(out, ensure_ascii=False, indent=2))
