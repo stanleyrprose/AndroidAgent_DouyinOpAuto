@@ -59,6 +59,13 @@ class BridgeV2ClientTests(unittest.TestCase):
         snap = bc.status(job, paths=self.paths)
         self.assertEqual(snap["result"]["status"], "SUCCEEDED")
         self.assertIn("/archive/succeeded/", snap["location"])
+    def test_v2_terminal_state_without_result_is_not_completion(self) -> None:
+        snapshot = {
+            "protocol_version": 2,
+            "state": {"state": "SUCCEEDED"},
+            "result": None,
+        }
+        self.assertIsNone(bc.terminal_status(snapshot))
 
     def test_cancel_is_idempotent_under_concurrency(self) -> None:
         job = bc.submit_root("sleep 1", timeout_ms=5000, paths=self.paths)

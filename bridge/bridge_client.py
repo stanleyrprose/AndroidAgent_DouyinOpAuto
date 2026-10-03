@@ -327,6 +327,10 @@ def terminal_status(snapshot: dict[str, Any]) -> str | None:
     value = result.get("status")
     if value in TERMINAL_STATES:
         return value
+    # v2 result.json is the completion marker and is deliberately published
+    # after terminal state.json. Never complete a wait from state.json alone.
+    if snapshot.get("protocol_version") == 2:
+        return None
     state = snapshot.get("state") or {}
     value = state.get("state") or state.get("status")
     return value if value in TERMINAL_STATES else None
