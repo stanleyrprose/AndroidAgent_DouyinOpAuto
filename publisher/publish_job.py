@@ -8,10 +8,20 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from job_contract import load_manifest, write_json_atomic
-import controller
+try:
+    from .job_contract import load_manifest, write_json_atomic
+    from . import controller
+except ImportError:
+    # Preserve direct execution: python3 publisher/publish_job.py ...
+    from job_contract import load_manifest, write_json_atomic
+    import controller
 
 ROOT=Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from apps.tiktok import controller as generic_tiktok
+
 READY=Path("/opt/y700/media/ready")
 PUBLISHED=Path("/opt/y700/media/published")
 FAILED=Path("/opt/y700/media/failed")
@@ -87,6 +97,21 @@ def verify_post_config():
     if st["state"]!="POST_CONFIG":
         raise PublishError(f"expected POST_CONFIG, got {st}")
     return st
+
+def store_generic_evidence(job, generic_result):
+    evidence=(generic_result or {}).get("evidence") or {}
+    source=Path(str(evidence.get("source_path","")))
+    if not source.is_file():
+        raise PublishError(f"generic READY_TO_COMMIT evidence missing: {source}")
+    ev=job/"evidence"
+    ev.mkdir(exist_ok=True)
+    dest=ev/"v05-ready-to-commit.png"
+    shutil.copy2(source,dest)
+    return {
+        "screenshot":str(Path("evidence")/dest.name),
+        "workflow_job_id":generic_result.get("workflow_job_id"),
+        "size":dest.stat().st_size,
+    }
 
 def capture_evidence(job,label):
     ev=job/"evidence"
@@ -302,7 +327,46 @@ def main():
         update("STAGING",args.job_id)
         run([sys.executable,str(STAGER),args.job_id])
 
-        update("NAVIGATING",args.job_id)
+        # Sprint 7 migration is intentionally DRY_RUN-only.  The generic core
+        # prepares and verifies POST_CONFIG but exposes no final publish action.
+        # COMMIT remains on the previously accepted publisher path until it gets
+        # its own explicit acceptance gate.
+        if mode=="DRY_RUN":
+            update("NAVIGATING",args.job_id,ui_engine="androidx-uiautomator-2.4")
+            try:
+                generic_result=generic_tiktok.prepare_dry_run(
+                    caption,
+                    title=title,
+                    visibility=visibility,
+                    album="Y700Agent",
+                )
+                evidence=store_generic_evidence(job,generic_result)
+                update("READY_TO_COMMIT",args.job_id,
+                       ui_engine=generic_result["engine"],
+                       title=generic_result["title"],
+                       caption_verified=generic_result["caption_verified"],
+                       visibility=generic_result["visibility"],
+                       ui_state=generic_result["ui_state"],
+                       evidence=evidence,
+                       workflow_job_id=generic_result["workflow_job_id"])
+                print(json.dumps({
+                    "job_id":args.job_id,
+                    "status":"DRY_RUN_PASS",
+                    "ui_engine":generic_result["engine"],
+                    "evidence":evidence,
+                },ensure_ascii=False))
+                return
+            finally:
+                # Never leave an unattended DRY_RUN sitting on the final
+                # publish screen.
+                generic_tiktok.force_stop()
+
+        if mode!="COMMIT":
+            raise PublishError(f"unsupported publish_mode={mode}")
+        if not args.commit:
+            raise PublishError("manifest requests COMMIT but --commit was not supplied")
+
+        update("NAVIGATING",args.job_id,ui_engine="legacy-publisher")
         controller.go_to_post_config(reset=True)
 
         if title:
@@ -315,21 +379,11 @@ def main():
         st=verify_post_config()
 
         update("READY_TO_COMMIT",args.job_id,
+               ui_engine="legacy-publisher",
                title=title_result,
                caption_verified=True,
                visibility=visibility_result,
                ui_state=st)
-
-        if mode=="DRY_RUN":
-            controller.restore_input_method()
-            controller.root_exec(f"am force-stop {controller.TIKTOK}",check=False)
-            print(json.dumps({"job_id":args.job_id,"status":"DRY_RUN_PASS"},ensure_ascii=False))
-            return
-
-        if mode!="COMMIT":
-            raise PublishError(f"unsupported publish_mode={mode}")
-        if not args.commit:
-            raise PublishError("manifest requests COMMIT but --commit was not supplied")
 
         update("COMMITTING",args.job_id)
         submission=commit_publish(job,args.job_id)
@@ -363,7 +417,10 @@ def main():
                verification=verification)
         print(json.dumps({"job_id":args.job_id,"status":"PUBLISHED","path":str(dest)},ensure_ascii=False))
     except Exception as e:
-        controller.restore_input_method()
+        if mode=="DRY_RUN":
+            generic_tiktok.force_stop()
+        else:
+            controller.restore_input_method()
         update("FAILED",args.job_id,reason=str(e))
         raise
 

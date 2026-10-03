@@ -7,7 +7,11 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from state import detect_state
+try:
+    from .state import detect_state
+except ImportError:
+    # Preserve direct script imports from publisher/.
+    from state import detect_state
 
 ROOT = Path(__file__).resolve().parents[1]
 CTL = ROOT / "bridge" / "androidctl.sh"

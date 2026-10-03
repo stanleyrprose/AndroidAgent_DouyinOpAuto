@@ -17,7 +17,7 @@ jobs:
 
       - name: Compile Python
         run: |
-          python -m compileall -q bridge automation publisher mac/production-pipeline/pipeline mac/media-export
+          python -m compileall -q bridge automation apps publisher mac/production-pipeline/pipeline mac/media-export
 
       - name: Run production-pipeline unit tests
         working-directory: mac/production-pipeline
@@ -25,6 +25,9 @@ jobs:
 
       - name: Run Bridge v2 unit tests
         run: python -m unittest tests.test_bridge_v2 -v
+
+      - name: Run TikTok generic-core safety tests
+        run: python -m unittest tests.test_tiktok_generic tests.test_publish_routing -v
 
       - name: Check shell syntax
         shell: bash
