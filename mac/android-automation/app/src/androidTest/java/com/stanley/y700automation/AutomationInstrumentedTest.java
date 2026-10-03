@@ -898,8 +898,11 @@ public class AutomationInstrumentedTest {
     private boolean isCancellationRequested() throws Exception {
         if (jobId == null || !jobId.matches("[A-Za-z0-9._-]{1,128}")) return false;
         String cancelPath = "/data/local/y700-agent/ui-cancel-signals/" + jobId;
-        String out = shell("if [ -f " + cancelPath + " ]; then echo CANCELLED; fi");
-        return out.contains("CANCELLED");
+        // UiAutomation.executeShellCommand() is not guaranteed to interpret
+        // compound shell grammar consistently. Use one direct command against
+        // a validated path and treat its stdout as the existence proof.
+        String out = shell("ls " + cancelPath).trim();
+        return cancelPath.equals(out);
     }
 
     private String shell(String command) throws Exception {
