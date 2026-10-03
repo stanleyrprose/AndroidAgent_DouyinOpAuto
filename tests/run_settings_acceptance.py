@@ -9,8 +9,8 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path("/opt/y700/workspaces/y700-agent")
-RUNTIME = Path("/opt/y700/runtime/automation-driver")
+REPO = Path(os.environ.get("Y700_ACCEPTANCE_REPO", "/opt/y700/workspaces/y700-agent"))
+RUNTIME = Path(os.environ.get("Y700_AUTOMATION_ACCEPTANCE_RUNTIME", "/opt/y700/runtime/automation-driver"))
 ROOT_EXEC = REPO / "bridge" / "root-exec.sh"
 
 sys.path.insert(0, str(REPO / "automation"))

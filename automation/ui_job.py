@@ -21,9 +21,10 @@ from bridge import bridge_client as bridge_v2
 os.umask(0o077)
 
 ROOT = Path("/opt/y700")
-UI_JOBS = ROOT / "ui-jobs"
-BRIDGE_JOBS = ROOT / "jobs"
-BRIDGE_PATHS = bridge_v2.BridgePaths(jobs=BRIDGE_JOBS, runtime=ROOT / "runtime")
+UI_JOBS = Path(os.environ.get("Y700_UI_JOBS", str(ROOT / "ui-jobs")))
+BRIDGE_JOBS = Path(os.environ.get("Y700_BRIDGE_JOBS", str(ROOT / "jobs")))
+BRIDGE_RUNTIME = Path(os.environ.get("Y700_RUNTIME", str(ROOT / "runtime")))
+BRIDGE_PATHS = bridge_v2.BridgePaths(jobs=BRIDGE_JOBS, runtime=BRIDGE_RUNTIME)
 DRIVER_COMPONENT = "com.stanley.y700automation.test/androidx.test.runner.AndroidJUnitRunner"
 DRIVER_CLASS = "com.stanley.y700automation.AutomationInstrumentedTest#runWorkflow"
 JOB_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
