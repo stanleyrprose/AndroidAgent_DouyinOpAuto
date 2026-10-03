@@ -877,13 +877,21 @@ while true; do
     handle_reconcile_request
   fi
 
+  # Measure only directory discovery/stat cost. Do not include command
+  # execution in active_scan_ms, otherwise a slow job would look like a slow
+  # filesystem scan and could incorrectly trigger the Sprint 6B socket gate.
   scan_start="$(uptime_ms)"
+  for req in "$ACTIVE"/*/request.json; do
+    [ -f "$req" ] || continue
+    :
+  done
+  LAST_ACTIVE_SCAN_MS=$(( $(uptime_ms) - scan_start ))
+
   for req in "$ACTIVE"/*/request.json; do
     [ -f "$req" ] || continue
     execute_v2 "$("$TOYBOX" dirname "$req")"
     check_live_orphan_block && break
   done
-  LAST_ACTIVE_SCAN_MS=$(( $(uptime_ms) - scan_start ))
 
   if ! check_live_orphan_block; then
     for req in "$JOBS"/*/request.json; do

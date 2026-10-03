@@ -174,7 +174,16 @@ archive lookup, duplicate cancellation, malformed state, bounded request size,
 v1 lookup, staging cleanup, corrupt control data, reserved IDs, archive ID
 collision, symlink rejection, and CLI separator handling.
 
-Real Y700 acceptance must additionally exercise executor crash/restart,
-live-orphan behavior, cancellation during execution, timeout behavior,
-result-before-archive recovery, permissions, archive scale, v1 regression, and
-the generic Settings workflow before Sprint 6A is marked closed.
+Real Y700 acceptance on 2026-10-04 exercised executor crash/restart,
+live-orphan behavior, cancellation before and during execution, cancellation
+timeout, result-before-archive recovery, request mutation, malformed durable
+state, v1 compatibility, and the generic Settings workflow. Cooperative UI
+cancellation was also verified at an action boundary.
+
+Sprint 6A is **PASS**. See
+`docs/BRIDGE-V2-ACCEPTANCE-2026-10-04.md` for the public-safe evidence
+summary.
+
+The `active_scan_ms` metric measures only active-directory discovery/stat
+cost. It deliberately excludes command execution time so it can be used as
+valid evidence for or against the Sprint 6B measured-need gate.

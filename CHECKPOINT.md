@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-Date: 2026-10-03
+Date: 2026-10-04
 
 This is the public-safe acceptance snapshot. Private runtime identifiers, endpoints, test screenshots, real sample URLs and device backup names are intentionally omitted.
 
@@ -151,8 +151,8 @@ Canonical repository:
 - canonical branch: `main`
 - accepted source commit: `d35482f`
 - GitHub Actions `validate`: PASS
-- live Y700 workspace: clean and aligned to `origin/main`
-- Mac canonical workspace: clean and aligned to `origin/main`
+- at the 2026-10-03 SOT migration closure, the live Y700 workspace was clean and aligned to `origin/main`
+- at that closure, the Mac canonical workspace was clean and aligned to `origin/main`
 
 Public SOT provenance:
 
@@ -219,4 +219,52 @@ powered down during the acceptance run.
 
 Next implementation gate: migrate the TikTok controller to the generic core,
 then run 20 cold-start DRY_RUN regressions with >=95% success.
+
+## PRD v0.5 Sprint 6A Bridge v2 — PASS
+
+Validated on the real Y700 on 2026-10-04.
+
+Implemented and accepted:
+
+- filesystem remains the required SOT;
+- atomic `.staging -> active` submission;
+- active/archive physical separation;
+- archive-first race-safe status lookup;
+- v1/v2 dual-read migration path;
+- immutable claimed requests with SHA-256 binding;
+- PID/PGID plus process-start identity evidence;
+- heartbeat 2 s / lease 15 s;
+- cooperative cancellation for generic `root_exec`;
+- no automatic replay of ambiguous side effects;
+- live-orphan detection and durable dispatch blocking;
+- `RECONCILE_REQUIRED` terminal ambiguity state;
+- stale staging visibility and explicit maintenance cleanup;
+- bounded durable JSON sizes;
+- atomic `control/*.json` publication;
+- real failure-injection coverage for claim crash, child-running crash,
+  result-before-archive crash, malformed state, request mutation, and timeout;
+- generic Settings regression through Bridge v2: PASS;
+- cooperative UI action-boundary cancellation: PASS.
+
+Production runtime observation at closure:
+
+- Bridge protocol advertisement: v2;
+- no unknown active v2 jobs;
+- no incomplete legacy v1 jobs;
+- no live-orphan block;
+- filesystem transport authoritative;
+- Unix socket daemon not enabled.
+
+`active_scan_ms` was corrected to measure filesystem discovery/stat cost only;
+job execution time is not included in that metric.
+
+Public-safe evidence: `docs/BRIDGE-V2-ACCEPTANCE-2026-10-04.md`.
+
+The Y700 primary Git worktree currently contains protected local TikTok/UI
+migration edits and was intentionally not reset during Bridge v2 closure.
+Bridge runtime files were verified byte-identical to the accepted GitHub
+implementation before production validation.
+
+Sprint 6B remains closed until a separate measured-need experiment defines and
+meets explicit latency/CPU/wakeup thresholds.
 
