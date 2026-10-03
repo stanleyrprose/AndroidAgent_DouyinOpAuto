@@ -17,7 +17,7 @@ jobs:
 
       - name: Compile Python
         run: |
-          python -m compileall -q publisher mac/production-pipeline/pipeline mac/media-export
+          python -m compileall -q automation publisher mac/production-pipeline/pipeline mac/media-export
 
       - name: Run production-pipeline unit tests
         working-directory: mac/production-pipeline

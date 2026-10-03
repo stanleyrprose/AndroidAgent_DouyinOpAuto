@@ -1,4 +1,5 @@
 #!/system/bin/sh
+umask 0077
 JOBS=/data/local/y700-agent/jobs
 RUNTIME=/data/local/y700-agent/runtime
 LOG=$RUNTIME/host-executor.log

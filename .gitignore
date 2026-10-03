@@ -7,6 +7,8 @@ source/
 backups/
 firmware/
 downloads/
+.ai-bridge/
+tests/artifacts/
 *.log
 *.pid
 *.tmp

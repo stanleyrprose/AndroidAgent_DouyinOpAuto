@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+umask 0077
 if [ "$#" -lt 1 ]; then
   echo "usage: root-exec.sh <android-root-shell-command>" >&2
   exit 64
