@@ -25,6 +25,7 @@ UI_JOBS = Path(os.environ.get("Y700_UI_JOBS", str(ROOT / "ui-jobs")))
 BRIDGE_JOBS = Path(os.environ.get("Y700_BRIDGE_JOBS", str(ROOT / "jobs")))
 BRIDGE_RUNTIME = Path(os.environ.get("Y700_RUNTIME", str(ROOT / "runtime")))
 BRIDGE_PATHS = bridge_v2.BridgePaths(jobs=BRIDGE_JOBS, runtime=BRIDGE_RUNTIME)
+CANCEL_SIGNALS = Path(os.environ.get("Y700_UI_CANCEL_SIGNALS", str(ROOT / "ui-cancel-signals")))
 DRIVER_COMPONENT = "com.stanley.y700automation.test/androidx.test.runner.AndroidJUnitRunner"
 DRIVER_CLASS = "com.stanley.y700automation.AutomationInstrumentedTest#runWorkflow"
 JOB_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
@@ -80,6 +81,21 @@ def append_journal(path: Path, row: dict[str, Any]) -> None:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
         f.flush()
         os.fsync(f.fileno())
+
+
+def ensure_cancel_signal_dir() -> None:
+    CANCEL_SIGNALS.mkdir(parents=True, exist_ok=True, mode=0o710)
+    os.chown(CANCEL_SIGNALS, 0, 2000)
+    os.chmod(CANCEL_SIGNALS, 0o710)
+
+
+def cancel_signal_path(job_id: str) -> Path:
+    return CANCEL_SIGNALS / job_id
+
+
+def publish_cancel_signal(job_id: str) -> None:
+    ensure_cancel_signal_dir()
+    atomic_write(cancel_signal_path(job_id), b"", mode=0o600)
 
 
 def validate_request(req: dict[str, Any]) -> None:
@@ -204,6 +220,8 @@ def run_workflow(path: Path) -> dict[str, Any]:
     UI_JOBS.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(UI_JOBS, 0o700)
     ui_dir = UI_JOBS / job_id
+    ensure_cancel_signal_dir()
+    cancel_signal_path(job_id).unlink(missing_ok=True)
     if ui_dir.exists():
         existing = read_json(ui_dir / "result.json")
         if existing:
@@ -334,6 +352,7 @@ def cancel(job_id: str, reason: str = "user_requested") -> dict[str, Any]:
         return status(job_id)
     payload = {"requested_at": now_iso(), "requested_by": "controller", "reason": reason[:256]}
     atomic_json(d / "cancel.json", payload)
+    publish_cancel_signal(job_id)
     append_journal(d / "journal.jsonl", {"timestamp": now_iso(), "phase": "CANCEL_REQUESTED", **payload})
     atomic_json(d / "state.json", {"status": "CANCELLING", "updated_at": now_iso()})
     return status(job_id)

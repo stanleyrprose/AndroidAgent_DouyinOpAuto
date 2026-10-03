@@ -897,8 +897,8 @@ public class AutomationInstrumentedTest {
 
     private boolean isCancellationRequested() throws Exception {
         if (jobId == null || !jobId.matches("[A-Za-z0-9._-]{1,128}")) return false;
-        String cancelPath = "/data/local/y700-agent/ui-jobs/" + jobId + "/cancel.json";
-        String out = shell("su 0 -c 'if [ -f " + cancelPath + " ]; then echo CANCELLED; fi'");
+        String cancelPath = "/data/local/y700-agent/ui-cancel-signals/" + jobId;
+        String out = shell("if [ -f " + cancelPath + " ]; then echo CANCELLED; fi");
         return out.contains("CANCELLED");
     }
 
