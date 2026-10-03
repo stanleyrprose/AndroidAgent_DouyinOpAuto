@@ -30,6 +30,25 @@ class TikTokGenericCoreTests(unittest.TestCase):
                 msg=f"DRY_RUN must never click final publish button: {action}",
             )
 
+    def test_visibility_selection_separates_sheet_close_from_summary(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        choose = by_id["choose-private"]
+        self.assertEqual(
+            choose["expect"]["absent_selector"],
+            {
+                "resource_id": controller.RID["visibility_heading"],
+                "text": "谁可以看",
+            },
+        )
+        wait = by_id["wait-private-summary"]
+        self.assertEqual(wait["action"], "waitFor")
+        self.assertEqual(wait["timeout_ms"], 15_000)
+        self.assertEqual(
+            wait["selector"]["content_desc_contains"],
+            "自己",
+        )
+
     def test_dry_run_has_no_commit_api(self) -> None:
         self.assertFalse(hasattr(controller, "tap_publish"))
         self.assertFalse(hasattr(controller, "commit"))
@@ -112,8 +131,9 @@ class TikTokGenericCoreTests(unittest.TestCase):
                 check_selector(action["selector"])
             for contract in ("precondition", "expect"):
                 obj = action.get(contract) or {}
-                if isinstance(obj.get("selector"), dict):
-                    check_selector(obj["selector"])
+                for key in ("selector", "absent_selector"):
+                    if isinstance(obj.get(key), dict):
+                        check_selector(obj[key])
 
 
 if __name__ == "__main__":

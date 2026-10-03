@@ -407,16 +407,25 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
                 "unique": True,
             },
             "expect": {
-                "selector": {
-                    "resource_id": RID["visibility"],
-                    "content_desc_contains": "自己",
-                    "clickable": True,
-                    "has_ancestor": {"resource_id": RID["visibility_container"]},
-                },
-                "unique": True,
+                "absent_selector": {
+                    "resource_id": RID["visibility_heading"],
+                    "text": "谁可以看",
+                }
             },
             "timeout_ms": 8_000,
             "side_effect": "IDEMPOTENT",
+        },
+        {
+            "action_id": "wait-private-summary",
+            "action": "waitFor",
+            "selector": {
+                "resource_id": RID["visibility"],
+                "content_desc_contains": "自己",
+                "clickable": True,
+                "has_ancestor": {"resource_id": RID["visibility_container"]},
+            },
+            "unique": True,
+            "timeout_ms": 15_000,
         },
         {
             "action_id": "assert-caption",
