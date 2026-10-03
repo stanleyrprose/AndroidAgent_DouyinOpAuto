@@ -1,0 +1,41 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Compile Python
+        run: |
+          python -m compileall -q publisher mac/production-pipeline/pipeline mac/media-export
+
+      - name: Run production-pipeline unit tests
+        working-directory: mac/production-pipeline
+        run: python -m unittest discover -s tests -v
+
+      - name: Check shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            bash -n "$file"
+          done < <(find scripts bootstrap mac/production-pipeline/scripts -type f -name '*.sh' -print0)
+
+      - name: Reject private deployment identifiers
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -n -E '(/Users/|BEGIN (OPENSSH|RSA|EC) PRIVATE KEY|Authorization: Bearer)' -- .             ':(exclude).github/workflows/validate.yml'; then
+            echo "Private/deployment-specific material detected"
+            exit 1
+          fi

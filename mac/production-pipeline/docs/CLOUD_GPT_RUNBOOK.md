@@ -1,0 +1,189 @@
+# Cloud GPT Runbook — PRD v0.4
+
+## Human contract
+
+The user does only:
+
+1. paste one Douyin share URL;
+2. review preview when useful;
+3. explicitly approve publication.
+
+Everything else is orchestrated by Cloud GPT across Mac and Y700.
+
+## 1. Submit on Mac
+
+```bash
+./scripts/pipeline.sh submit '<douyin-url>'
+```
+
+Expected terminal state:
+
+```text
+ANALYZED
+```
+
+If `DUPLICATE`, stop.
+If `BLOCKED_LOGIN`, open Douzy login once and resume.
+Do not fall back to unauthenticated direct scraping.
+
+## 2. Review evidence
+
+Read:
+
+```text
+runtime/jobs/<job>/analysis/analysis.json
+runtime/jobs/<job>/analysis/transcript.zh.json
+runtime/jobs/<job>/analysis/frames/contact-sheet.jpg
+runtime/jobs/<job>/analysis/localization_request.json
+```
+
+Routing rules:
+
+- meaningful Chinese speech -> speech/mixed candidate;
+- weak/no speech -> inspect visual text;
+- never turn music/noise hallucination into dialogue;
+- `visual_only` may have no overlay cue.
+
+## 3. Create localization.json
+
+Cloud GPT writes evidence-grounded Burmese localization:
+
+```json
+{
+  "content_type": "speech|visual_text|mixed|visual_only",
+  "source_summary": "...",
+  "title_my": "...",
+  "caption_my": "...",
+  "visibility": "PRIVATE",
+  "cues": [
+    {"start": 0.2, "end": 5.1, "text_my": "..."}
+  ]
+}
+```
+
+Default visibility is PRIVATE.
+
+## 4. Render + export on Mac
+
+```bash
+./scripts/pipeline.sh localize <job> <localization.json>
+./scripts/pipeline.sh render <job>
+./scripts/pipeline.sh export <job>
+```
+
+Review `production/preview.jpg` when visual layout changed.
+
+The capability URL lives only in:
+
+```text
+runtime/jobs/<job>/export/handoff.json
+```
+
+Do not print it unnecessarily.
+
+## 5. Pull to Y700
+
+Use the manifest URL from handoff.json:
+
+```bash
+python3 publisher/pull_job.py '<manifest-url>'
+```
+
+The Y700 job id equals the Mac job id.
+
+## 6. Start asynchronous DRY_RUN
+
+```bash
+./scripts/publish-async.sh <job>
+```
+
+Poll:
+
+```bash
+./scripts/publish-status.sh <job>
+```
+
+Expected terminal status:
+
+```text
+DRY_RUN_PASS
+```
+
+Then mark Mac:
+
+```bash
+./scripts/pipeline.sh mark-dryrun <job> --y700-job-id <job>
+```
+
+## 7. Ask for approval
+
+Do not commit automatically.
+
+The explicit human approval must clearly refer to the current job/content.
+
+On approval, record Mac state:
+
+```bash
+./scripts/pipeline.sh approve <job> --note 'explicit user approval'
+```
+
+## 8. COMMIT on Y700
+
+Before COMMIT:
+
+- confirm job id;
+- confirm PRIVATE unless the user explicitly requested otherwise;
+- confirm source_aweme_id is not already published;
+- change manifest `publish_mode` from `DRY_RUN` to `COMMIT` atomically.
+
+Start locally:
+
+```bash
+./scripts/publish-async.sh <job> --commit
+```
+
+Poll with `publish-status.sh`.
+
+Never rerun COMMIT just because the remote tool call timed out.
+
+If status is:
+
+```text
+AMBIGUOUS_COMMIT_NEEDS_RECONCILE
+```
+
+run:
+
+```bash
+python3 publisher/reconcile_private.py <job>
+```
+
+This verifies TikTok Profile first and never taps Publish.
+
+## 9. Finalize Mac state
+
+After Y700 reports verified PUBLISHED:
+
+```bash
+./scripts/pipeline.sh finalize <job> --verified --evidence 'profile_private_exact_caption'
+```
+
+## 10. Dedupe
+
+Dedupe is enforced twice:
+
+1. Mac by share-URL hash + aweme_id index.
+2. Y700 before COMMIT by source_aweme_id scan of published history.
+
+A historical v0.3 publication can be imported with:
+
+```bash
+./scripts/pipeline.sh register-published <aweme_id> <legacy_job_id> --source-url '<url>' --verified
+```
+
+## Recovery principle
+
+Durable state is the truth source.
+
+Do not infer success from one tool timeout.
+Do not retry a COMMIT until publication absence is positively established.

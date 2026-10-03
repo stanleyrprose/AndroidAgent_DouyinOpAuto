@@ -1,0 +1,8 @@
+# Mac media-gateway example. Keep real tunnel credentials outside Git.
+tunnel: <TUNNEL_UUID>
+credentials-file: /path/to/.cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: <MEDIA_GATEWAY_HOSTNAME>
+    service: http://127.0.0.1:8790
+  - service: http_status:404
