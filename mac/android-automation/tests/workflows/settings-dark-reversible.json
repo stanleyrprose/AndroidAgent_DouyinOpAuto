@@ -1,0 +1,73 @@
+{
+  "protocol_version": 1,
+  "job_id": "settings-dark-reversible-regression",
+  "max_duration_ms": 60000,
+  "actions": [
+    {
+      "action_id": "assert-light-initial",
+      "action": "assert",
+      "selector": {
+        "resource_id": "com.android.settings:id/dark_mode_white_check",
+        "checkable": true,
+        "checked": true
+      }
+    },
+    {
+      "action_id": "assert-dark-initial-off",
+      "action": "assert",
+      "selector": {
+        "resource_id": "com.android.settings:id/dark_mode_black_check",
+        "checkable": true,
+        "checked": false
+      }
+    },
+    {
+      "action_id": "switch-dark",
+      "action": "click",
+      "selector": {
+        "resource_id": "com.android.settings:id/dark_mode_black_check"
+      },
+      "expect": {
+        "selector": {
+          "resource_id": "com.android.settings:id/dark_mode_black_check",
+          "checked": true
+        },
+        "unique": true
+      },
+      "timeout_ms": 5000,
+      "side_effect": "REVERSIBLE_LOCAL"
+    },
+    {
+      "action_id": "assert-light-off",
+      "action": "assert",
+      "selector": {
+        "resource_id": "com.android.settings:id/dark_mode_white_check",
+        "checked": false
+      }
+    },
+    {
+      "action_id": "restore-light",
+      "action": "click",
+      "selector": {
+        "resource_id": "com.android.settings:id/dark_mode_white_check"
+      },
+      "expect": {
+        "selector": {
+          "resource_id": "com.android.settings:id/dark_mode_white_check",
+          "checked": true
+        },
+        "unique": true
+      },
+      "timeout_ms": 5000,
+      "side_effect": "REVERSIBLE_LOCAL"
+    },
+    {
+      "action_id": "assert-dark-off",
+      "action": "assert",
+      "selector": {
+        "resource_id": "com.android.settings:id/dark_mode_black_check",
+        "checked": false
+      }
+    }
+  ]
+}

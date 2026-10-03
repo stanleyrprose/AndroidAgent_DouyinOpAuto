@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stanleyxyz.local/y700/health.schema.json",
+  "type": "object",
+  "required": ["driver_version", "protocol_version", "driver_ready", "uiautomator_ready", "screen_on"],
+  "properties": {
+    "driver_version": {"type": "string"},
+    "protocol_version": {"type": "integer"},
+    "min_protocol_version": {"type": "integer"},
+    "max_protocol_version": {"type": "integer"},
+    "driver_ready": {"type": "boolean"},
+    "uiautomator_ready": {"type": "boolean"},
+    "screen_on": {"type": "boolean"},
+    "keyguard_blocking": {"type": "boolean"},
+    "current_package": {"type": ["string", "null"]},
+    "display_width": {"type": "integer"},
+    "display_height": {"type": "integer"},
+    "display_rotation": {"type": "integer"},
+    "orientation": {"enum": ["portrait","landscape"]},
+    "ime": {"type": ["string","null"]},
+    "capabilities": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

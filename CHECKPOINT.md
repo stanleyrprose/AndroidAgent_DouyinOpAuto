@@ -180,3 +180,43 @@ Rollback references retained locally on Y700:
 - `y700-live-pre-sot-4287725`
 
 From this checkpoint onward, GitHub `main` is the sole source of truth for code, scripts, non-secret configuration and public-safe project documentation. Emergency live-device fixes must be reconciled back into Git immediately after stabilization.
+
+## PRD v0.5 Rev2 Android Automation Core — Sprint 0–5 PASS
+
+Validated on 2026-10-03.
+
+Implemented:
+
+- AndroidX UI Automator 2.4.0 production driver;
+- workflow-scoped instrumentation sessions;
+- durable atomic UI jobs with heartbeat/journal/checkpoint;
+- semantic selectors with deterministic 0/1/many behavior;
+- relation selectors;
+- click/long-click/input/clear/swipe/scroll/wait/assert;
+- AndroidX waitStable;
+- bounded retry/backoff;
+- root-only 0700/0600 runtime permissions;
+- driver health/permission probes;
+- safe driver reset and RECONCILE_REQUIRED for unsafe checkpoints;
+- screen-off wake + keyguard preflight;
+- direct Mac build/release deployment over Cloudflare SSH;
+- generic Android Settings acceptance.
+
+Real Settings acceptance:
+
+```text
+Light -> temporary Dark -> verified -> restored Light -> verified -> HOME
+```
+
+The two-pane Settings false-positive was fixed by validating the actual checked
+state of `dark_mode_white_check` / `dark_mode_black_check`, not by merely
+checking whether the text `深色模式` remained visible in the left search pane.
+
+Runtime acceptance reports `mac_runtime_required=false` and uses semantic
+selectors only; no absolute coordinates are used. The hard physical Mac-Off
+gate is still pending and must not be marked PASS until the Mac is actually
+powered down during the acceptance run.
+
+Next implementation gate: migrate the TikTok controller to the generic core,
+then run 20 cold-start DRY_RUN regressions with >=95% success.
+

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stanleyxyz.local/y700/evidence.schema.json",
+  "type": "object",
+  "properties": {
+    "session_id": {"type": "string"},
+    "before_screenshot": {"type": ["string","null"]},
+    "after_screenshot": {"type": ["string","null"]},
+    "tree_hash_before": {"type": ["string","null"]},
+    "tree_hash_after": {"type": ["string","null"]},
+    "latency_metrics": {
+      "type": "object",
+      "additionalProperties": {"type": ["integer","number"]}
+    }
+  },
+  "additionalProperties": true
+}

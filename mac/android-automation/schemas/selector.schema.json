@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stanleyxyz.local/y700/selector.schema.json",
+  "type": "object",
+  "minProperties": 1,
+  "properties": {
+    "resource_id": {"type": "string"},
+    "text": {"type": "string"},
+    "text_contains": {"type": "string"},
+    "content_desc": {"type": "string"},
+    "content_desc_contains": {"type": "string"},
+    "class_name": {"type": "string"},
+    "package": {"type": "string"},
+    "clickable": {"type": "boolean"},
+    "enabled": {"type": "boolean"},
+    "selected": {"type": "boolean"},
+    "checked": {"type": "boolean"},
+    "checkable": {"type": "boolean"},
+    "scrollable": {"type": "boolean"},
+    "has_descendant": {"$ref": "#"},
+    "has_child": {"$ref": "#"},
+    "has_parent": {"$ref": "#"},
+    "has_ancestor": {"$ref": "#"}
+  },
+  "additionalProperties": false
+}

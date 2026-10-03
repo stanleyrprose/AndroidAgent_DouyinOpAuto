@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stanleyxyz.local/y700/action.schema.json",
+  "type": "object",
+  "required": ["action"],
+  "properties": {
+    "action_id": {"type": "string", "maxLength": 128},
+    "action": {
+      "enum": [
+        "health","observe","screenshot","find","findAll","click","longClick",
+        "inputText","clearText","swipe","scroll","waitFor","waitStable",
+        "assert","pressBack","pressHome"
+      ]
+    },
+    "selector": {"$ref": "selector.schema.json"},
+    "precondition": {"type": "object"},
+    "expect": {"type": "object"},
+    "timeout_ms": {"type": "integer", "minimum": 0, "maximum": 60000},
+    "retry": {"type": "integer", "minimum": 0, "maximum": 5},
+    "retry_backoff_ms": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {"type": "integer", "minimum": 0, "maximum": 10000}
+    },
+    "retry_safe": {"type": "boolean"},
+    "side_effect": {
+      "enum": ["OBSERVE_ONLY","REVERSIBLE_LOCAL","IDEMPOTENT","EXTERNAL_SIDE_EFFECT","DESTRUCTIVE"]
+    },
+    "filename": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "text": {"type": "string"},
+    "clear_first": {"type": "boolean"},
+    "dismiss_ime": {"type": "boolean"},
+    "unique": {"type": "boolean"},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+    "direction": {"enum": ["UP","DOWN","LEFT","RIGHT"]},
+    "percent": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+    "steps": {"type": "integer", "minimum": 5, "maximum": 200},
+    "from_x": {"type": "number", "minimum": 0, "maximum": 1},
+    "from_y": {"type": "number", "minimum": 0, "maximum": 1},
+    "to_x": {"type": "number", "minimum": 0, "maximum": 1},
+    "to_y": {"type": "number", "minimum": 0, "maximum": 1},
+    "stable_interval_ms": {"type": "integer", "minimum": 100, "maximum": 60000},
+    "poll_interval_ms": {"type": "integer", "minimum": 50, "maximum": 60000},
+    "require_stable_screenshot": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

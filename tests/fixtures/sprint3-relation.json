@@ -1,0 +1,21 @@
+{
+  "protocol_version": 1,
+  "job_id": "sprint3-relation",
+  "actions": [
+    {
+      "action_id": "find-result-container",
+      "action": "find",
+      "selector": {
+        "class_name": "android.widget.LinearLayout",
+        "clickable": true,
+        "has_parent": {
+          "resource_id": "com.android.settings:id/list_results"
+        },
+        "has_descendant": {
+          "resource_id": "android:id/title",
+          "text": "深色模式"
+        }
+      }
+    }
+  ]
+}

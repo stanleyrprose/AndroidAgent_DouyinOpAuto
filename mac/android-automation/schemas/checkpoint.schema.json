@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stanleyxyz.local/y700/checkpoint.schema.json",
+  "type": "object",
+  "required": ["job_id", "checkpoint_id", "last_completed_action_index", "safe_to_resume", "updated_at"],
+  "properties": {
+    "job_id": {"type": "string"},
+    "session_id": {"type": ["string","null"]},
+    "checkpoint_id": {"type": "string"},
+    "last_completed_action_id": {"type": ["string","null"]},
+    "last_completed_action_index": {"type": "integer", "minimum": -1},
+    "next_action_index": {"type": ["integer","null"], "minimum": 0},
+    "safe_to_resume": {"type": "boolean"},
+    "updated_at": {"type": "string"}
+  },
+  "additionalProperties": true
+}

@@ -20,7 +20,7 @@ BRIDGE_HISTORY = ROOT / "runtime" / "job-history"
 DRIVER_COMPONENT = "com.stanley.y700automation.test/androidx.test.runner.AndroidJUnitRunner"
 DRIVER_CLASS = "com.stanley.y700automation.AutomationInstrumentedTest#runWorkflow"
 JOB_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
-SAFE_ACTIONS = {"health", "observe", "screenshot", "find", "findAll", "assert", "waitFor", "pressBack", "pressHome"}
+SAFE_ACTIONS = {"health", "observe", "screenshot", "find", "findAll", "assert", "waitFor", "waitStable", "pressBack", "pressHome"}
 RESULT_RE = re.compile(r"y700_result_b64=([^\r\n ]+)")
 HEARTBEAT_RE = re.compile(r"y700_heartbeat_b64=([^\r\n ]+)")
 

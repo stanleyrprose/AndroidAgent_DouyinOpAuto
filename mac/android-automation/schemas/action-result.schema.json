@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stanleyxyz.local/y700/action-result.schema.json",
+  "type": "object",
+  "required": ["status", "job_id", "session_id", "driver_version", "protocol_version", "actions"],
+  "properties": {
+    "status": {"enum": ["PASS", "FAILED", "BLOCKED", "TIMEOUT", "AMBIGUOUS", "SKIPPED", "CANCELLED"]},
+    "job_id": {"type": "string"},
+    "session_id": {"type": "string"},
+    "driver_version": {"type": "string"},
+    "protocol_version": {"type": "integer"},
+    "actions": {"type": "array"}
+  }
+}
