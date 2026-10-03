@@ -143,20 +143,40 @@ Implemented on Y700:
 - durable publisher state
 - ambiguous-COMMIT reconciliation
 
-## Git SOT migration — IN PROGRESS / this repository
+## Git SOT migration — PASS
+
+Canonical repository:
+
+- GitHub: `stanleyrprose/AndroidAgent_DouyinOpAuto`
+- canonical branch: `main`
+- accepted source commit: `d35482f`
+- GitHub Actions `validate`: PASS
+- live Y700 workspace: clean and aligned to `origin/main`
+- Mac canonical workspace: clean and aligned to `origin/main`
 
 Public SOT provenance:
 
-- Y700 source snapshot: `c145f41`
-- Mac production pipeline snapshot: `d0c96a0`
+- initial Y700 source snapshot: `c145f41`
+- initial Mac production pipeline snapshot: `d0c96a0`
 - root/recovery verification: 2026-10-02
+- UI automation/runtime SOT capture: `d35482f`
 
-The public branch is intentionally history-scrubbed before publication. Runtime secrets, media, UI evidence, device identifiers and binary recovery assets stay outside Git.
+The public history is intentionally scrubbed. Runtime secrets, media, UI evidence, device identifiers and binary recovery assets remain outside Git.
 
-Final migration gate:
+Closure verification on 2026-10-03:
 
-1. import Mac production/media-export source;
-2. run public-repo secret scan and minimal tests;
-3. push GitHub `main`;
-4. point live Y700 workspace at GitHub `main`;
-5. re-run health/SSH smoke checks.
+1. Mac production/media-export source imported: PASS;
+2. public-repo privacy/secret scan and minimal tests: PASS;
+3. GitHub `main` push: PASS;
+4. live Y700 workspace aligned to GitHub `main`: PASS;
+5. Y700 Python UI-runner compile smoke: PASS;
+6. Y700 health check: HEALTHY;
+7. Y700 SSH service: RUNNING;
+8. GitHub Actions validation for `d35482f`: PASS.
+
+Rollback references retained locally on Y700:
+
+- `legacy-local-c145f41`
+- `y700-live-pre-sot-4287725`
+
+From this checkpoint onward, GitHub `main` is the sole source of truth for code, scripts, non-secret configuration and public-safe project documentation. Emergency live-device fixes must be reconciled back into Git immediately after stabilization.
