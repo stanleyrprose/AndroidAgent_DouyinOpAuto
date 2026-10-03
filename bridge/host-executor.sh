@@ -33,6 +33,9 @@ ONESHOT="$Y700_BRIDGE_ONESHOT"
 [ -n "$ONESHOT" ] || ONESHOT=0
 TEST_AFTER_CLAIM_SEC="$Y700_BRIDGE_TEST_AFTER_CLAIM_SEC"
 TEST_AFTER_RESULT_SEC="$Y700_BRIDGE_TEST_AFTER_RESULT_SEC"
+TEST_MODE="$Y700_BRIDGE_TEST_MODE"
+[ -n "$TEST_MODE" ] || TEST_MODE=0
+TEST_FAILPOINT="$Y700_BRIDGE_TEST_FAILPOINT"
 
 STAGING="$JOBS/.staging"
 ACTIVE="$JOBS/active"
@@ -103,6 +106,16 @@ journal() {
   fi
   "$TOYBOX" chmod 600 "$path" 2>/dev/null || true
   "$TOYBOX" fsync "$path" 2>/dev/null || true
+}
+
+test_failpoint() {
+  point="$1"
+  dir="$2"
+  [ "$TEST_MODE" = 1 ] || return 0
+  [ "$TEST_FAILPOINT" = "$point" ] || return 0
+  [ -z "$dir" ] || journal "$dir" TEST_FAILPOINT "$point"
+  append_log "test_failpoint point=$point"
+  exit 86
 }
 
 json_string() {
@@ -291,6 +304,7 @@ finish_v2() {
     "$LAST_SUBMIT_TO_CLAIM_MS" "$LAST_CLAIM_TO_START_MS" "$LAST_EXECUTION_MS")"
   # Completion marker is published last.
   atomic_text "$dir/result.json" "$payload"
+  test_failpoint after_result_before_archive "$dir"
   if [ -n "$TEST_AFTER_RESULT_SEC" ]; then
     "$TOYBOX" sleep "$TEST_AFTER_RESULT_SEC"
   fi
@@ -621,6 +635,7 @@ execute_v2() {
   write_owner_v2 "$dir" "$sha" "$claim_at" "" "" "" ""
   write_state_v2 "$dir" CLAIMED false
   journal "$dir" CLAIM_ACQUIRED "$EXECUTOR_ID"
+  test_failpoint after_claim_before_start "$dir"
   if [ -n "$TEST_AFTER_CLAIM_SEC" ]; then
     journal "$dir" TEST_HOOK_AFTER_CLAIM "$TEST_AFTER_CLAIM_SEC"
     "$TOYBOX" sleep "$TEST_AFTER_CLAIM_SEC"
@@ -682,6 +697,7 @@ execute_v2() {
   write_owner_v2 "$dir" "$sha" "$claim_at" "$child" "$pgid" \
     "$start_ticks" "$command_started"
   write_job_heartbeat "$dir" "$child" RUNNING
+  test_failpoint after_child_start "$dir"
 
   cancel_seen=0
   timed_out=0
