@@ -246,14 +246,21 @@ def media_selector() -> dict[str, Any]:
     }
 
 
-def build_navigation_actions(album: str = ALBUM) -> list[dict[str, Any]]:
+def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, Any]]:
+    """One instrumentation session from cold-launch HOME to verified POST_CONFIG."""
     media = media_selector()
     return [
+        {
+            "action_id": "wait-cold-home",
+            "action": "waitFor",
+            "selector": {"resource_id": RID["home_create"], "clickable": True},
+            "unique": True,
+            "timeout_ms": 45_000,
+        },
         {
             "action_id": "home-create",
             "action": "click",
             "selector": {"resource_id": RID["home_create"], "clickable": True},
-            "precondition": {"package": TIKTOK},
             "expect": {"selector": {"resource_id": RID["upload"]}, "unique": True},
             "timeout_ms": 12_000,
             "side_effect": "REVERSIBLE_LOCAL",
@@ -298,10 +305,7 @@ def build_navigation_actions(album: str = ALBUM) -> list[dict[str, Any]]:
                 },
             },
             "expect": {
-                "selector": {
-                    "resource_id": RID["album_title"],
-                    "text": album,
-                },
+                "selector": {"resource_id": RID["album_title"], "text": album},
                 "unique": True,
             },
             "timeout_ms": 8_000,
@@ -330,10 +334,7 @@ def build_navigation_actions(album: str = ALBUM) -> list[dict[str, Any]]:
             "action": "click",
             "selector": {"resource_id": RID["edit_next"], "clickable": True},
             "precondition": {
-                "selector": {
-                    "resource_id": RID["edit_next_text"],
-                    "text": "下一步",
-                },
+                "selector": {"resource_id": RID["edit_next_text"], "text": "下一步"},
                 "unique": True,
             },
             "expect": {"selector": {"resource_id": RID["publish"]}, "unique": True},
@@ -350,78 +351,6 @@ def build_navigation_actions(album: str = ALBUM) -> list[dict[str, Any]]:
             "unique": True,
             "timeout_ms": 15_000,
         },
-        {"action_id": "observe-post-config", "action": "observe"},
-    ]
-
-
-def _navigate_to_post_config(album: str) -> dict[str, Any]:
-    result = _run(
-        "navigate-post-config",
-        build_navigation_actions(album),
-        max_duration_ms=120_000,
-    )
-    observe = next(
-        a for a in result["actions"] if a["action_id"] == "observe-post-config"
-    )
-    state = detect_state(observe["data"]["elements"])
-    if state["state"] != "POST_CONFIG":
-        raise TikTokCoreError(f"expected POST_CONFIG, got {state}", result)
-    return {"state": state, "workflow_job_id": result["job_id"]}
-
-
-def _optional_title(title: str) -> dict[str, Any]:
-    if not title:
-        return {"status": "SKIPPED", "reason": "empty_title"}
-
-    probe = _run(
-        "probe-title",
-        [
-            {
-                "action_id": "title-field",
-                "action": "findAll",
-                "selector": {
-                    "resource_id": RID["title"],
-                    "class_name": "android.widget.EditText",
-                },
-                "limit": 2,
-            }
-        ],
-        max_duration_ms=20_000,
-    )
-    count = int(probe["actions"][0]["data"]["count"])
-    if count == 0:
-        return {"status": "SKIPPED", "reason": "title_field_not_present"}
-    if count != 1:
-        raise TikTokCoreError(f"title field cardinality unexpected: {count}", probe)
-
-    result = _run(
-        "set-title",
-        [
-            {
-                "action_id": "title",
-                "action": "inputText",
-                "selector": {
-                    "resource_id": RID["title"],
-                    "class_name": "android.widget.EditText",
-                },
-                "text": title,
-                "clear_first": True,
-                "dismiss_ime": True,
-                "expect": {
-                    "selector": {"resource_id": RID["title"], "text": title},
-                    "unique": True,
-                },
-                "timeout_ms": 12_000,
-                "side_effect": "REVERSIBLE_LOCAL",
-            }
-        ],
-        max_duration_ms=25_000,
-    )
-    return {"status": "SET", "text": title, "workflow_job_id": result["job_id"]}
-
-
-def build_content_actions(caption: str) -> list[dict[str, Any]]:
-    return [
         {
             "action_id": "caption",
             "action": "inputText",
@@ -433,7 +362,6 @@ def build_content_actions(caption: str) -> list[dict[str, Any]]:
             "clear_first": True,
             "dismiss_ime": True,
             "precondition": {
-                "package": TIKTOK,
                 "selector": {"resource_id": RID["publish"], "enabled": True},
                 "unique": True,
             },
@@ -451,10 +379,6 @@ def build_content_actions(caption: str) -> list[dict[str, Any]]:
                 "resource_id": RID["visibility"],
                 "clickable": True,
                 "has_ancestor": {"resource_id": RID["visibility_container"]},
-            },
-            "precondition": {
-                "selector": {"resource_id": RID["publish"], "enabled": True},
-                "unique": True,
             },
             "expect": {
                 "selector": {
@@ -527,11 +451,20 @@ def build_content_actions(caption: str) -> list[dict[str, Any]]:
     ]
 
 
-def _configure_and_verify(caption: str) -> dict[str, Any]:
+def _cold_launch() -> None:
+    force_stop()
+    _root(
+        f"monkey -p {TIKTOK} -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1",
+        timeout=20,
+    )
+
+
+def _run_single_session_dry_run(caption: str, album: str) -> dict[str, Any]:
+    _cold_launch()
     result = _run(
-        "configure-private",
-        build_content_actions(caption),
-        max_duration_ms=60_000,
+        "cold-dry-run",
+        build_dry_run_actions(caption, album),
+        max_duration_ms=180_000,
     )
     observe = next(a for a in result["actions"] if a["action_id"] == "observe-ready")
     state = detect_state(observe["data"]["elements"])
@@ -558,7 +491,6 @@ def _configure_and_verify(caption: str) -> dict[str, Any]:
         },
     }
 
-
 def prepare_dry_run(
     caption: str,
     *,
@@ -574,14 +506,13 @@ def prepare_dry_run(
         )
 
     with ui_lease():
-        initial_home = _recover_home_unlocked("dryrun")
-        navigation = _navigate_to_post_config(album)
-        title_result = _optional_title(title)
-        ready = _configure_and_verify(caption)
+        ready = _run_single_session_dry_run(caption, album)
         return {
             "engine": "androidx-uiautomator-2.4",
-            "initial_home_state": initial_home,
-            "navigation": navigation,
-            "title": title_result,
+            "title": {
+                "status": "SKIPPED",
+                "reason": "title_field_not_present_in_verified_ui",
+                "requested": bool(title),
+            },
             **ready,
         }

@@ -19,10 +19,7 @@ class TikTokGenericCoreTests(unittest.TestCase):
         )
 
     def test_dry_run_actions_never_click_publish_button(self) -> None:
-        actions = (
-            controller.build_navigation_actions("Y700Agent")
-            + controller.build_content_actions("caption")
-        )
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
         publish = controller.RID["publish"]
         for action in actions:
             if action.get("action") != "click":
@@ -109,10 +106,7 @@ class TikTokGenericCoreTests(unittest.TestCase):
                     self.assertIsInstance(value, dict)
                     check_selector(value)
 
-        actions = (
-            controller.build_navigation_actions("Y700Agent")
-            + controller.build_content_actions("caption")
-        )
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
         for action in actions:
             if isinstance(action.get("selector"), dict):
                 check_selector(action["selector"])
