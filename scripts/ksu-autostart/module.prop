@@ -1,0 +1,6 @@
+id=y700_autostart
+name=Y700 Agent Autostart
+version=0.1.0
+versionCode=1
+author=Stanley
+description=Start the Y700 filesystem-first agent runtime after Android boot.

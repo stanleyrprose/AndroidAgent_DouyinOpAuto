@@ -1,0 +1,53 @@
+# Runtime and generated state
+runtime/
+jobs/
+media/
+exports/
+source/
+backups/
+firmware/
+downloads/
+*.log
+*.pid
+*.tmp
+
+# Python / Node local state
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+authorized_keys
+id_rsa*
+id_ed25519*
+*credentials*.json
+*secret*
+*token*
+.cloudflared/
+
+# Large / device-specific binary artifacts
+*.img
+*.bin
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.mp4
+*.mov
+*.mkv
+*.wav
+*.mp3
+*.apk
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
