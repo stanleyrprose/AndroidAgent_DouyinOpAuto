@@ -17,6 +17,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.uiautomator.By;
 import androidx.test.uiautomator.BySelector;
+import androidx.test.uiautomator.Configurator;
 import androidx.test.uiautomator.Direction;
 import androidx.test.uiautomator.StableResult;
 import androidx.test.uiautomator.UiDevice;
@@ -45,6 +46,8 @@ public class AutomationInstrumentedTest {
     private static final int PROTOCOL_VERSION = 1;
     private static final int MAX_ACTIONS = 50;
     private static final long MAX_DURATION_MS = 600_000L;
+    private static final long WAIT_FOR_IDLE_TIMEOUT_MS = 500L;
+    private static final long WAIT_FOR_SELECTOR_TIMEOUT_MS = 0L;
     private static final int MAX_TREE_NODES = 5000;
 
     private Instrumentation instrumentation;
@@ -58,6 +61,15 @@ public class AutomationInstrumentedTest {
         instrumentation = InstrumentationRegistry.getInstrumentation();
         context = instrumentation.getTargetContext();
         device = UiDevice.getInstance(instrumentation);
+
+        // TikTok and other animated/video surfaces may never become globally
+        // "idle". UiObject2 refreshes call UiDevice.waitForIdle() implicitly,
+        // so the library default can dominate action latency independently of
+        // the explicit action timeout. Keep the implicit wait short and make
+        // all meaningful waiting explicit via waitFor/waitStable/postconditions.
+        Configurator.getInstance()
+                .setWaitForIdleTimeout(WAIT_FOR_IDLE_TIMEOUT_MS)
+                .setWaitForSelectorTimeout(WAIT_FOR_SELECTOR_TIMEOUT_MS);
 
         final long workflowStart = SystemClock.elapsedRealtime();
         JSONObject result = new JSONObject();
