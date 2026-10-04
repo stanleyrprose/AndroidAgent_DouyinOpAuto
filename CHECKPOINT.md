@@ -341,6 +341,42 @@ Final public-safe evidence:
 Sprint 6B remains NOT ACTIVATED / NOT REQUIRED unless future measurements show
 a real filesystem polling latency/CPU/wakeup problem.
 
+## Business Pipeline Production Closure — A/B/C
+
+Status on 2026-10-04:
+
+- A / Y700 production SOT: **PASS**.
+  - old dirty workspace preserved as `/opt/y700/workspaces/y700-agent-legacy-69db187-20261004`;
+  - clean release `/opt/y700/workspaces/y700-agent-release-f97bd15` verified against GitHub main;
+  - stable production path `/opt/y700/workspaces/y700-agent` now resolves to the clean release;
+  - Android host executor restarted from the stable path;
+  - Bridge health/root round-trip PASS, no live orphan/block.
+- B / Mac production plane SOT: **PASS**.
+  - canonical `mac/production-pipeline` bootstrapped with local `.venv`, faster-whisper and `render_text`;
+  - `scripts/pipeline.sh` loads Git-ignored `runtime/env.local`;
+  - Git SOT deploys media runtime to `~/Library/Application Support/Y700Media` so launchd does not stall on macOS Documents/TCC protection;
+  - `mac/media-export/install-launchd.sh` installs/refreshes the generated runtime, server and Cloudflare LaunchAgents;
+  - launchd media server serves port 8790 from the deployed runtime export root;
+  - canonical Cloudflare connector for `y700media.stanleyxyz.com` registered 4 QUIC connections;
+  - old `y700-linux` media server/tunnel stopped but files retained for rollback;
+  - real Mac -> Cloudflare -> Y700 handoff smoke reached READY twice, including after launchd migration, with SHA-256 PASS and Burmese text preserved.
+- C / Generic TikTok COMMIT convergence: **CODE + PREFLIGHT PASS; REAL PUBLISH GATED**.
+  - DRY_RUN remains unchanged and never clicks Publish;
+  - COMMIT routes through Generic Android Core, not legacy `go_to_post_config` / `tap_publish`;
+  - COMMIT requires both manifest `publish_mode=COMMIT` and explicit `--commit`;
+  - same generic preparation path reaches verified PRIVATE POST_CONFIG;
+  - separate commit-preflight reasserts exact caption, PRIVATE, enabled Publish and captures evidence;
+  - durable `COMMITTING` is written before the single `EXTERNAL_IRREVERSIBLE` Publish click;
+  - any error after entering COMMITTING becomes `AMBIGUOUS_COMMIT_NEEDS_RECONCILE`, `retry_allowed=false`;
+  - profile/private verification uses Generic UI evidence;
+  - real Y700 preflight-only acceptance PASS with `publish_action_executed=false`.
+
+Remaining hard gate:
+
+- one real PRIVATE COMMIT for a specifically approved current content item;
+- exact-caption + PRIVATE profile verification after that publish;
+- if the result is ambiguous, run durable reconcile; never blindly retry.
+
 ## CodexPro full-filesystem access — PASS
 
 Validated on 2026-10-04.
