@@ -7,14 +7,15 @@ Public Git-backed source of truth (SOT) for a Lenovo Legion Y700 / TB323FU Andro
 - **Y700 runtime**: Debian chroot, CodexPro development plane, filesystem-first root bridge, health guards, SSH service, and TikTok state-driven publisher.
 - **Mac production plane**: Douyin authenticated ingest, media analysis, Burmese localization/rendering, and capability-based artifact export.
 - **Root/recovery documentation**: public-safe record of the verified KernelSU/EDL implementation and minimal recovery rules.
-- **Operations documentation**: architecture, SSH, SOT policy, and end-to-end workflow.
+- **Operations documentation**: architecture, SSH, SOT policy, Telegram control plane, and end-to-end workflow.
 
 ## Architecture
 
 ```text
-Cloud ChatGPT
-  ├─> CodexPro-Y700 -> Debian chroot -> filesystem jobs -> Android root executor -> TikTok
-  └─> Mac production plane -> Douyin ingest -> Myanmar localization/render -> media handoff -> Y700
+Cloud ChatGPT / Telegram
+  └─> douyin-tiktok-publish orchestration
+       ├─> Mac production plane -> Douyin ingest -> Myanmar localization/render -> media handoff
+       └─> Y700 -> filesystem jobs -> Android root executor -> TikTok
 ```
 
 The Mac is content-production and recovery infrastructure. The Y700 is the mobile development/publishing node.
@@ -33,6 +34,7 @@ As of 2026-10-04:
 - TikTok PUBLIC DRY_RUN/COMMIT path: CODE + PREFLIGHT PASS; real PUBLIC COMMIT remains approval-gated
 - real Douyin -> Myanmar -> Y700 -> TikTok E2E: PASS
 - PRD v0.4 production pipeline: IMPLEMENTED
+- dedicated Hermes `y700automation` Telegram control plane: CODE + LOCAL PROFILE PREP PASS; live Bot E2E pending dedicated token/allowlist
 
 See `CHECKPOINT.md` for the public-safe acceptance snapshot.
 

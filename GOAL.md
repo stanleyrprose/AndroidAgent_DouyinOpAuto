@@ -5,9 +5,9 @@ Make the Lenovo Y700 an independent Cloud ChatGPT development and Android automa
 ## Runtime architecture
 
 ```text
-Cloud ChatGPT
--> CodexPro-Y700
--> Debian 13 chroot
+Cloud ChatGPT or dedicated Telegram bot
+-> douyin-tiktok-publish orchestration
+-> Mac production plane and/or CodexPro-Y700
 -> filesystem-first durable jobs
 -> Android host root executor
 -> Android / TikTok
@@ -23,9 +23,10 @@ Douyin URL
 -> capability-based handoff
 -> Y700 pull + checksum
 -> TikTok DRY_RUN
--> explicit approval
--> COMMIT
+-> standing one-URL authorization or current-turn explicit approval
+-> exactly one COMMIT attempt
 -> profile verification/reconciliation
+-> Telegram status receipt when Telegram is the ingress
 ```
 
 ## Current product constraints
@@ -35,3 +36,4 @@ Douyin URL
 3. Keep secrets and runtime artifacts outside public Git.
 4. Use GitHub `main` as code/config/docs SOT.
 5. Do not auto-retry ambiguous publication commits.
+6. Keep Telegram as a thin, allowlisted control/notification plane; do not expose arbitrary shell/root operations through the bot.
