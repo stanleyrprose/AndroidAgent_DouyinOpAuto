@@ -69,7 +69,7 @@ def main() -> int:
                 "expect": {
                     "selector": {
                         "resource_id": "android:id/search_src_text",
-                        "class_name": "android.widget.EditText",
+                        "class_name": "android.widget.AutoCompleteTextView",
                     },
                     "unique": True,
                 },
@@ -80,7 +80,7 @@ def main() -> int:
                 "action": "inputText",
                 "selector": {
                     "resource_id": "android:id/search_src_text",
-                    "class_name": "android.widget.EditText",
+                    "class_name": "android.widget.AutoCompleteTextView",
                 },
                 "text": "深色模式",
                 "clear_first": True,
