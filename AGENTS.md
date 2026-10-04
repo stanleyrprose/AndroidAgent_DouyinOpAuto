@@ -10,6 +10,8 @@ This repository is the canonical Git SOT for the Y700 Android automation node pl
 
 - Target: Lenovo TB323FU / Android.
 - Full Android privilege is exposed through the filesystem-first host executor.
+- Cloud ChatGPT via CodexPro must retain full Debian-chroot filesystem scope (`--allow-root /`) rather than being limited to the project workspace.
+- Android host filesystem inspection/administration is available from CodexPro full-bash through `/proc/1/root/...`; this does not authorize routine mutation of critical partitions or secret material.
 - `/opt/y700/jobs` is durable canonical job state at runtime; runtime state itself is never committed.
 - Linux/chroot, CodexPro, bridge and publisher state live under `/data/local` on Android and `/opt/y700` inside chroot.
 - Do not modify boot, init_boot, vendor_boot, vbmeta, system, vendor, product, GPT or other critical partitions as part of normal application/runtime work.

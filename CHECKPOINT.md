@@ -268,3 +268,13 @@ implementation before production validation.
 Sprint 6B remains closed until a separate measured-need experiment defines and
 meets explicit latency/CPU/wakeup thresholds.
 
+## CodexPro full-filesystem access — PASS
+
+Validated on 2026-10-04.
+
+- CodexPro launch policy includes `--allow-root /` in addition to the canonical project roots.
+- Cloud ChatGPT successfully opened `/etc` as a CodexPro workspace and read a non-project file.
+- The same Y700 CodexPro full-bash successfully listed the Android host `/data/adb` path through `/proc/1/root/data/adb`.
+- The temporary bind-mount experiment used during validation was unmounted; no persistent recursive host-root bind was introduced.
+- No boot, init_boot, vendor_boot, vbmeta, system, vendor, product, GPT or other critical partition was modified.
+
