@@ -378,6 +378,38 @@ Remaining hard gate:
 - exact-caption + PRIVATE profile verification after that publish;
 - if the result is ambiguous, run durable reconcile; never blindly retry.
 
+## TikTok PUBLIC publish flow migration — PREFLIGHT ACCEPTED
+
+Production publish visibility was changed from PRIVATE to **PUBLIC** on
+2026-10-04. Feature baseline:
+
+`1a0499063d1f6059c4099b1a57b53eb2840f00ca`
+
+Accepted behavior:
+
+- Mac localization/export defaults to `PUBLIC`;
+- Y700 manifest/publisher default visibility is `PUBLIC`;
+- Generic TikTok DRY_RUN selects `所有人`, verifies the PUBLIC summary and never clicks Publish;
+- real Y700 PUBLIC DRY_RUN: PASS;
+- final state: `READY_TO_COMMIT`, manifest visibility `PUBLIC`, `published=false`, evidence present;
+- Generic COMMIT requires both `publish_mode=COMMIT` and explicit `--commit`;
+- real Y700 approval-gate injection without `--commit`: PASS;
+- approval-gate result: exit non-zero, zero new TikTok UI jobs, TikTok not foreground, no Publish action;
+- durable `COMMITTING` remains before the single `EXTERNAL_IRREVERSIBLE` Publish click;
+- after COMMITTING, verification uncertainty remains `AMBIGUOUS_COMMIT_NEEDS_RECONCILE` with `retry_allowed=false`;
+- PUBLIC reconciliation begins from the selected Profile `视频` tab, scans current semantic `ev2` tiles, and requires exact caption plus absence of a restricted-visibility label;
+- historical PRIVATE reconciliation is retained only for historical PRIVATE published jobs.
+
+Public-safe acceptance evidence:
+
+`docs/TIKTOK-PUBLIC-PUBLISH-MIGRATION-ACCEPTANCE-2026-10-04.md`
+
+Remaining hard gate:
+
+- one real PUBLIC COMMIT for a specifically approved current content item;
+- exact-caption PUBLIC Profile verification after that publish;
+- ambiguous result must reconcile from durable state/Profile evidence and must never be blindly retried.
+
 ## CodexPro full-filesystem access — PASS
 
 Validated on 2026-10-04.
