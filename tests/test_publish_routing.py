@@ -24,7 +24,7 @@ class PublishRoutingTests(unittest.TestCase):
             "job_id": "job-1",
             "publish_mode": mode,
             "caption_file": "caption.txt",
-            "visibility": "PRIVATE",
+            "visibility": "PUBLIC",
         }
         return [
             mock.patch.object(publish_job, "READY", self.ready),
@@ -42,7 +42,7 @@ class PublishRoutingTests(unittest.TestCase):
             "engine": "androidx-uiautomator-2.4",
             "title": {"status": "SKIPPED"},
             "caption_verified": True,
-            "visibility": "PRIVATE",
+            "visibility": "PUBLIC",
             "ui_state": {"state": "POST_CONFIG"},
             "workflow_job_id": "ui-1",
             "evidence": {"source_path": "/unused/in-test"},
@@ -74,7 +74,7 @@ class PublishRoutingTests(unittest.TestCase):
         generic.assert_called_once_with(
             "caption",
             title="",
-            visibility="PRIVATE",
+            visibility="PUBLIC",
             album="Y700Agent",
         )
         force_stop.assert_called_once()
@@ -91,7 +91,7 @@ class PublishRoutingTests(unittest.TestCase):
             patches[5],
             patches[6],
             patches[7],
-            mock.patch.object(publish_job.generic_tiktok, "commit_private") as generic_commit,
+            mock.patch.object(publish_job.generic_tiktok, "commit_public") as generic_commit,
             mock.patch.object(publish_job.controller, "go_to_post_config") as legacy_nav,
             mock.patch.object(publish_job.controller, "restore_input_method"),
             mock.patch.object(sys, "argv", ["publish_job.py", "job-1"]),
@@ -107,7 +107,7 @@ class PublishRoutingTests(unittest.TestCase):
             "engine": "androidx-uiautomator-2.4",
             "title": {"status": "SKIPPED"},
             "caption_verified": True,
-            "visibility": "PRIVATE",
+            "visibility": "PUBLIC",
             "ui_state": {"state": "POST_CONFIG"},
             "workflow_job_id": "ui-ready",
             "commit_preflight_workflow_job_id": "ui-precommit",
@@ -132,7 +132,7 @@ class PublishRoutingTests(unittest.TestCase):
             patches[7] as updates,
             mock.patch.object(
                 publish_job.generic_tiktok,
-                "commit_private",
+                "commit_public",
                 side_effect=fake_commit,
             ) as generic_commit,
             mock.patch.object(
@@ -140,8 +140,8 @@ class PublishRoutingTests(unittest.TestCase):
             ),
             mock.patch.object(
                 publish_job,
-                "verify_private_post",
-                return_value={"verified": True, "method": "profile_private_exact_caption"},
+                "verify_public_post",
+                return_value={"verified": True, "method": "profile_public_exact_caption"},
             ),
             mock.patch.object(publish_job.controller, "go_to_post_config") as legacy_nav,
             mock.patch.object(publish_job.controller, "tap_publish") as legacy_publish,
@@ -163,7 +163,7 @@ class PublishRoutingTests(unittest.TestCase):
             "engine": "androidx-uiautomator-2.4",
             "title": {"status": "SKIPPED"},
             "caption_verified": True,
-            "visibility": "PRIVATE",
+            "visibility": "PUBLIC",
             "ui_state": {"state": "POST_CONFIG"},
             "workflow_job_id": "ui-ready",
             "commit_preflight_workflow_job_id": "ui-precommit",
@@ -188,7 +188,7 @@ class PublishRoutingTests(unittest.TestCase):
             patches[7] as updates,
             mock.patch.object(
                 publish_job.generic_tiktok,
-                "commit_private",
+                "commit_public",
                 side_effect=fake_commit,
             ),
             mock.patch.object(
@@ -196,7 +196,7 @@ class PublishRoutingTests(unittest.TestCase):
             ),
             mock.patch.object(
                 publish_job,
-                "verify_private_post",
+                "verify_public_post",
                 side_effect=publish_job.PublishError("profile temporarily unavailable"),
             ),
             mock.patch.object(publish_job.controller, "restore_input_method"),

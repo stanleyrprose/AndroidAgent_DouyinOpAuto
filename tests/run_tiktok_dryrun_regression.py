@@ -2,7 +2,7 @@
 """Real-Y700 TikTok cold-start DRY_RUN regression gate.
 
 Stages the selected READY media once, then repeats only the UI/controller path:
-force-stop -> cold launch -> gallery -> media -> caption -> PRIVATE ->
+force-stop -> cold launch -> gallery -> media -> caption -> PUBLIC ->
 publish button reachable -> evidence. The generic controller exposes no COMMIT.
 """
 from __future__ import annotations
@@ -136,10 +136,10 @@ def main() -> int:
     caption = read_text(job / manifest["caption_file"])
     title = str(metadata.get("title", manifest.get("title", ""))).strip()
     visibility = str(
-        metadata.get("visibility", manifest.get("visibility", "PRIVATE"))
+        metadata.get("visibility", manifest.get("visibility", "PUBLIC"))
     ).strip().upper()
-    if visibility != "PRIVATE":
-        raise SystemExit("regression gate requires PRIVATE visibility")
+    if visibility != "PUBLIC":
+        raise SystemExit("regression gate requires PUBLIC visibility")
 
     existing = read_records(args.output)
     existing_indexes = {
@@ -167,7 +167,7 @@ def main() -> int:
             "commit": head,
             "job_id": args.job_id,
             "publish_mode": "DRY_RUN",
-            "visibility": "PRIVATE",
+            "visibility": "PUBLIC",
             "started_at_epoch": time.time(),
         }
         try:

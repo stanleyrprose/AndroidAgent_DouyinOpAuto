@@ -29,6 +29,5 @@ Y700:
 - Never use unauthenticated direct Douyin scraping as production fallback.
 - Never turn a failed/ambiguous TikTok COMMIT into an automatic retry.
 - Same aweme_id must deduplicate by default.
-- PUBLIC publish is never the default.
-- v0.4 default visibility is PRIVATE.
+- Production default visibility is PUBLIC. A different visibility requires an explicit user request.
 - Runtime jobs and downloaded media do not enter Git.

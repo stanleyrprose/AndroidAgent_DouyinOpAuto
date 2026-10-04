@@ -54,14 +54,14 @@ Cloud GPT writes evidence-grounded Burmese localization:
   "source_summary": "...",
   "title_my": "...",
   "caption_my": "...",
-  "visibility": "PRIVATE",
+  "visibility": "PUBLIC",
   "cues": [
     {"start": 0.2, "end": 5.1, "text_my": "..."}
   ]
 }
 ```
 
-Default visibility is PRIVATE.
+Default visibility is PUBLIC.
 
 ## 4. Render + export on Mac
 
@@ -132,7 +132,7 @@ On approval, record Mac state:
 Before COMMIT:
 
 - confirm job id;
-- confirm PRIVATE unless the user explicitly requested otherwise;
+- confirm PUBLIC unless the user explicitly requested another visibility;
 - confirm source_aweme_id is not already published;
 - change manifest `publish_mode` from `DRY_RUN` to `COMMIT` atomically.
 

@@ -33,7 +33,7 @@ class TikTokGenericCoreTests(unittest.TestCase):
     def test_visibility_selection_separates_sheet_close_from_summary(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
         by_id = {a["action_id"]: a for a in actions}
-        choose = by_id["choose-private"]
+        choose = by_id["choose-public"]
         self.assertEqual(
             choose["expect"]["absent_selector"],
             {
@@ -41,20 +41,20 @@ class TikTokGenericCoreTests(unittest.TestCase):
                 "text": "谁可以看",
             },
         )
-        wait = by_id["wait-private-summary"]
+        wait = by_id["wait-public-summary"]
         self.assertEqual(wait["action"], "waitFor")
         self.assertEqual(wait["timeout_ms"], 15_000)
         self.assertEqual(
             wait["selector"]["content_desc_contains"],
-            "自己",
+            "所有人",
         )
 
     def test_commit_api_is_explicit_but_not_legacy_named(self) -> None:
         self.assertFalse(hasattr(controller, "tap_publish"))
         self.assertFalse(hasattr(controller, "publish"))
-        self.assertTrue(callable(controller.commit_private))
+        self.assertTrue(callable(controller.commit_public))
         with self.assertRaisesRegex(controller.TikTokCoreError, "before_irreversible"):
-            controller.commit_private("caption")
+            controller.commit_public("caption")
 
     def test_commit_actions_have_exactly_one_irreversible_publish_click(self) -> None:
         actions = controller.build_commit_actions("caption")
@@ -90,6 +90,16 @@ class TikTokGenericCoreTests(unittest.TestCase):
             )
         )
 
+    def test_public_post_match_requires_exact_caption_and_no_restricted_label(self) -> None:
+        caption = "Y700 public test"
+        public = [{"resource_id": controller.RID["post_caption"], "text": caption}]
+        self.assertTrue(controller._public_post_matches(public, caption))
+        self.assertFalse(controller._public_post_matches(public, "other"))
+        restricted = public + [
+            {"resource_id": controller.RID["private_label"], "text": "私密"}
+        ]
+        self.assertFalse(controller._public_post_matches(restricted, caption))
+
     def test_private_tile_bounds_are_filtered_and_sorted(self) -> None:
         elements = [
             {
@@ -114,13 +124,13 @@ class TikTokGenericCoreTests(unittest.TestCase):
             },
         ]
         self.assertEqual(
-            controller._private_tile_bounds(elements),
+            controller._video_tile_bounds(elements),
             [[0, 1030, 633, 1874], [636, 1030, 1268, 1874]],
         )
 
-    def test_public_dry_run_fails_closed_before_runtime(self) -> None:
-        with self.assertRaisesRegex(controller.TikTokCoreError, "PRIVATE required"):
-            controller.prepare_dry_run("caption", visibility="PUBLIC")
+    def test_private_dry_run_fails_closed_before_runtime(self) -> None:
+        with self.assertRaisesRegex(controller.TikTokCoreError, "PUBLIC required"):
+            controller.prepare_dry_run("caption", visibility="PRIVATE")
 
     def test_state_detector_prioritizes_post_config_over_home(self) -> None:
         elements = [

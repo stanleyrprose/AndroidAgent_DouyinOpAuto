@@ -25,7 +25,7 @@ def main():
     ap.add_argument("--source",default="douyin")
     ap.add_argument("--language",default="my")
     ap.add_argument("--publish-mode",choices=["DRY_RUN","COMMIT"],default="DRY_RUN")
-    ap.add_argument("--visibility",choices=["PRIVATE","PUBLIC","FRIENDS"],default="PRIVATE")
+    ap.add_argument("--visibility",choices=["PRIVATE","PUBLIC","FRIENDS"],default="PUBLIC")
     ap.add_argument("--ttl-seconds",type=int,default=3600)
     ap.add_argument("--root",default="exports")
     ap.add_argument("--base-url",default=os.environ.get("Y700_MEDIA_BASE_URL"))

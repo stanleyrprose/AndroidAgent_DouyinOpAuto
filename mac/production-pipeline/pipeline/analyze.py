@@ -120,7 +120,7 @@ def analyze(video: Path, analysis_dir: Path) -> dict:
             "content_type": "speech|visual_text|mixed|visual_only",
             "title_my": "string",
             "caption_my": "string",
-            "visibility": "PRIVATE",
+            "visibility": "PUBLIC",
             "cues": [{"start": 0.0, "end": duration, "text_my": "string"}],
         },
     })

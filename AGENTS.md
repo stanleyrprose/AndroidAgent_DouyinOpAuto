@@ -31,7 +31,7 @@ This repository is the canonical Git SOT for the Y700 Android automation node pl
 - TikTok DRY_RUN must stop before the final publish action.
 - COMMIT requires explicit user approval for the current content.
 - A failed or ambiguous COMMIT is reconciled from durable state/profile evidence before any retry.
-- PRIVATE is the default visibility unless the user explicitly requests otherwise.
+- PUBLIC is the default visibility for the production publish workflow. A different visibility requires an explicit user request.
 
 ## Git SOT rule
 

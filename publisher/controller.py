@@ -364,7 +364,7 @@ def _visibility_desc(xml_path):
             return desc
     return ""
 
-def set_visibility(mode="PRIVATE"):
+def set_visibility(mode="PUBLIC"):
     labels={
         "PUBLIC":"所有人",
         "FRIENDS":"好友",

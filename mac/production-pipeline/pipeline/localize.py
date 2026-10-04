@@ -15,7 +15,7 @@ def validate(data: dict, duration: float) -> dict:
     caption = str(data.get("caption_my", "")).strip()
     if not caption:
         raise ValueError("caption_my is required")
-    vis = str(data.get("visibility", "PRIVATE")).upper()
+    vis = str(data.get("visibility", "PUBLIC")).upper()
     if vis not in {"PRIVATE", "FRIENDS", "PUBLIC"}:
         raise ValueError(f"invalid visibility: {vis}")
     cues = data.get("cues") or []

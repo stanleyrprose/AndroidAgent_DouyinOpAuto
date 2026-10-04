@@ -41,7 +41,7 @@ def validate_manifest(m):
     if m["publish_mode"] not in MODES:
         raise ContractError(f"publish_mode must be one of {sorted(MODES)}")
 
-    visibility=m.get("visibility","PRIVATE")
+    visibility=m.get("visibility","PUBLIC")
     if visibility not in VISIBILITY:
         raise ContractError(f"visibility must be one of {sorted(VISIBILITY)}")
 

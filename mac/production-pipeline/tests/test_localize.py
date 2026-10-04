@@ -9,10 +9,10 @@ class LocalizeTests(unittest.TestCase):
             "content_type": "visual_text",
             "title_my": "ခေါင်းစဉ်",
             "caption_my": "စာတန်း",
-            "visibility": "PRIVATE",
+            "visibility": "PUBLIC",
             "cues": [{"start": 0.2, "end": 9.5, "text_my": "စာ"}],
         }, 10.0)
-        self.assertEqual(d["visibility"], "PRIVATE")
+        self.assertEqual(d["visibility"], "PUBLIC")
         self.assertEqual(len(d["cues"]), 1)
 
     def test_bad_range(self):

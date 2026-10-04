@@ -210,7 +210,27 @@ def commit_publish(job,job_id,timeout=75):
     after=capture_evidence(job,"after-timeout")
     raise PublishError(f"publish did not confirm within {timeout}s; last={last}; evidence={after}")
 
+def verify_public_post(job,caption,timeout=60):
+    try:
+        verification=generic_tiktok.verify_public_post(
+            caption,
+            timeout_sec=timeout,
+        )
+    except generic_tiktok.TikTokCoreError as exc:
+        raise PublishError(f"profile verification failed: {exc}") from exc
+    stored=store_generic_evidence(
+        job,
+        verification,
+        filename="profile-public-verified.png",
+    )
+    return {
+        **verification,
+        "evidence":stored,
+    }
+
+
 def verify_private_post(job,caption,timeout=60):
+    """Historical PRIVATE reconciliation path retained for already-published jobs."""
     try:
         verification=generic_tiktok.verify_private_post(
             caption,
@@ -241,7 +261,7 @@ def main():
         raise SystemExit("job_id mismatch")
     metadata=load_metadata(job,manifest)
     mode=manifest["publish_mode"]
-    visibility=str(metadata.get("visibility",manifest.get("visibility","PRIVATE"))).upper()
+    visibility=str(metadata.get("visibility",manifest.get("visibility","PUBLIC"))).upper()
     title=str(metadata.get("title",manifest.get("title",""))).strip()
     caption=read_text(job/manifest["caption_file"])
 
@@ -301,8 +321,8 @@ def main():
         if not args.commit:
             raise PublishError("manifest requests COMMIT but --commit was not supplied")
 
-        if visibility!="PRIVATE":
-            raise PublishError("generic COMMIT currently requires PRIVATE visibility")
+        if visibility!="PUBLIC":
+            raise PublishError("generic COMMIT currently requires PUBLIC visibility")
 
         update("NAVIGATING",args.job_id,ui_engine="androidx-uiautomator-2.4")
 
@@ -311,13 +331,13 @@ def main():
             update("READY_TO_COMMIT",args.job_id,
                    ui_engine="androidx-uiautomator-2.4",
                    caption_verified=True,
-                   visibility="PRIVATE")
+                   visibility="PUBLIC")
             update("COMMITTING",args.job_id,
                    ui_engine="androidx-uiautomator-2.4",
-                   visibility="PRIVATE")
+                   visibility="PUBLIC")
             commit_entered=True
 
-        generic_result=generic_tiktok.commit_private(
+        generic_result=generic_tiktok.commit_public(
             caption,
             title=title,
             visibility=visibility,
@@ -335,7 +355,7 @@ def main():
             "evidence":evidence,
         }
 
-        verification=verify_private_post(job,caption)
+        verification=verify_public_post(job,caption)
         controller.restore_input_method()
 
         PUBLISHED.mkdir(parents=True,exist_ok=True)

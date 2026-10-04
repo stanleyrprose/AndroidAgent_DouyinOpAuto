@@ -396,11 +396,11 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
             "side_effect": "REVERSIBLE_LOCAL",
         },
         {
-            "action_id": "choose-private",
+            "action_id": "choose-public",
             "action": "click",
             "selector": {
                 "resource_id": RID["visibility"],
-                "content_desc": "仅自己",
+                "content_desc": "所有人",
                 "clickable": True,
                 "checkable": True,
             },
@@ -421,11 +421,11 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
             "side_effect": "IDEMPOTENT",
         },
         {
-            "action_id": "wait-private-summary",
+            "action_id": "wait-public-summary",
             "action": "waitFor",
             "selector": {
                 "resource_id": RID["visibility"],
-                "content_desc_contains": "自己",
+                "content_desc_contains": "所有人",
                 "clickable": True,
                 "has_ancestor": {"resource_id": RID["visibility_container"]},
             },
@@ -438,11 +438,11 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
             "selector": {"resource_id": RID["caption"], "text": caption},
         },
         {
-            "action_id": "assert-private",
+            "action_id": "assert-public",
             "action": "assert",
             "selector": {
                 "resource_id": RID["visibility"],
-                "content_desc_contains": "自己",
+                "content_desc_contains": "所有人",
                 "clickable": True,
                 "has_ancestor": {"resource_id": RID["visibility_container"]},
             },
@@ -460,7 +460,7 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
         {
             "action_id": "ready-evidence",
             "action": "screenshot",
-            "filename": "private-dry-run-ready.png",
+            "filename": "public-dry-run-ready.png",
         },
     ]
 
@@ -497,7 +497,7 @@ def _run_single_session_dry_run(caption: str, album: str) -> dict[str, Any]:
         "workflow_job_id": result["job_id"],
         "ui_state": state,
         "caption_verified": True,
-        "visibility": "PRIVATE",
+        "visibility": "PUBLIC",
         "evidence": {
             "relative_path": evidence_path,
             "source_path": str(source),
@@ -509,14 +509,14 @@ def prepare_dry_run(
     caption: str,
     *,
     title: str = "",
-    visibility: str = "PRIVATE",
+    visibility: str = "PUBLIC",
     album: str = ALBUM,
 ) -> dict[str, Any]:
     if not caption:
         raise TikTokCoreError("caption must be non-empty")
-    if visibility.upper() != "PRIVATE":
+    if visibility.upper() != "PUBLIC":
         raise TikTokCoreError(
-            f"generic DRY_RUN fails closed for visibility={visibility}; PRIVATE required"
+            f"generic DRY_RUN fails closed for visibility={visibility}; PUBLIC required"
         )
 
     with ui_lease():
@@ -541,11 +541,11 @@ def build_commit_actions(caption: str) -> list[dict[str, Any]]:
             "selector": {"resource_id": RID["caption"], "text": caption},
         },
         {
-            "action_id": "commit-assert-private",
+            "action_id": "commit-assert-public",
             "action": "assert",
             "selector": {
                 "resource_id": RID["visibility"],
-                "content_desc_contains": "自己",
+                "content_desc_contains": "所有人",
                 "clickable": True,
                 "has_ancestor": {"resource_id": RID["visibility_container"]},
             },
@@ -562,7 +562,7 @@ def build_commit_actions(caption: str) -> list[dict[str, Any]]:
         {
             "action_id": "commit-before-evidence",
             "action": "screenshot",
-            "filename": "private-before-commit.png",
+            "filename": "public-before-commit.png",
         },
         {
             "action_id": "commit-publish",
@@ -578,20 +578,20 @@ def build_commit_actions(caption: str) -> list[dict[str, Any]]:
     ]
 
 
-def commit_private(
+def commit_public(
     caption: str,
     *,
     title: str = "",
-    visibility: str = "PRIVATE",
+    visibility: str = "PUBLIC",
     album: str = ALBUM,
     before_irreversible: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Prepare generically, persist COMMITTING, then dispatch Publish exactly once."""
     if not caption:
         raise TikTokCoreError("caption must be non-empty")
-    if visibility.upper() != "PRIVATE":
+    if visibility.upper() != "PUBLIC":
         raise TikTokCoreError(
-            f"generic COMMIT fails closed for visibility={visibility}; PRIVATE required"
+            f"generic COMMIT fails closed for visibility={visibility}; PUBLIC required"
         )
     if before_irreversible is None:
         raise TikTokCoreError("before_irreversible callback is required for COMMIT")
@@ -624,6 +624,146 @@ def commit_private(
         }
 
 
+
+def _public_tab_selector(*, selected: bool | None = None) -> dict[str, Any]:
+    selector: dict[str, Any] = {
+        "content_desc": "视频",
+        "clickable": True,
+    }
+    if selected is not None:
+        selector["selected"] = selected
+    return selector
+
+
+def _public_post_matches(elements: list[dict[str, Any]], caption: str) -> bool:
+    exact_caption = any(
+        element.get("resource_id") == RID["post_caption"]
+        and (element.get("text") or "").strip() == caption
+        for element in elements
+    )
+    restricted_label = any(
+        element.get("resource_id") == RID["private_label"]
+        and (element.get("text") or "").strip()
+        for element in elements
+    )
+    return exact_caption and not restricted_label
+
+
+def _open_public_grid_unlocked(prefix: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    _recover_home_unlocked(f"{prefix}-recover")
+    result = _run(
+        f"{prefix}-open-grid",
+        [
+            {
+                "action_id": "wait-profile",
+                "action": "waitFor",
+                "selector": {"resource_id": RID["profile"], "clickable": True},
+                "unique": True,
+                "timeout_ms": 15_000,
+            },
+            {
+                "action_id": "open-profile",
+                "action": "click",
+                "selector": {"resource_id": RID["profile"], "clickable": True},
+                "side_effect": "REVERSIBLE_LOCAL",
+            },
+            {
+                "action_id": "wait-public-tab",
+                "action": "waitFor",
+                "selector": _public_tab_selector(selected=True),
+                "unique": True,
+                "timeout_ms": 20_000,
+            },
+            {"action_id": "observe-public-grid", "action": "observe"},
+        ],
+        max_duration_ms=60_000,
+    )
+    elements = result["actions"][-1]["data"]["elements"]
+    return elements, result
+
+
+def verify_public_post(
+    caption: str,
+    *,
+    timeout_sec: int = 75,
+    max_candidates: int = 12,
+) -> dict[str, Any]:
+    """Verify PUBLIC publication without ever invoking Publish.
+
+    Verification starts from the selected Profile "视频" tab. A candidate is
+    accepted only when its detail view exposes the exact caption and does not
+    expose any visibility label on the known restricted-visibility label node.
+    Tile taps use bounds derived from the current semantic ev2 nodes only.
+    """
+    if not caption:
+        raise TikTokCoreError("caption must be non-empty")
+    deadline = time.monotonic() + max(15, timeout_sec)
+
+    with ui_lease():
+        _, current, _ = _observe("verify-public-current")
+        if _public_post_matches(current, caption):
+            evidence = _verification_evidence("verify-public-current")
+            return {
+                "verified": True,
+                "method": "generic_profile_public_exact_caption",
+                "caption": caption,
+                "candidate_ordinal": 0,
+                **evidence,
+            }
+
+        grid, grid_result = _open_public_grid_unlocked("verify-public")
+        candidate_limit = min(max_candidates, len(_video_tile_bounds(grid)))
+
+        for ordinal in range(candidate_limit):
+            if time.monotonic() >= deadline:
+                break
+            tiles = _video_tile_bounds(grid)
+            if ordinal >= len(tiles):
+                break
+            b = tiles[ordinal]
+            x = (b[0] + b[2]) // 2
+            y = (b[1] + b[3]) // 2
+
+            _root(f"input tap {x} {y}", timeout=15)
+            time.sleep(2.5)
+            _, detail, _ = _observe(f"verify-public-candidate-{ordinal + 1}")
+            if _public_post_matches(detail, caption):
+                evidence = _verification_evidence(
+                    f"verify-public-candidate-{ordinal + 1}"
+                )
+                return {
+                    "verified": True,
+                    "method": "generic_profile_public_exact_caption",
+                    "caption": caption,
+                    "candidate_ordinal": ordinal + 1,
+                    "profile_workflow_job_id": grid_result["job_id"],
+                    **evidence,
+                }
+
+            _run(
+                f"verify-public-back-{ordinal + 1}",
+                [
+                    {
+                        "action_id": "back",
+                        "action": "pressBack",
+                        "side_effect": "REVERSIBLE_LOCAL",
+                    }
+                ],
+                max_duration_ms=15_000,
+            )
+            time.sleep(1.5)
+            _, grid, _ = _observe(f"verify-public-grid-{ordinal + 1}")
+            if not _video_tile_bounds(grid):
+                grid, grid_result = _open_public_grid_unlocked(
+                    f"verify-public-recover-{ordinal + 1}"
+                )
+
+    raise TikTokCoreError(
+        "profile verification failed: exact PUBLIC caption not found "
+        f"within {max_candidates} visible candidates"
+    )
+
+
 def _private_tab_selector(*, selected: bool | None = None) -> dict[str, Any]:
     selector: dict[str, Any] = {
         "class_name": "android.widget.RelativeLayout",
@@ -635,7 +775,7 @@ def _private_tab_selector(*, selected: bool | None = None) -> dict[str, Any]:
     return selector
 
 
-def _private_tile_bounds(elements: list[dict[str, Any]]) -> list[list[int]]:
+def _video_tile_bounds(elements: list[dict[str, Any]]) -> list[list[int]]:
     bounds: list[list[int]] = []
     for element in elements:
         if element.get("resource_id") != RID["private_tile"] or not element.get("clickable"):
@@ -767,12 +907,12 @@ def verify_private_post(
             }
 
         grid, grid_result = _open_private_grid_unlocked("verify-private")
-        candidate_limit = min(max_candidates, len(_private_tile_bounds(grid)))
+        candidate_limit = min(max_candidates, len(_video_tile_bounds(grid)))
 
         for ordinal in range(candidate_limit):
             if time.monotonic() >= deadline:
                 break
-            tiles = _private_tile_bounds(grid)
+            tiles = _video_tile_bounds(grid)
             if ordinal >= len(tiles):
                 break
             b = tiles[ordinal]
@@ -813,7 +953,7 @@ def verify_private_post(
             )
             time.sleep(1.5)
             _, grid, _ = _observe(f"verify-grid-{ordinal + 1}")
-            if not _private_tile_bounds(grid):
+            if not _video_tile_bounds(grid):
                 grid, grid_result = _open_private_grid_unlocked(
                     f"verify-recover-{ordinal + 1}"
                 )

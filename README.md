@@ -21,7 +21,7 @@ The Mac is content-production and recovery infrastructure. The Y700 is the mobil
 
 ## Current verified status
 
-As of 2026-10-03:
+As of 2026-10-04:
 
 - KernelSU persistent root with locked bootloader: PASS
 - Debian 13 ARM64 development plane: PASS
@@ -30,7 +30,7 @@ As of 2026-10-03:
 - Android root bridge and UI controls: PASS
 - health/disk/thermal guards: PASS
 - Mac -> Y700 capability-based media pull with SHA-256 verification: PASS
-- TikTok PRIVATE DRY_RUN/COMMIT/reconciliation path: PASS
+- TikTok PUBLIC DRY_RUN/COMMIT path: CODE + PREFLIGHT PASS; real PUBLIC COMMIT remains approval-gated
 - real Douyin -> Myanmar -> Y700 -> TikTok E2E: PASS
 - PRD v0.4 production pipeline: IMPLEMENTED
 
