@@ -433,3 +433,62 @@ Validated on the real Y700 on 2026-10-04.
 - CodexPro, Cloudflare tunnel, Android bridge and SSH health: PASS after reboot;
 - pre-install KernelSU module backup retained outside Git under local runtime backup storage.
 
+## Vision Locator PRD v0.3 Sprint V0 — PASS
+
+Final reproducible Gate V0 run executed on the real Y700 on 2026-10-05. Scope remains benchmark / feasibility only.
+
+Accepted benchmark source/build/result commit: `979c5779f8a1a1c5b8fd842f93371364b6954609`.
+
+Accepted implementation and evidence:
+
+- Vision is a locator backend inside the Generic Android Automation Core, not a
+  second workflow engine;
+- production `runWorkflow` remains semantic-first and is not wired to Vision;
+- OpenCV 4.12 template matching validated on a real custom Canvas target with no
+  useful semantic child selector;
+- Android-side in-memory capture selected as primary from measured evidence;
+- final reproducible in-memory capture warm P50/P95: 39.35 / 47.04 ms;
+- 200-run capture stability P50/P95: 35.93 / 47.58 ms;
+- raw `screencap` P50/P95: 93.75 / 129.14 ms and retained only as a
+  diagnostic/fallback path;
+- raw frame profile validated as a 16-byte four-field Android profile at
+  1904x3040 RGBA_8888, not assumed to be a legacy 12-byte header;
+- 250x250 ROI single-scale P50: 7.25 ms;
+- 500x500 ROI single-scale P50: 14.10 ms;
+- full-screen single-scale P50: 419.92 ms;
+- alpha-mask 500x500 ROI P50: 23.96 ms;
+- narrow 0.90-1.10 multi-scale 500x500 ROI P50: 105.51 ms;
+- measured search policy is ROI-first, single-scale first, narrow multi-scale
+  only when justified, full-screen last;
+- low-information masked-template false positive demonstrated and blocked by
+  variance guard;
+- exactly-one capture retry and repeated-failure fail-closed: PASS;
+- rotation/geometry race blocks action with zero click: PASS;
+- stale-frame fingerprint blocks action: PASS;
+- memory-pressure watermark fail-closed: PASS;
+- peak concurrent full-resolution frames across 200 captures: 1;
+- final post-GC managed/native memory deltas were negative;
+- benchmark-only locate -> EXACT click -> visual postcondition: PASS;
+- existing real Settings reversible semantic acceptance rerun: PASS,
+  `selector_mode=semantic`, no absolute coordinate, Mac not required at runtime.
+
+Routing policy is frozen at the V0 boundary:
+
+```text
+semantic RESOLVED -> semantic only
+semantic unresolved/ambiguous/unreliable
+  -> explicit vision fallback required
+  -> template before OCR
+external irreversible / COMMIT -> Vision DENY by default
+```
+
+Gate V0 passing does not enable production Vision automatically.
+`vision_enabled=false`, benchmark-only mode and OCR-disabled remain the
+fail-closed runtime defaults until separately authorized V1/V2 work.
+
+Public-safe evidence:
+`docs/VISION-V0-ACCEPTANCE-2026-10-05.md`.
+
+Sprint V1 production Template Vision, Sprint V2 OCR and Sprint V3 hybrid routing
+remain **NOT AUTHORIZED / NOT STARTED** by this V0 closure.
+

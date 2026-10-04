@@ -1,6 +1,6 @@
 # Vision Locator Routing Policy — V0 baseline
 
-Status: **benchmark-only / production routing disabled**
+Status: **Gate V0 accepted / production routing disabled**
 
 The Vision Locator is a locator backend inside the existing Android Automation
 Core. It is not a second workflow engine and it does not own input injection.
@@ -51,14 +51,16 @@ vision_enabled=false        # rollback / current production default
 mode=benchmark_only         # Sprint V0
 template_enabled=true       # benchmark backend
 ocr_enabled=false           # until V2 benchmark
-gate_v0_passed=false        # becomes true only after formal Gate V0
+gate_v0_passed=false        # runtime default remains fail-closed after V0 acceptance
 gate_v2_passed=false        # OCR gate
 allow_high_risk_vision=false
 ```
 
-Sprint V0 may benchmark locate/click/postcondition against the dedicated test
+Sprint V0 benchmark locate/click/postcondition passed on the dedicated test
 activity, but the production `AutomationInstrumentedTest#runWorkflow` selector
-resolution is not wired to vision.
+resolution remains unwired to Vision. Gate V0 acceptance records feasibility;
+it does not flip a production feature flag. V1 activation requires separate
+authorization and an explicit production configuration change.
 
 ## Why this split
 
@@ -66,3 +68,6 @@ Routing policy answers **whether vision may be used**. The locator answers
 **where the target is**. The Action Executor remains the only component allowed
 to inject input. This keeps semantic-first behavior stable and makes vision
 independently disableable.
+
+
+Formal Gate V0 evidence: `docs/VISION-V0-ACCEPTANCE-2026-10-05.md`.

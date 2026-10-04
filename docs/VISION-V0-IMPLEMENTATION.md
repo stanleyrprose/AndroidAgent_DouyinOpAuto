@@ -1,6 +1,8 @@
 # Y700 Vision Locator — Sprint V0 Implementation
 
-Status: **implementation in progress / production routing disabled**
+Status: **Gate V0 PASS / production routing disabled**
+
+Accepted reproducible benchmark commit: `979c5779f8a1a1c5b8fd842f93371364b6954609`
 
 ## Authority boundary
 
@@ -39,7 +41,24 @@ Vision V0 is reachable only through the dedicated debug instrumentation test.
 - raw screencap timing;
 - 250x250 / 500x500 / full-screen template timing;
 - alpha-mask timing;
+- narrow multi-scale timing;
+- foreground package + screen/keyguard benchmark preflight;
 - benchmark-only Canvas locate -> EXACT UiDevice click -> visual postcondition.
+
+Measured capture decision on the real Y700:
+
+```text
+primary: Android-side in-memory capture
+raw screencap: diagnostic/fallback only
+```
+
+Measured search decision:
+
+```text
+ROI-first -> single scale first -> narrow multi-scale when justified -> full-screen last
+```
+
+See `docs/VISION-V0-ACCEPTANCE-2026-10-05.md` for the final same-version measurements and Gate V0 evidence.
 
 ## Routing policy
 
@@ -51,7 +70,7 @@ Current defaults:
 vision_enabled=false
 mode=benchmark_only
 ocr_enabled=false
-gate_v0_passed=false
+gate_v0_passed=false        # runtime default remains fail-closed despite accepted Gate V0
 allow_high_risk_vision=false
 ```
 
