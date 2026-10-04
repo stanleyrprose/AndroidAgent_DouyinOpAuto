@@ -176,11 +176,77 @@ def main() -> int:
         else "com.android.settings:id/dark_mode_black_check"
     )
 
+    # Do not assume the embedded SubSettings page survives across
+    # instrumentation sessions. Re-launch and navigate semantically again.
+    root_exec("am force-stop com.android.settings; am start -a android.settings.SETTINGS >/dev/null")
+    time.sleep(0.5)
+
     toggle = run({
         "protocol_version": 1,
         "job_id": f"settings-accept-toggle-{suffix}",
-        "max_duration_ms": 60000,
+        "max_duration_ms": 90000,
         "actions": [
+            {
+                "action_id": "wait-settings-package",
+                "action": "waitFor",
+                "package": "com.android.settings",
+                "timeout_ms": 8000,
+            },
+            {"action_id": "stable-home", "action": "waitStable", "timeout_ms": 5000},
+            {
+                "action_id": "open-search",
+                "action": "click",
+                "selector": {
+                    "resource_id": "com.android.settings:id/search_bar_container",
+                    "clickable": True,
+                },
+                "expect": {
+                    "selector": {
+                        "resource_id": "android:id/search_src_text",
+                        "class_name": "android.widget.AutoCompleteTextView",
+                    },
+                    "unique": True,
+                },
+                "timeout_ms": 5000,
+            },
+            {
+                "action_id": "search",
+                "action": "inputText",
+                "selector": {
+                    "resource_id": "android:id/search_src_text",
+                    "class_name": "android.widget.AutoCompleteTextView",
+                },
+                "text": "深色模式",
+                "clear_first": True,
+                "dismiss_ime": True,
+            },
+            {
+                "action_id": "wait-result",
+                "action": "waitFor",
+                "selector": search_result,
+                "unique": True,
+                "timeout_ms": 8000,
+            },
+            {
+                "action_id": "open-result",
+                "action": "click",
+                "selector": search_result,
+                "expect": {
+                    "selector": {
+                        "resource_id": "com.android.settings:id/dark_mode_white_check"
+                    },
+                    "unique": True,
+                },
+                "timeout_ms": 5000,
+            },
+            {"action_id": "stable-display", "action": "waitStable", "timeout_ms": 5000},
+            {
+                "action_id": "wait-target",
+                "action": "waitFor",
+                "selector": {"resource_id": target_parent, "clickable": True},
+                "unique": True,
+                "timeout_ms": 5000,
+            },
             {
                 "action_id": "switch-target",
                 "action": "click",
