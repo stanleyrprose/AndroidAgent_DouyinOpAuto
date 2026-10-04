@@ -278,3 +278,16 @@ Validated on 2026-10-04.
 - The temporary bind-mount experiment used during validation was unmounted; no persistent recursive host-root bind was introduced.
 - No boot, init_boot, vendor_boot, vbmeta, system, vendor, product, GPT or other critical partition was modified.
 
+## Zygisk Next compatibility layer — PASS
+
+Validated on the real Y700 on 2026-10-04.
+
+- official Zygisk Next 1.5.0 (`843-5217106-release`) installed through KernelSU `ksud module install`;
+- release ZIP SHA-256 verified as `474d58abc208c0779e7f8f1d8449db755a874d475c13b9cf8decf74bc171933b` before installation;
+- active module id: `zygisksu`; `modules_update` empty after reboot;
+- `znctl status`: `inject_state=1`, `zygote_states=1`, KernelSU root version `32601`;
+- no Shamiko, Play Integrity Fix, TrickyStore or other Zygisk module installed;
+- KernelSU root remains uid 0, Verified Boot remains green, SELinux remains Enforcing;
+- CodexPro, Cloudflare tunnel, Android bridge and SSH health: PASS after reboot;
+- pre-install KernelSU module backup retained outside Git under local runtime backup storage.
+
