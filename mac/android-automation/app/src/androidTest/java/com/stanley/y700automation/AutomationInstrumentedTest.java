@@ -57,6 +57,7 @@ public class AutomationInstrumentedTest {
     private Context context;
     private String jobId;
     private String sessionId;
+    private long workflowStartedElapsedMs;
     private boolean testMode;
     private int testObserveFailuresRemaining;
 
@@ -76,6 +77,7 @@ public class AutomationInstrumentedTest {
                 .setWaitForSelectorTimeout(WAIT_FOR_SELECTOR_TIMEOUT_MS);
 
         final long workflowStart = SystemClock.elapsedRealtime();
+        workflowStartedElapsedMs = workflowStart;
         JSONObject result = new JSONObject();
         JSONArray actionResults = new JSONArray();
 
@@ -1133,7 +1135,8 @@ public class AutomationInstrumentedTest {
             heartbeat.put("action_index", index);
             heartbeat.put("last_action", action);
             heartbeat.put("state", status);
-            heartbeat.put("elapsed_ms", SystemClock.elapsedRealtime());
+            heartbeat.put("elapsed_ms",
+                    Math.max(0L, SystemClock.elapsedRealtime() - workflowStartedElapsedMs));
             Bundle bundle = new Bundle();
             bundle.putString("y700_heartbeat_b64", encode(heartbeat.toString()));
             instrumentation.sendStatus(1, bundle);
