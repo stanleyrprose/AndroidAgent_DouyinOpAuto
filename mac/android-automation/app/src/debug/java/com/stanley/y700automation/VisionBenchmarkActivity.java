@@ -14,6 +14,8 @@ public class VisionBenchmarkActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setShowWhenLocked(true);
+        setTurnScreenOn(true);
         setTitle("Vision Benchmark");
         setContentView(new BenchmarkView());
     }

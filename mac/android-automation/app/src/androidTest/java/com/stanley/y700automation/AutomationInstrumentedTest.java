@@ -237,7 +237,12 @@ public class AutomationInstrumentedTest {
         }
 
         boolean keyguardBlocking = km != null && km.isKeyguardLocked();
-        if (keyguardBlocking) {
+        boolean benchmarkKeyguardBypass =
+                keyguardBlocking &&
+                testMode &&
+                request.optBoolean("test_allow_keyguard_benchmark", false) &&
+                "com.stanley.y700automation".equals(device.getCurrentPackageName());
+        if (keyguardBlocking && !benchmarkKeyguardBypass) {
             if (!request.optBoolean("dismiss_keyguard", true)) {
                 throw new ActionFailure("KEYGUARD_BLOCKING",
                         "keyguard is blocking and dismiss_keyguard=false", false, "BLOCKED");
@@ -248,7 +253,7 @@ public class AutomationInstrumentedTest {
             keyguardBlocking = km != null && km.isKeyguardLocked();
         }
 
-        if (keyguardBlocking) {
+        if (keyguardBlocking && !benchmarkKeyguardBypass) {
             throw new ActionFailure("KEYGUARD_BLOCKING",
                     "keyguard remained blocking after dismiss attempt", false, "BLOCKED");
         }
@@ -259,7 +264,8 @@ public class AutomationInstrumentedTest {
                 .put("screen_on", true)
                 .put("keyguard_initially_blocking", keyguardInitiallyBlocking)
                 .put("dismiss_keyguard_attempted", dismissAttempted)
-                .put("keyguard_blocking", false);
+                .put("test_benchmark_keyguard_bypass", benchmarkKeyguardBypass)
+                .put("keyguard_blocking", keyguardBlocking);
     }
 
     private JSONObject loadRequest() throws Exception {

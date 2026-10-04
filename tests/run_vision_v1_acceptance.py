@@ -110,6 +110,8 @@ def workflow(
         "protocol_version": 1,
         "job_id": job_id,
         "max_duration_ms": 45_000,
+        "test_mode": True,
+        "test_allow_keyguard_benchmark": True,
         "vision": {
             "enabled": enabled,
             "mode": "fallback",
