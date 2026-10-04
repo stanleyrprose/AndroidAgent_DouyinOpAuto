@@ -299,3 +299,45 @@ implementation before production validation.
 Sprint 6B remains closed until a separate measured-need experiment defines and
 meets explicit latency/CPU/wakeup thresholds.
 
+## Android Automation Core v0.5 — FINAL ACCEPTANCE
+
+Decision: **PASS WITH PHYSICAL MAC-OFF / EXTERNAL-NETWORK GATE DEFERRED**.
+
+Final runtime/code acceptance baseline:
+
+`6285a6d23b4d33118e0db2cc25f5838d54551644`
+
+Final real-Y700 acceptance on 2026-10-04:
+
+- failure evidence contract: PASS;
+- UI observation recovery: PASS;
+- semantic scroll: PASS;
+- normalized swipe without absolute pixel coordinates: PASS;
+- longClick: PASS;
+- Unicode input + IME dismiss: PASS;
+- unknown selector key fail-closed: PASS;
+- Settings reversible flow: PASS;
+- Settings acceptance is foreground-aware and session-independent;
+- UI cooperative cancellation: PASS;
+- safe driver reset: PASS, workflow_replayed=false;
+- unsafe checkpoint reset: RECONCILE_REQUIRED, workflow_replayed=false;
+- health after both reset paths: HEALTHY;
+- permissions: 0700 directories / 0600 files PASS;
+- Bridge v2 health: active=0, running=0, orphaned=0, live-orphan block=false;
+- root bridge round-trip: PASS;
+- TikTok DRY_RUN remains frozen at 20/20 PASS (100%).
+
+One archived Bridge `RECONCILE_REQUIRED` record remains intentionally durable
+from the earlier ZUXOS path-based PackageManager install hang. Its process was
+explicitly recovered; no live orphan remains; it is historical evidence only.
+
+Physical Mac-Off plus external Wi-Fi / phone-hotspot acceptance is explicitly
+deferred by project decision and must not be marked PASS until physically run.
+
+Final public-safe evidence:
+
+`docs/ANDROID-AUTOMATION-CORE-v0.5-FINAL-ACCEPTANCE-2026-10-04.md`
+
+Sprint 6B remains NOT ACTIVATED / NOT REQUIRED unless future measurements show
+a real filesystem polling latency/CPU/wakeup problem.
+

@@ -224,14 +224,59 @@ The Y700 deployment path now:
 This replaces the ZUXOS-sensitive path-based `pm install <apk-path>` flow,
 which was observed to hang inside PackageManager.
 
-## Remaining PRD Work
+## Final Acceptance Status
 
-1. Hard Mac-Off acceptance: physically power down the Mac and repeat an
-   independent Y700 Settings workflow over an external network.
-2. Complete and validate the generic Failure Evidence Contract for failed UI
-   actions, including automatic screenshot and compact UI-tree/context capture.
-3. Add a dedicated UI-observation-failure recovery injection acceptance.
-4. Audit the remaining generic semantic actions for explicit real-Y700 evidence
-   where implementation exists but acceptance evidence is not yet recorded.
-5. Only benchmark a persistent instrumentation runner if workflow-scoped startup
-   overhead becomes a proven bottleneck.
+Final runtime/code acceptance baseline:
+
+`6285a6d23b4d33118e0db2cc25f5838d54551644`
+
+Decision:
+
+**PASS WITH PHYSICAL MAC-OFF / EXTERNAL-NETWORK GATE DEFERRED**
+
+Completed after the TikTok DRY_RUN freeze:
+
+- generic Failure Evidence Contract: PASS;
+- screenshot + compact UI tree + package/activity/action/selector/postcondition/error: PASS;
+- UI observation failure injection:
+  - LEVEL_0 re-observe: PASS;
+  - LEVEL_1 waitStable: PASS;
+  - unrecovered observation failure -> BLOCKED + evidence: PASS;
+- semantic scroll: PASS;
+- normalized swipe: PASS;
+- longClick: PASS;
+- Unicode input and IME dismiss: PASS;
+- unknown selector key fail-closed: PASS;
+- Settings acceptance made foreground-aware and session-independent: PASS;
+- safe driver reset with no workflow replay: PASS;
+- unsafe checkpoint -> RECONCILE_REQUIRED with no workflow replay: PASS;
+- driver health after reset: HEALTHY;
+- root/UI runtime permission checks: PASS;
+- Bridge v2 production health/root round-trip: PASS.
+
+Final public-safe evidence:
+
+`docs/ANDROID-AUTOMATION-CORE-v0.5-FINAL-ACCEPTANCE-2026-10-04.md`
+
+## Deferred Physical Gate
+
+Per explicit project decision, the following coupled hard-DoD scenario is
+deferred and is **not** marked PASS:
+
+```text
+Mac physically powered off
+Y700 on external Wi-Fi / phone hotspot
+Cloud-side control executes the complete Settings workflow
+```
+
+This deferred physical gate should append evidence to the final acceptance
+record when eventually run. It does not require reopening already-passed
+Core/TikTok functional tests unless runtime code changes.
+
+## Optional Future Work
+
+A persistent instrumentation runner remains out of scope unless measured
+workflow-scoped startup overhead becomes a proven bottleneck.
+
+Bridge Sprint 6B Unix-socket work remains measurement-gated and is not required
+by the current healthy filesystem-only runtime.
