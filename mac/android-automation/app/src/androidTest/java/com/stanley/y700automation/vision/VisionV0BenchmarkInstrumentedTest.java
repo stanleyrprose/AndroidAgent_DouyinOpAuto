@@ -103,6 +103,20 @@ public class VisionV0BenchmarkInstrumentedTest {
         report.put("peak_concurrent_frames", VisionV0Harness.maxActiveFrames());
         assertTrue("frame ownership must remain bounded", VisionV0Harness.maxActiveFrames() <= 2);
 
+        List<Double> rawCapture = new ArrayList<>();
+        JSONObject rawProfile = null;
+        for (int i = 0; i < 20; i++) {
+            long t0 = SystemClock.elapsedRealtimeNanos();
+            byte[] raw = VisionV0Harness.captureRawScreencap(instrumentation);
+            rawCapture.add(msSince(t0));
+            JSONObject parsed = VisionV0Harness.parseRawScreencap(raw);
+            if (rawProfile == null) {
+                rawProfile = parsed;
+            }
+        }
+        report.put("raw_screencap_20", VisionV0Harness.percentiles(rawCapture));
+        report.put("raw_screencap_profile", rawProfile);
+
         Bitmap idleTemplate = VisionV0Harness.makeBenchmarkTemplate(
                 targetContext, false, false);
         Bitmap idleAlphaTemplate = VisionV0Harness.makeBenchmarkTemplate(
