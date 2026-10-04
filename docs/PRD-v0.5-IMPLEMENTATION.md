@@ -1,6 +1,6 @@
 # PRD v0.5 Rev2 — Implementation Status
 
-Date: 2026-10-03
+Date: 2026-10-04
 
 ## Status
 
@@ -192,12 +192,46 @@ Latest validation:
 - thermal status: normal
 - filesystem permission probe: PASS
 
+## TikTok Generic-Core Migration
+
+PASS / frozen baseline on 2026-10-04.
+
+- acceptance baseline: `4c19067bc63d43df1472668ec0abeff98bc82283`;
+- TikTok DRY_RUN now uses the generic Android Automation Core;
+- no final Publish action exists in the generic adapter;
+- semantic selectors only, with deterministic cardinality;
+- 20 real-Y700 cold-start DRY_RUN regressions: **20/20 PASS (100%)**;
+- PRD threshold: >=19/20 PASS;
+- host workflow P50: 41,217.9 ms;
+- host workflow max: 49,640.7 ms;
+- `home-create` max: 9,391 ms after bounding implicit UiAutomator idle waits.
+
+Evidence: `docs/TIKTOK-GENERIC-DRYRUN-ACCEPTANCE-2026-10-04.md`.
+
+The accepted TikTok DRY_RUN business path is frozen during the remaining Core
+recovery/evidence work.
+
+## Deployment Hardening
+
+The Y700 deployment path now:
+
+1. compares the built APK SHA-256 with the installed package SHA-256;
+2. skips unchanged APKs;
+3. installs changed APKs through stdin + `pm install -S`;
+4. verifies the installed SHA-256 after install;
+5. verifies instrumentation registration.
+
+This replaces the ZUXOS-sensitive path-based `pm install <apk-path>` flow,
+which was observed to hang inside PackageManager.
+
 ## Remaining PRD Work
 
 1. Hard Mac-Off acceptance: physically power down the Mac and repeat an
    independent Y700 Settings workflow over an external network.
-2. Migrate the TikTok controller to the generic Android Automation Core without
-   rewriting the TikTok business state machine.
-3. Run 20 TikTok cold-start DRY_RUN regressions and achieve >= 19/20 PASS.
-4. Only benchmark a persistent instrumentation runner if workflow-scoped startup
+2. Complete and validate the generic Failure Evidence Contract for failed UI
+   actions, including automatic screenshot and compact UI-tree/context capture.
+3. Add a dedicated UI-observation-failure recovery injection acceptance.
+4. Audit the remaining generic semantic actions for explicit real-Y700 evidence
+   where implementation exists but acceptance evidence is not yet recorded.
+5. Only benchmark a persistent instrumentation runner if workflow-scoped startup
    overhead becomes a proven bottleneck.

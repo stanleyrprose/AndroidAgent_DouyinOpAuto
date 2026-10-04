@@ -217,8 +217,39 @@ selectors only; no absolute coordinates are used. The hard physical Mac-Off
 gate is still pending and must not be marked PASS until the Mac is actually
 powered down during the acceptance run.
 
-Next implementation gate: migrate the TikTok controller to the generic core,
-then run 20 cold-start DRY_RUN regressions with >=95% success.
+## TikTok generic-core DRY_RUN migration — PASS / FROZEN
+
+Validated on the real Y700 on 2026-10-04.
+
+- acceptance baseline: `4c19067bc63d43df1472668ec0abeff98bc82283`;
+- TikTok DRY_RUN migrated to the generic Android Automation Core;
+- one instrumentation session per workflow;
+- semantic selectors only; no absolute coordinates and no implicit first-match/index;
+- final TikTok Publish button is asserted only and is never clicked in DRY_RUN;
+- PRIVATE visibility is verified;
+- 20 cold-start runs: **20/20 PASS (100%)**;
+- PRD threshold: >=19/20 PASS;
+- host workflow P50: 41,217.9 ms;
+- host workflow max: 49,640.7 ms;
+- `home-create` max: 9,391 ms after bounding UiAutomator implicit idle waits;
+- public-safe evidence: `docs/TIKTOK-GENERIC-DRYRUN-ACCEPTANCE-2026-10-04.md`.
+
+Freeze rule:
+
+- do not modify `apps/tiktok/controller.py` or DRY_RUN routing in
+  `publisher/publish_job.py` during remaining Core recovery/evidence work;
+- if a future change alters selectors, action order, staging cardinality,
+  visibility handling, or driver semantics used by the normal TikTok path,
+  reopen and rerun the 20-run gate.
+
+Deployment hardening accepted:
+
+- compare built APK SHA with installed package SHA before install;
+- identical packages are skipped;
+- changed APKs install via stdin + `pm install -S`, avoiding the observed
+  ZUXOS path-based install hang;
+- installed SHA is verified after installation;
+- instrumentation registration is checked after deployment.
 
 ## PRD v0.5 Sprint 6A Bridge v2 — PASS
 
