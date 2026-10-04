@@ -58,6 +58,12 @@ def main() -> int:
         "job_id": f"settings-accept-nav-{suffix}",
         "max_duration_ms": 60000,
         "actions": [
+            {
+                "action_id": "wait-settings-package",
+                "action": "waitFor",
+                "package": "com.android.settings",
+                "timeout_ms": 8000,
+            },
             {"action_id": "stable-home", "action": "waitStable", "timeout_ms": 5000},
             {
                 "action_id": "open-search",
