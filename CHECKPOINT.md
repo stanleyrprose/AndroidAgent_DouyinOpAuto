@@ -360,6 +360,7 @@ Status on 2026-10-04:
   - canonical Cloudflare connector for `y700media.stanleyxyz.com` registered 4 QUIC connections;
   - old `y700-linux` media server/tunnel stopped but files retained for rollback;
   - real Mac -> Cloudflare -> Y700 handoff smoke reached READY twice, including after launchd migration, with SHA-256 PASS and Burmese text preserved.
+- Final Y700 production pointer after CI success: `/opt/y700/workspaces/y700-agent` -> `y700-agent-release-f568284`; host executor restarted from this release; Bridge/root round-trip PASS.
 - C / Generic TikTok COMMIT convergence: **CODE + PREFLIGHT PASS; REAL PUBLISH GATED**.
   - DRY_RUN remains unchanged and never clicks Publish;
   - COMMIT routes through Generic Android Core, not legacy `go_to_post_config` / `tap_publish`;
