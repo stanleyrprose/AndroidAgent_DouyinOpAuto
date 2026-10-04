@@ -40,7 +40,7 @@ public class VisionV0BenchmarkInstrumentedTest {
         Context targetContext = instrumentation.getTargetContext();
         UiDevice device = UiDevice.getInstance(instrumentation);
 
-        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+        System.loadLibrary("opencv_java4");
 
         JSONObject report = new JSONObject();
         report.put("status", "STARTED");
