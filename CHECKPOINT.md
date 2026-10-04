@@ -26,6 +26,16 @@ This is the public-safe acceptance snapshot. Private runtime identifiers, endpoi
 - Cloud ChatGPT direct open/read/write/bash: PASS
 - Canonical device workspace: `/opt/y700/workspaces/y700-agent`
 
+## Root compatibility baseline — PASS / STRONG not required
+
+Validated on the real Y700 after enabling Zygisk Next 1.5.0.
+
+- Play Integrity API Checker installed from Google Play: `MEETS_BASIC_INTEGRITY=PASS`, `MEETS_DEVICE_INTEGRITY=PASS`, `MEETS_STRONG_INTEGRITY=FAIL`.
+- Current automation requirement does not require STRONG integrity; no Play Integrity Fix, TrickyStore or Shamiko was added.
+- TikTok cold launch reached `MainActivity`, and semantic recovery reached authenticated HOME with the create control visible; no root/Zygisk block was observed.
+- Existing legacy PRIVATE DRY_RUN fixtures are intentionally rejected by the current v0.5 PUBLIC-only fail-closed policy; no manifest was modified to bypass that guard.
+- Google Play certification menu was not directly captured because ZUI foreground/accessibility window reporting was inconsistent; no certification claim is inferred from that missing UI observation.
+
 ## Remote development — PASS
 
 - Cloudflare Named Tunnel path: PASS
