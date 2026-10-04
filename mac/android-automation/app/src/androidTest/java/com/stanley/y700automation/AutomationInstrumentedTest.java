@@ -35,6 +35,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -628,10 +629,43 @@ public class AutomationInstrumentedTest {
     }
 
 
+    private void validateSelectorKeys(JSONObject spec) throws ActionFailure {
+        Iterator<String> keys = spec.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            switch (key) {
+                case "resource_id":
+                case "text":
+                case "text_contains":
+                case "content_desc":
+                case "content_desc_contains":
+                case "class_name":
+                case "package":
+                case "clickable":
+                case "enabled":
+                case "selected":
+                case "checked":
+                case "checkable":
+                case "scrollable":
+                case "has_descendant":
+                case "has_child":
+                case "has_parent":
+                case "has_ancestor":
+                    break;
+                default:
+                    throw new ActionFailure(
+                            "JOB_PAYLOAD_INVALID",
+                            "unsupported selector key: " + key,
+                            false);
+            }
+        }
+    }
+
     private BySelector buildSelector(JSONObject spec) throws Exception {
         if (spec == null || spec.length() == 0) {
             throw new ActionFailure("JOB_PAYLOAD_INVALID", "selector is required", false);
         }
+        validateSelectorKeys(spec);
 
         BySelector selector;
         String seed;

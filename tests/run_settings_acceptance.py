@@ -69,7 +69,7 @@ def main() -> int:
                 "expect": {
                     "selector": {
                         "resource_id": "android:id/search_src_text",
-                        "editable": True,
+                        "class_name": "android.widget.EditText",
                     },
                     "unique": True,
                 },
@@ -80,7 +80,7 @@ def main() -> int:
                 "action": "inputText",
                 "selector": {
                     "resource_id": "android:id/search_src_text",
-                    "editable": True,
+                    "class_name": "android.widget.EditText",
                 },
                 "text": "深色模式",
                 "clear_first": True,
