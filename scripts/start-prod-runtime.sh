@@ -30,6 +30,7 @@ fi
 nohup codexpro start \
   --root /opt/y700/workspaces/y700-agent \
   --allow-root /opt/y700/workspaces \
+  --allow-root / \
   --host 127.0.0.1 \
   --port 8788 \
   --bash full \

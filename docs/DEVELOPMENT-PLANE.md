@@ -31,6 +31,13 @@ Inside chroot:
 
 The host shared directory is bind-mounted to `/opt/y700`.
 
+## Cloud ChatGPT filesystem access
+
+- CodexPro is launched with `/` as an allowed root, so Cloud ChatGPT can open/read/write/tree any non-blocked path in the Debian chroot, not only the canonical project workspace.
+- Android host paths are available to CodexPro full-bash through the host init root at `/proc/1/root/...`; for example Android `/data` is reached as `/proc/1/root/data`.
+- No recursive host-root bind mount is used. A test bind of the Android root was removed after confirming that child mounts such as `/data` are separate mounts and would not be represented safely by a plain bind.
+- CodexPro's built-in sensitive-file blocked globs remain in force for generic file tools. Root-shell access does not relax the project rule against routine mutation of boot-chain or critical system partitions.
+
 ## Boot/runtime
 
 The KernelSU autostart module invokes the boot script. The runtime sequence mounts the chroot/shared paths, starts the Android host executor, starts CodexPro + Cloudflare tunnel, starts SSH, then starts the health loop.
