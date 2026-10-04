@@ -69,6 +69,55 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertEqual(clicks[0]["side_effect"], "EXTERNAL_IRREVERSIBLE")
         self.assertEqual(actions[-1], clicks[0])
 
+    def test_private_post_match_requires_exact_caption_and_private_label(self) -> None:
+        caption = "Y700 test"
+        elements = [
+            {
+                "resource_id": controller.RID["post_caption"],
+                "text": caption,
+            },
+            {
+                "resource_id": controller.RID["private_label"],
+                "text": "私密",
+            },
+        ]
+        self.assertTrue(controller._private_post_matches(elements, caption))
+        self.assertFalse(controller._private_post_matches(elements, "other"))
+        self.assertFalse(
+            controller._private_post_matches(
+                [elements[0]],
+                caption,
+            )
+        )
+
+    def test_private_tile_bounds_are_filtered_and_sorted(self) -> None:
+        elements = [
+            {
+                "resource_id": controller.RID["private_tile"],
+                "clickable": True,
+                "bounds": [636, 1030, 1268, 1874],
+            },
+            {
+                "resource_id": controller.RID["private_tile"],
+                "clickable": True,
+                "bounds": [0, 1030, 633, 1874],
+            },
+            {
+                "resource_id": controller.RID["private_tile"],
+                "clickable": False,
+                "bounds": [1271, 1030, 1904, 1874],
+            },
+            {
+                "resource_id": "other",
+                "clickable": True,
+                "bounds": [0, 0, 10, 10],
+            },
+        ]
+        self.assertEqual(
+            controller._private_tile_bounds(elements),
+            [[0, 1030, 633, 1874], [636, 1030, 1268, 1874]],
+        )
+
     def test_public_dry_run_fails_closed_before_runtime(self) -> None:
         with self.assertRaisesRegex(controller.TikTokCoreError, "PRIVATE required"):
             controller.prepare_dry_run("caption", visibility="PUBLIC")

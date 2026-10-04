@@ -5,7 +5,6 @@ import shutil
 import subprocess
 import sys
 import time
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 try:
@@ -98,14 +97,14 @@ def verify_post_config():
         raise PublishError(f"expected POST_CONFIG, got {st}")
     return st
 
-def store_generic_evidence(job, generic_result):
+def store_generic_evidence(job, generic_result, filename="v05-ready-to-commit.png"):
     evidence=(generic_result or {}).get("evidence") or {}
     source=Path(str(evidence.get("source_path","")))
     if not source.is_file():
-        raise PublishError(f"generic READY_TO_COMMIT evidence missing: {source}")
+        raise PublishError(f"generic evidence missing: {source}")
     ev=job/"evidence"
     ev.mkdir(exist_ok=True)
-    dest=ev/"v05-ready-to-commit.png"
+    dest=ev/filename
     shutil.copy2(source,dest)
     return {
         "screenshot":str(Path("evidence")/dest.name),
@@ -212,85 +211,21 @@ def commit_publish(job,job_id,timeout=75):
     raise PublishError(f"publish did not confirm within {timeout}s; last={last}; evidence={after}")
 
 def verify_private_post(job,caption,timeout=60):
-    controller.androidctl("wake",check=False)
-    controller.androidctl("unlock",check=False)
-    deadline=time.monotonic()+timeout
-
-    # Reach Profile. If already there, the private-video tab will be visible.
-    while time.monotonic()<deadline:
-        try:
-            xml=controller.dump_ui()
-            _,private_attrs=controller.find_node(xml,desc="私密视频",clickable=True)
-            if private_attrs:
-                break
-            c,_=controller.find_node(xml,rid="o76",clickable=True)
-            if c:
-                controller.androidctl("tap",str(c[0]),str(c[1]))
-                time.sleep(3)
-                continue
-        except Exception:
-            pass
-
-        try:
-            if not controller.tiktok_foreground():
-                controller.androidctl("launch",controller.TIKTOK,check=False)
-        except Exception:
-            pass
-        time.sleep(2)
-    else:
-        raise PublishError("profile verification: could not reach Profile")
-
-    # Open private-video tab.
-    xml=controller.dump_ui()
-    c,_=controller.find_node(xml,desc="私密视频",clickable=True)
-    if not c:
-        raise PublishError("profile verification: private-video tab not found")
-    controller.androidctl("tap",str(c[0]),str(c[1]))
-    time.sleep(4)
-
-    # Select newest visible private video tile.
-    xml=controller.dump_ui()
-    root=ET.parse(xml).getroot()
-    candidates=[]
-    for node in root.iter("node"):
-        rid=(node.attrib.get("resource-id") or "")
-        if not rid.endswith("/ev2") or node.attrib.get("clickable")!="true":
-            continue
-        b=controller._bounds(node.attrib.get("bounds",""))
-        if not b:
-            continue
-        x1,y1,x2,y2=b
-        if y1 >= 900 and (x2-x1) > 200 and (y2-y1) > 200:
-            candidates.append((y1,x1,b))
-    if not candidates:
-        raise PublishError("profile verification: no private video tile found")
-    _,_,b=sorted(candidates)[0]
-    c=((b[0]+b[2])//2,(b[1]+b[3])//2)
-    controller.androidctl("tap",str(c[0]),str(c[1]))
-    time.sleep(4)
-
-    # Exact caption + private label is the final success gate.
-    xml=controller.dump_ui()
-    root=ET.parse(xml).getroot()
-    exact=False
-    private=False
-    for node in root.iter("node"):
-        text=(node.attrib.get("text") or "").strip()
-        rid=(node.attrib.get("resource-id") or "")
-        if rid.endswith("/desc") and text==caption:
-            exact=True
-        if rid.endswith("/tv_label") and text=="私密":
-            private=True
-    evidence=capture_evidence(job,"profile-private-verified")
-    if not (exact and private):
-        raise PublishError(
-            f"profile verification failed: exact_caption={exact} private_label={private}; evidence={evidence}"
+    try:
+        verification=generic_tiktok.verify_private_post(
+            caption,
+            timeout_sec=timeout,
         )
+    except generic_tiktok.TikTokCoreError as exc:
+        raise PublishError(f"profile verification failed: {exc}") from exc
+    stored=store_generic_evidence(
+        job,
+        verification,
+        filename="profile-private-verified.png",
+    )
     return {
-        "verified":True,
-        "method":"profile_private_exact_caption",
-        "caption":caption,
-        "evidence":evidence,
+        **verification,
+        "evidence":stored,
     }
 
 def main():

@@ -52,6 +52,10 @@ RID = {
     "visibility_container": f"{TIKTOK}:id/y0d",
     "visibility_heading": f"{TIKTOK}:id/pcq",
     "publish": f"{TIKTOK}:id/st6",
+    "profile": f"{TIKTOK}:id/o76",
+    "private_tile": f"{TIKTOK}:id/ev2",
+    "post_caption": f"{TIKTOK}:id/desc",
+    "private_label": f"{TIKTOK}:id/tv_label",
 }
 
 
@@ -618,3 +622,203 @@ def commit_private(
             "commit_workflow_job_id": commit_result["job_id"],
             "commit_dispatched": True,
         }
+
+
+def _private_tab_selector(*, selected: bool | None = None) -> dict[str, Any]:
+    selector: dict[str, Any] = {
+        "class_name": "android.widget.RelativeLayout",
+        "content_desc": "私密视频",
+        "clickable": True,
+    }
+    if selected is not None:
+        selector["selected"] = selected
+    return selector
+
+
+def _private_tile_bounds(elements: list[dict[str, Any]]) -> list[list[int]]:
+    bounds: list[list[int]] = []
+    for element in elements:
+        if element.get("resource_id") != RID["private_tile"] or not element.get("clickable"):
+            continue
+        b = element.get("bounds")
+        if (
+            isinstance(b, list)
+            and len(b) == 4
+            and all(isinstance(v, int) for v in b)
+            and b[2] > b[0]
+            and b[3] > b[1]
+        ):
+            bounds.append(b)
+    return sorted(bounds, key=lambda b: (b[1], b[0]))
+
+
+def _private_post_matches(elements: list[dict[str, Any]], caption: str) -> bool:
+    exact_caption = any(
+        element.get("resource_id") == RID["post_caption"]
+        and (element.get("text") or "").strip() == caption
+        for element in elements
+    )
+    private_label = any(
+        element.get("resource_id") == RID["private_label"]
+        and (element.get("text") or "").strip() == "私密"
+        for element in elements
+    )
+    return exact_caption and private_label
+
+
+def _verification_evidence(prefix: str) -> dict[str, Any]:
+    result = _run(
+        f"{prefix}-evidence",
+        [
+            {
+                "action_id": "verified-evidence",
+                "action": "screenshot",
+                "filename": "profile-private-verified.png",
+            }
+        ],
+        max_duration_ms=20_000,
+    )
+    shot = result["actions"][0]["data"]
+    evidence_path = shot.get("evidence_path")
+    if not evidence_path:
+        raise TikTokCoreError("profile verification screenshot was not exported", result)
+    source = UI_JOBS / result["job_id"] / evidence_path
+    if not source.is_file():
+        raise TikTokCoreError(f"profile verification evidence missing: {source}", result)
+    return {
+        "workflow_job_id": result["job_id"],
+        "evidence": {
+            "relative_path": evidence_path,
+            "source_path": str(source),
+            "size": source.stat().st_size,
+        },
+    }
+
+
+def _open_private_grid_unlocked(prefix: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    _recover_home_unlocked(f"{prefix}-recover")
+    result = _run(
+        f"{prefix}-open-grid",
+        [
+            {
+                "action_id": "wait-profile",
+                "action": "waitFor",
+                "selector": {"resource_id": RID["profile"], "clickable": True},
+                "unique": True,
+                "timeout_ms": 15_000,
+            },
+            {
+                "action_id": "open-profile",
+                "action": "click",
+                "selector": {"resource_id": RID["profile"], "clickable": True},
+                "expect": {"selector": _private_tab_selector(), "unique": True},
+                "timeout_ms": 20_000,
+                "side_effect": "REVERSIBLE_LOCAL",
+            },
+            {
+                "action_id": "open-private-tab",
+                "action": "click",
+                "selector": _private_tab_selector(),
+                "expect": {
+                    "selector": _private_tab_selector(selected=True),
+                    "unique": True,
+                },
+                "timeout_ms": 15_000,
+                "side_effect": "REVERSIBLE_LOCAL",
+            },
+            {"action_id": "observe-private-grid", "action": "observe"},
+        ],
+        max_duration_ms=60_000,
+    )
+    elements = result["actions"][-1]["data"]["elements"]
+    return elements, result
+
+
+def verify_private_post(
+    caption: str,
+    *,
+    timeout_sec: int = 75,
+    max_candidates: int = 12,
+) -> dict[str, Any]:
+    """Verify publication without ever invoking Publish.
+
+    Profile/private-tab navigation is semantic. TikTok private-grid tiles expose
+    no caption or stable identity in accessibility, so reconciliation uses the
+    *current observed* bounds of semantic private-video tile nodes only as a
+    read-only navigation fallback. No absolute coordinates are stored or reused.
+    Success requires exact caption text plus the explicit 私密 label.
+    """
+    if not caption:
+        raise TikTokCoreError("caption must be non-empty")
+    deadline = time.monotonic() + max(15, timeout_sec)
+
+    with ui_lease():
+        # Fast-path an already-open matching private post, useful after a commit
+        # or a previous reconciliation inspection.
+        _, current, _ = _observe("verify-current")
+        if _private_post_matches(current, caption):
+            evidence = _verification_evidence("verify-current")
+            return {
+                "verified": True,
+                "method": "generic_profile_private_exact_caption",
+                "caption": caption,
+                "candidate_ordinal": 0,
+                **evidence,
+            }
+
+        grid, grid_result = _open_private_grid_unlocked("verify-private")
+        candidate_limit = min(max_candidates, len(_private_tile_bounds(grid)))
+
+        for ordinal in range(candidate_limit):
+            if time.monotonic() >= deadline:
+                break
+            tiles = _private_tile_bounds(grid)
+            if ordinal >= len(tiles):
+                break
+            b = tiles[ordinal]
+            x = (b[0] + b[2]) // 2
+            y = (b[1] + b[3]) // 2
+
+            # Justified fallback: private tiles have identical accessibility
+            # selectors. Coordinates are derived from the current semantic
+            # ev2 node bounds and are never hard-coded or persisted.
+            _root(f"input tap {x} {y}", timeout=15)
+            time.sleep(2.5)
+            _, detail, _ = _observe(f"verify-candidate-{ordinal + 1}")
+            if _private_post_matches(detail, caption):
+                evidence = _verification_evidence(
+                    f"verify-candidate-{ordinal + 1}"
+                )
+                return {
+                    "verified": True,
+                    "method": "generic_profile_private_exact_caption",
+                    "caption": caption,
+                    "candidate_ordinal": ordinal + 1,
+                    "profile_workflow_job_id": grid_result["job_id"],
+                    **evidence,
+                }
+
+            # Candidate mismatch is read-only. Return to the private grid and
+            # re-observe before deriving the next candidate bounds.
+            _run(
+                f"verify-back-{ordinal + 1}",
+                [
+                    {
+                        "action_id": "back",
+                        "action": "pressBack",
+                        "side_effect": "REVERSIBLE_LOCAL",
+                    }
+                ],
+                max_duration_ms=15_000,
+            )
+            time.sleep(1.5)
+            _, grid, _ = _observe(f"verify-grid-{ordinal + 1}")
+            if not _private_tile_bounds(grid):
+                grid, grid_result = _open_private_grid_unlocked(
+                    f"verify-recover-{ordinal + 1}"
+                )
+
+    raise TikTokCoreError(
+        "profile verification failed: exact PRIVATE caption not found "
+        f"within {max_candidates} visible candidates"
+    )
