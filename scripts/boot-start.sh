@@ -18,7 +18,7 @@ fi
 
 /data/local/y700-linux/mount.sh
 /data/local/y700-agent/runtime/start-host-executor.sh
-/data/local/y700-linux/exec.sh /bin/bash /opt/y700/runtime/y700-prod-init.sh
+/data/local/y700-linux/exec.sh /bin/bash /opt/y700/workspaces/y700-agent/scripts/start-prod-runtime.sh
 /data/local/y700-linux/exec.sh /bin/bash /opt/y700/workspaces/y700-agent/scripts/start-sshd.sh
 /data/local/y700-linux/exec.sh /bin/bash /opt/y700/workspaces/y700-agent/scripts/start-health-loop.sh
 

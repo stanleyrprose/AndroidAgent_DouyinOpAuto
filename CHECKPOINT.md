@@ -26,6 +26,32 @@ This is the public-safe acceptance snapshot. Private runtime identifiers, endpoi
 - Cloud ChatGPT direct open/read/write/bash: PASS
 - Canonical device workspace: `/opt/y700/workspaces/y700-agent`
 
+## Root compatibility baseline — PASS / STRONG not required
+
+Validated on the real Y700 after enabling Zygisk Next 1.5.0.
+
+- Play Integrity API Checker installed from Google Play: `MEETS_BASIC_INTEGRITY=PASS`, `MEETS_DEVICE_INTEGRITY=PASS`, `MEETS_STRONG_INTEGRITY=FAIL`.
+- Current automation requirement does not require STRONG integrity; no Play Integrity Fix, TrickyStore or Shamiko was added.
+- TikTok cold launch reached `MainActivity`, and semantic recovery reached authenticated HOME with the create control visible; no root/Zygisk block was observed.
+- Existing legacy PRIVATE DRY_RUN fixtures are intentionally rejected by the current v0.5 PUBLIC-only fail-closed policy; no manifest was modified to bypass that guard.
+- Google Play certification menu was not directly captured because ZUI foreground/accessibility window reporting was inconsistent; no certification claim is inferred from that missing UI observation.
+
+## Final Git SOT deployment + reboot acceptance — PASS
+
+Validated on the real Y700 after deploying GitHub `main` runtime code commit `cdade643861555e5635f7e9d53c862194346a902` as an immutable release and atomically switching the canonical workspace symlink.
+
+- previous release retained for rollback; no in-place mutation of the prior release;
+- full device reboot: PASS; `sys.boot_completed=1` after autonomous recovery;
+- KernelSU root, Verified Boot green and SELinux Enforcing survived reboot;
+- Zygisk Next 1.5.0 recovered with `inject_state=1` and `zygote_states=1`;
+- host executor, SSH, Cloudflare tunnel, CodexPro and health loop restarted automatically;
+- Cloud ChatGPT reconnected directly to Y700 after reboot; CodexPro retained full Debian chroot scope with `allowedRoots` including `/`;
+- Android root bridge round-trip: PASS;
+- TikTok cold-launch state reached authenticated HOME after the normal post-boot keyguard window settled;
+- TikTok HOME detection was hardened against obfuscated resource-ID drift by accepting stable bottom-navigation semantics while retaining the legacy selector path;
+- a short post-boot keyguard race was observed twice; no lock bypass was added, and retrying after keyguard cleared succeeded;
+- PUBLIC DRY_RUN end-to-end acceptance is intentionally deferred pending separate discussion; no upload/publish path was exercised in this gate.
+
 ## Remote development — PASS
 
 - Cloudflare Named Tunnel path: PASS
