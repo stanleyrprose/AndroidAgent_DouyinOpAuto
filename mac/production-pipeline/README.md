@@ -20,8 +20,8 @@ No MQ, no R2 permanent library, no direct public root shell.
 
 ```bash
 ./scripts/bootstrap.sh
-./scripts/setup-telegram-control.sh       # no secrets; prepares dedicated Hermes profile
-./scripts/tg-notify.sh RECEIVED dy-example --detail '任务已接收'  # after Telegram is configured
+bash ./scripts/setup-telegram-control.sh  # no secrets; prepares dedicated Hermes profile
+bash ./scripts/tg-notify.sh RECEIVED dy-example --detail '任务已接收'  # after Telegram is configured
 ./scripts/pipeline.sh submit 'https://v.douyin.com/...'
 ./scripts/pipeline.sh localize dy-<aweme_id> localization.json
 ./scripts/pipeline.sh render dy-<aweme_id>
