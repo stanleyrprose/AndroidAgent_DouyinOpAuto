@@ -4,15 +4,15 @@ PRD v0.4 Mac production plane.
 
 ## Human workflow
 
-1. Paste one Douyin share URL into Cloud GPT.
-2. Cloud GPT calls `scripts/pipeline.sh submit <url>`.
+1. Paste one Douyin share URL into Cloud GPT **or** send it to the dedicated Y700 Automation Telegram bot.
+2. Cloud GPT or the dedicated Hermes `y700automation` profile loads `douyin-tiktok-publish` and calls `scripts/pipeline.sh submit <url>`.
 3. Mac/Douzy downloads and generates transcript + contact sheet.
 4. Cloud GPT writes evidence-grounded `localization.json`.
 5. Mac renders Burmese 1080×1920 output and exports it.
-6. Cloud GPT sends the manifest URL to Y700 and runs TikTok DRY_RUN.
-7. User approves.
-8. Y700 COMMITs and verifies publication.
-9. Cloud GPT finalizes the Mac job as VERIFIED.
+6. The orchestrator sends the manifest URL to Y700 and runs TikTok DRY_RUN.
+7. The one-URL standing authorization satisfies the explicit approval gate unless the current turn narrows or revokes it.
+8. Y700 performs exactly one PUBLIC COMMIT attempt and verifies/reconciles publication.
+9. The orchestrator finalizes the Mac job and, for Telegram ingress, sends status transitions and the terminal receipt back to Telegram.
 
 No MQ, no R2 permanent library, no direct public root shell.
 
@@ -20,6 +20,8 @@ No MQ, no R2 permanent library, no direct public root shell.
 
 ```bash
 ./scripts/bootstrap.sh
+./scripts/setup-telegram-control.sh       # no secrets; prepares dedicated Hermes profile
+./scripts/tg-notify.sh RECEIVED dy-example --detail '任务已接收'  # after Telegram is configured
 ./scripts/pipeline.sh submit 'https://v.douyin.com/...'
 ./scripts/pipeline.sh localize dy-<aweme_id> localization.json
 ./scripts/pipeline.sh render dy-<aweme_id>
@@ -39,3 +41,7 @@ The worker does not invent language:
   `speech | visual_text | mixed | visual_only`.
 
 All Burmese localization is stored in a durable `localization.json`.
+
+## Telegram control plane
+
+Telegram is intentionally thin. The dedicated Hermes profile accepts a Douyin URL plus `/status`, `/cancel`, and `/help`; it does not expose arbitrary shell/ADB/root commands. Runtime bot credentials and allowlist values stay in the Hermes profile `.env`, never in this repository. `tg-notify.sh` is best-effort by default so a Telegram outage cannot change publication truth or cause a duplicate COMMIT.
