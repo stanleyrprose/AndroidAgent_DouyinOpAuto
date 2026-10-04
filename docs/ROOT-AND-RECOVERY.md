@@ -12,6 +12,7 @@
 - file-based encryption active
 - persistent root works
 - KernelSU v3.3.0, LKM mode
+- Zygisk Next 1.5.0 installed as a KernelSU module; no Magisk or second root implementation is installed
 
 The operational conclusion is important: **bootloader unlock is not required for the current root/runtime design.**
 
