@@ -24,6 +24,9 @@ import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiDeviceExt;
 import androidx.test.uiautomator.UiObject2;
 
+import com.stanley.y700automation.vision.VisionTemplateLocator;
+import com.stanley.y700automation.vision.VisionV0Harness;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -60,6 +63,10 @@ public class AutomationInstrumentedTest {
     private long workflowStartedElapsedMs;
     private boolean testMode;
     private int testObserveFailuresRemaining;
+    private VisionTemplateLocator.Config visionConfig;
+    private VisionTemplateLocator visionLocator;
+    private JSONObject lastVisionContext;
+    private boolean visionRequested;
 
     @Test
     public void runWorkflow() throws Exception {
@@ -89,12 +96,17 @@ public class AutomationInstrumentedTest {
             testObserveFailuresRemaining = testMode
                     ? Math.max(0, Math.min(5, request.optInt("test_observe_failures", 0)))
                     : 0;
+            visionRequested = request.has("vision");
+            visionConfig = new VisionTemplateLocator.Config(request.optJSONObject("vision"));
+            visionLocator = null;
+            lastVisionContext = null;
             int protocol = request.optInt("protocol_version", -1);
 
             result.put("job_id", jobId);
             result.put("session_id", sessionId);
             result.put("driver_version", DRIVER_VERSION);
             result.put("protocol_version", PROTOCOL_VERSION);
+            if (visionRequested) result.put("vision_policy", visionConfig.json());
 
             if (protocol != PROTOCOL_VERSION) {
                 result.put("status", "BLOCKED");
@@ -166,6 +178,7 @@ public class AutomationInstrumentedTest {
             }
             result.put("actions", actionResults);
             result.put("duration_ms", SystemClock.elapsedRealtime() - workflowStart);
+            attachVisionMetrics(result);
             emitResult(result);
         } catch (ActionFailure t) {
             if (jobId == null) jobId = "unknown";
@@ -179,6 +192,7 @@ public class AutomationInstrumentedTest {
             result.put("actions", actionResults);
             result.put("error", error(t.code, t.getMessage(), t.retryable));
             result.put("duration_ms", SystemClock.elapsedRealtime() - workflowStart);
+            attachVisionMetrics(result);
             emitResult(result);
         } catch (Throwable t) {
             if (jobId == null) jobId = "unknown";
@@ -193,6 +207,7 @@ public class AutomationInstrumentedTest {
             result.put("error", error("DRIVER_CRASHED",
                     t.getClass().getSimpleName() + ": " + String.valueOf(t.getMessage()), false));
             result.put("duration_ms", SystemClock.elapsedRealtime() - workflowStart);
+            attachVisionMetrics(result);
             emitResult(result);
         }
     }
@@ -355,6 +370,7 @@ public class AutomationInstrumentedTest {
         JSONObject out = new JSONObject();
         out.put("action_id", actionId);
         out.put("action", name);
+        lastVisionContext = null;
 
         try {
             JSONObject precondition = action.optJSONObject("precondition");
@@ -449,6 +465,9 @@ public class AutomationInstrumentedTest {
             evidence.put("precondition", action.optJSONObject("precondition"));
             evidence.put("postcondition", action.optJSONObject("expect"));
             evidence.put("error", err);
+            if (lastVisionContext != null) {
+                evidence.put("vision", lastVisionContext);
+            }
             evidence.put("package", device == null ? JSONObject.NULL : nullableString(device.getCurrentPackageName()));
 
             try {
@@ -631,7 +650,109 @@ public class AutomationInstrumentedTest {
     }
 
 
+    private boolean hasSemanticCriteria(JSONObject spec) {
+        if (spec == null) return false;
+        String[] keys = new String[]{
+                "resource_id", "text", "text_contains", "content_desc",
+                "content_desc_contains", "class_name", "package", "clickable",
+                "enabled", "selected", "checked", "checkable", "scrollable",
+                "has_descendant", "has_child", "has_parent", "has_ancestor"
+        };
+        for (String key : keys) {
+            if (spec.has(key)) return true;
+        }
+        return false;
+    }
+
+    private VisionTemplateLocator ensureVisionLocator() throws ActionFailure {
+        if (visionConfig == null || !visionConfig.enabled) {
+            throw new ActionFailure(
+                    VisionTemplateLocator.ERR_POLICY_BLOCKED,
+                    "vision_enabled=false",
+                    false,
+                    "BLOCKED");
+        }
+        if (visionLocator == null) {
+            try {
+                long seed = Integer.toUnsignedLong(
+                        ((jobId == null ? "" : jobId) + "|" +
+                                (sessionId == null ? "" : sessionId)).hashCode());
+                visionLocator = new VisionTemplateLocator(
+                        instrumentation, device, visionConfig, seed);
+            } catch (VisionV0Harness.VisionFailure e) {
+                throw visionActionFailure(e);
+            }
+        }
+        return visionLocator;
+    }
+
+    private ActionFailure visionActionFailure(VisionV0Harness.VisionFailure e) {
+        boolean retryable =
+                VisionV0Harness.ERR_TEMPLATE_NOT_FOUND.equals(e.code) ||
+                VisionV0Harness.ERR_CAPTURE_FAILED.equals(e.code) ||
+                VisionV0Harness.ERR_STALE_TARGET.equals(e.code) ||
+                VisionV0Harness.ERR_ROTATION_MISMATCH.equals(e.code) ||
+                VisionV0Harness.ERR_OOM_THROTTLED.equals(e.code);
+        String status = VisionTemplateLocator.ERR_POLICY_BLOCKED.equals(e.code)
+                ? "BLOCKED" : "FAILED";
+        return new ActionFailure(e.code, e.getMessage(), retryable, status);
+    }
+
+    private void validateVisionSelectors(JSONObject spec) throws ActionFailure {
+        if (spec == null) return;
+        try {
+            if ("vision_template".equals(spec.optString("type"))) {
+                VisionTemplateLocator.validateTemplateSpec(spec);
+                return;
+            }
+            if (spec.has("type")) {
+                throw new VisionV0Harness.VisionFailure(
+                        VisionV0Harness.ERR_TEMPLATE_CONFIG,
+                        "V1 only supports type=vision_template");
+            }
+            JSONArray fallback = spec.optJSONArray("fallback");
+            if (spec.has("fallback") && fallback == null) {
+                throw new VisionV0Harness.VisionFailure(
+                        VisionV0Harness.ERR_TEMPLATE_CONFIG,
+                        "fallback must be an array");
+            }
+            if (fallback != null) {
+                for (int i = 0; i < fallback.length(); i++) {
+                    JSONObject item = fallback.optJSONObject(i);
+                    if (item == null || !"vision_template".equals(item.optString("type"))) {
+                        throw new VisionV0Harness.VisionFailure(
+                                VisionV0Harness.ERR_TEMPLATE_CONFIG,
+                                "V1 fallback entries must be vision_template objects");
+                    }
+                    VisionTemplateLocator.validateTemplateSpec(item);
+                }
+            }
+        } catch (VisionV0Harness.VisionFailure e) {
+            throw visionActionFailure(e);
+        }
+    }
+
+    private void attachVisionMetrics(JSONObject result) {
+        try {
+            if (visionRequested && visionConfig != null) {
+                result.put("vision_policy", visionConfig.json());
+            }
+            if (visionLocator != null) {
+                result.put("vision_metrics", visionLocator.metrics().json());
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void validateSelectorKeys(JSONObject spec) throws ActionFailure {
+        if (spec == null || spec.length() == 0) {
+            throw new ActionFailure("JOB_PAYLOAD_INVALID", "selector is required", false);
+        }
+        validateVisionSelectors(spec);
+        if ("vision_template".equals(spec.optString("type"))) {
+            return;
+        }
+
         Iterator<String> keys = spec.keys();
         while (keys.hasNext()) {
             String key = keys.next();
@@ -653,6 +774,7 @@ public class AutomationInstrumentedTest {
                 case "has_child":
                 case "has_parent":
                 case "has_ancestor":
+                case "fallback":
                     break;
                 default:
                     throw new ActionFailure(
@@ -775,13 +897,117 @@ public class AutomationInstrumentedTest {
     }
 
     private JSONObject click(JSONObject action) throws Exception {
-        UiObject2 target = findUnique(action.optJSONObject("selector"));
-        JSONObject resolved = elementJson(target);
-        target.click();
-        verifyExpectation(action.optJSONObject("expect"), action.optLong("timeout_ms", 10000L));
-        JSONObject out = new JSONObject();
-        out.put("resolved_element", resolved);
-        return out;
+        JSONObject selector = action.optJSONObject("selector");
+        if (selector == null || selector.length() == 0) {
+            throw new ActionFailure("JOB_PAYLOAD_INVALID", "click requires selector", false);
+        }
+        validateSelectorKeys(selector);
+
+        JSONObject visionSpec = VisionTemplateLocator.visionSpec(selector);
+        boolean semanticAvailable = hasSemanticCriteria(selector);
+        if (semanticAvailable) {
+            List<UiObject2> matches = findObjects(selector);
+            if (matches.size() == 1) {
+                UiObject2 target = matches.get(0);
+                JSONObject resolved = elementJson(target);
+                target.click();
+                verifyExpectation(
+                        action.optJSONObject("expect"),
+                        action.optLong("timeout_ms", 10000L));
+                return new JSONObject()
+                        .put("locator_source", "semantic")
+                        .put("resolved_element", resolved);
+            }
+
+            if (visionSpec == null || visionConfig == null || !visionConfig.enabled) {
+                if (matches.isEmpty()) {
+                    throw new ActionFailure(
+                            "ELEMENT_NOT_FOUND", "selector matched 0 elements", true);
+                }
+                throw new ActionFailure(
+                        "SELECTOR_AMBIGUOUS",
+                        "selector matched " + matches.size() + " elements",
+                        false);
+            }
+            ensureVisionLocator().noteSemanticFallback();
+        } else if (visionSpec == null) {
+            throw new ActionFailure(
+                    "JOB_PAYLOAD_INVALID",
+                    "selector has neither semantic criteria nor vision_template",
+                    false);
+        }
+
+        String sideEffect = action.optString(
+                "side_effect", defaultSideEffect(action.optString("action", "")));
+        if ("EXTERNAL_IRREVERSIBLE".equals(sideEffect)) {
+            throw new ActionFailure(
+                    VisionTemplateLocator.ERR_POLICY_BLOCKED,
+                    "V1 denies Vision routing for EXTERNAL_IRREVERSIBLE actions",
+                    false,
+                    "BLOCKED");
+        }
+
+        JSONObject effectiveVision = new JSONObject(visionSpec.toString());
+        if (!effectiveVision.has("expected_package") && selector.has("package")) {
+            effectiveVision.put("expected_package", selector.getString("package"));
+        }
+        VisionTemplateLocator locator = ensureVisionLocator();
+        VisionTemplateLocator.Resolved resolved;
+        try {
+            resolved = locator.resolve(effectiveVision);
+            lastVisionContext = new JSONObject(resolved.metadata.toString())
+                    .put("route", semanticAvailable
+                            ? "SEMANTIC_TO_VISION_TEMPLATE"
+                            : "VISION_TEMPLATE");
+            locator.validatePreAction(resolved);
+        } catch (VisionV0Harness.VisionFailure e) {
+            if (lastVisionContext == null) {
+                lastVisionContext = new JSONObject()
+                        .put("locator_type", "vision_template")
+                        .put("template", effectiveVision.optString("template", ""))
+                        .put("template_sha256",
+                                effectiveVision.optString("template_sha256", ""))
+                        .put("error_code", e.code)
+                        .put("error_message", e.getMessage());
+            } else {
+                lastVisionContext.put("error_code", e.code)
+                        .put("error_message", e.getMessage());
+            }
+            throw visionActionFailure(e);
+        }
+
+        int[] point = locator.clickPoint(resolved, false);
+        lastVisionContext.put("click_policy", resolved.clickPolicy)
+                .put("click_point", new JSONArray().put(point[0]).put(point[1]));
+        boolean clicked = device.click(point[0], point[1]);
+        if (!clicked) {
+            throw new ActionFailure(
+                    "ACTION_FAILED",
+                    "UiDevice.click returned false for vision target",
+                    true);
+        }
+
+        try {
+            verifyExpectation(
+                    action.optJSONObject("expect"),
+                    action.optLong("timeout_ms", 10000L));
+            lastVisionContext.put("postcondition_pass", true);
+        } catch (ActionFailure e) {
+            locator.notePostconditionFailure();
+            lastVisionContext.put("postcondition_pass", false)
+                    .put("postcondition_error", e.getMessage());
+            throw new ActionFailure(
+                    "VISION_POSTCONDITION_FAILED",
+                    e.getMessage(),
+                    e.retryable,
+                    e.status);
+        }
+
+        return new JSONObject()
+                .put("locator_source", "vision_template")
+                .put("resolved_target", resolved.metadata)
+                .put("click_point", new JSONArray().put(point[0]).put(point[1]))
+                .put("postcondition_pass", true);
     }
 
 

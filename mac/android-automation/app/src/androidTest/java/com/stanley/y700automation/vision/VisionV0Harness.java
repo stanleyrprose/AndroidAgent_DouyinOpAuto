@@ -678,14 +678,25 @@ public final class VisionV0Harness {
         return n > 1 ? m2 / (n - 1) : 0.0;
     }
 
-    private static long fingerprint(Bitmap b) {
+    public static long fingerprintRegion(Bitmap b, Rect roi) throws VisionFailure {
+        if (b == null || b.isRecycled()) {
+            throw new VisionFailure(ERR_CAPTURE_FAILED, "bitmap unavailable for fingerprint");
+        }
+        Rect effective = roi == null
+                ? new Rect(0, 0, b.getWidth(), b.getHeight())
+                : new Rect(roi);
+        validateRoi(b.getWidth(), b.getHeight(), effective);
         final int gx = 24;
         final int gy = 24;
         long h = 0xcbf29ce484222325L;
         for (int yy = 0; yy < gy; yy++) {
-            int y = Math.min(b.getHeight() - 1, (int) ((yy + 0.5) * b.getHeight() / gy));
+            int y = Math.min(
+                    effective.bottom - 1,
+                    effective.top + (int) ((yy + 0.5) * effective.height() / gy));
             for (int xx = 0; xx < gx; xx++) {
-                int x = Math.min(b.getWidth() - 1, (int) ((xx + 0.5) * b.getWidth() / gx));
+                int x = Math.min(
+                        effective.right - 1,
+                        effective.left + (int) ((xx + 0.5) * effective.width() / gx));
                 int c = b.getPixel(x, y);
                 int gray = (Color.red(c) * 77 + Color.green(c) * 150 + Color.blue(c) * 29) >> 8;
                 h ^= (gray & 0xff);
@@ -693,6 +704,14 @@ public final class VisionV0Harness {
             }
         }
         return h;
+    }
+
+    private static long fingerprint(Bitmap b) {
+        try {
+            return fingerprintRegion(b, null);
+        } catch (VisionFailure impossible) {
+            return 0L;
+        }
     }
 
     public static JSONObject percentiles(List<Double> samples) throws Exception {

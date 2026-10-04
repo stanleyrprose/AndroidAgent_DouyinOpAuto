@@ -7,6 +7,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -110,6 +111,42 @@ def validate_request(req: dict[str, Any]) -> None:
     max_duration = int(req.get("max_duration_ms", 600000))
     if not 1000 <= max_duration <= 600000:
         raise UiJobError("JOB_PAYLOAD_INVALID: max_duration_ms out of range")
+
+    vision = req.get("vision")
+    if vision is not None:
+        if not isinstance(vision, dict):
+            raise UiJobError("JOB_PAYLOAD_INVALID: vision must be an object")
+        allowed = {
+            "enabled", "mode", "template_enabled",
+            "allow_high_risk_vision", "evidence_max_bytes",
+        }
+        unknown = sorted(set(vision) - allowed)
+        if unknown:
+            raise UiJobError(
+                "JOB_PAYLOAD_INVALID: unsupported vision keys=" + ",".join(unknown)
+            )
+        if "enabled" in vision and not isinstance(vision["enabled"], bool):
+            raise UiJobError("JOB_PAYLOAD_INVALID: vision.enabled must be boolean")
+        if "template_enabled" in vision and not isinstance(
+            vision["template_enabled"], bool
+        ):
+            raise UiJobError(
+                "JOB_PAYLOAD_INVALID: vision.template_enabled must be boolean"
+            )
+        if "allow_high_risk_vision" in vision and not isinstance(
+            vision["allow_high_risk_vision"], bool
+        ):
+            raise UiJobError(
+                "JOB_PAYLOAD_INVALID: vision.allow_high_risk_vision must be boolean"
+            )
+        mode = str(vision.get("mode", "fallback"))
+        if mode not in {"off", "benchmark_only", "fallback"}:
+            raise UiJobError("JOB_PAYLOAD_INVALID: unsupported vision.mode")
+        quota = int(vision.get("evidence_max_bytes", 64 * 1024 * 1024))
+        if not 8 * 1024 * 1024 <= quota <= 512 * 1024 * 1024:
+            raise UiJobError(
+                "JOB_PAYLOAD_INVALID: vision.evidence_max_bytes out of range"
+            )
 
 
 def bridge_submit(command: str, bridge_id: str, timeout_sec: int) -> str:
@@ -337,6 +374,107 @@ def export_failure_evidence(
     return ref
 
 
+VISION_TERMINAL_STATES = {"PASS", "FAILED", "BLOCKED", "TIMEOUT", "CANCELLED"}
+
+
+def _tree_bytes(path: Path) -> int:
+    total = 0
+    if not path.is_dir():
+        return 0
+    for item in path.rglob("*"):
+        if item.is_file():
+            try:
+                total += item.stat().st_size
+            except FileNotFoundError:
+                pass
+    return total
+
+
+def enforce_vision_evidence_quota(
+    max_bytes: int,
+    *,
+    current_ui_dir: Path,
+) -> tuple[int, int]:
+    """Evict oldest terminal/unpinned Vision evidence, never durable job state."""
+    candidates: list[tuple[float, Path, int]] = []
+    total = 0
+    if not UI_JOBS.is_dir():
+        return 0, 0
+
+    for job_dir in UI_JOBS.iterdir():
+        if not job_dir.is_dir():
+            continue
+        evidence = job_dir / "evidence"
+        marker = evidence / "vision-metadata.json"
+        if not marker.is_file():
+            continue
+        size = _tree_bytes(evidence)
+        total += size
+        if job_dir == current_ui_dir:
+            continue
+        if (job_dir / ".pinned").exists() or (evidence / ".pinned").exists():
+            continue
+        state = read_json(job_dir / "state.json", {}) or {}
+        status = state.get("status")
+        if status not in VISION_TERMINAL_STATES:
+            continue
+        try:
+            age = marker.stat().st_mtime
+        except FileNotFoundError:
+            continue
+        candidates.append((age, job_dir, size))
+
+    evicted = 0
+    for _, job_dir, size in sorted(candidates, key=lambda row: row[0]):
+        if total <= max_bytes:
+            break
+        evidence = job_dir / "evidence"
+        if not evidence.is_dir():
+            continue
+        shutil.rmtree(evidence)
+        atomic_json(job_dir / "vision-evidence-evicted.json", {
+            "evicted_at": now_iso(),
+            "bytes_reclaimed": size,
+            "reason": "vision_evidence_quota",
+        })
+        total = max(0, total - size)
+        evicted += 1
+    return evicted, total
+
+
+def finalize_vision_evidence(
+    ui_dir: Path,
+    req: dict[str, Any],
+    result: dict[str, Any],
+) -> None:
+    vision = req.get("vision")
+    if not isinstance(vision, dict):
+        return
+    quota = int(vision.get("evidence_max_bytes", 64 * 1024 * 1024))
+    marker = {
+        "timestamp": now_iso(),
+        "job_id": req.get("job_id"),
+        "session_id": req.get("session_id"),
+        "status": result.get("status"),
+        "policy": result.get("vision_policy") or vision,
+        "metrics": result.get("vision_metrics") or {},
+    }
+    atomic_json(ui_dir / "evidence" / "vision-metadata.json", marker)
+    evicted, retained = enforce_vision_evidence_quota(
+        quota, current_ui_dir=ui_dir
+    )
+    metrics = result.setdefault("vision_metrics", {})
+    metrics["vision_evidence_eviction_count"] = (
+        int(metrics.get("vision_evidence_eviction_count", 0)) + evicted
+    )
+    result["vision_evidence"] = {
+        "metadata": "evidence/vision-metadata.json",
+        "quota_bytes": quota,
+        "retained_bytes_observed": retained,
+        "evicted_job_count": evicted,
+    }
+
+
 def write_checkpoint(ui_dir: Path, req: dict[str, Any], completed_index: int, safe: bool) -> None:
     actions = req["actions"]
     last = actions[completed_index] if completed_index >= 0 else None
@@ -473,6 +611,8 @@ def run_workflow(path: Path) -> dict[str, Any]:
 
     result["host_duration_ms"] = round((time.monotonic() - started) * 1000, 1)
     result["host_exit_code"] = rc
+    if isinstance(req.get("vision"), dict):
+        finalize_vision_evidence(ui_dir, req, result)
     atomic_json(ui_dir / "result.json", result)
     atomic_json(ui_dir / "state.json", {"status": result.get("status", "FAILED"), "updated_at": now_iso()})
     append_journal(ui_dir / "journal.jsonl", {
