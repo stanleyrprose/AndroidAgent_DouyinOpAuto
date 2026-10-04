@@ -14,6 +14,6 @@ Hard boundaries:
 - Never blindly replay COMMIT after timeout or ambiguity.
 - GitHub/main is code/config/docs SOT; live Mac/Y700 durable state is runtime SOT.
 - Never expose bot tokens, allowed-user ids, cookies, bearer tokens, capability URLs, auth databases, or private runtime secrets.
-- For Telegram-originated jobs, emit public-safe state transitions with `mac/production-pipeline/scripts/tg-notify.sh`.
+- For Telegram-originated jobs, emit public-safe state transitions with `bash mac/production-pipeline/scripts/tg-notify.sh`.
 - Notification failure is observational only: it must not mutate job truth, trigger republish, or weaken fail-closed behavior.
 - Reject unrelated requests with a concise explanation that this bot is dedicated to Y700 automation.
