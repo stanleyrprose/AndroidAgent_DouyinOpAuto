@@ -48,8 +48,16 @@ def detect_state(elements: list[dict[str, Any]]) -> dict[str, Any]:
     elif f"{TIKTOK}:id/upload_hot_area" in ids:
         state = "CREATE"
         evidence.append("upload_hot_area")
-    elif f"{TIKTOK}:id/o70" in ids and (
-        "首页" in texts or "主页" in texts or "创建" in descs
+    elif (
+        (
+            f"{TIKTOK}:id/o70" in ids
+            and ("首页" in texts or "主页" in texts or "创建" in descs)
+        )
+        or (
+            "创建" in descs
+            and ("首页" in texts or "首页" in descs)
+            and ("主页" in texts or "主页" in descs)
+        )
     ):
         state = "HOME"
         evidence.append("bottom_nav_create")
