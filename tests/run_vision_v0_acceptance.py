@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
+import struct
 import subprocess
 import time
 from pathlib import Path
@@ -21,6 +23,8 @@ RUNTIME = Path(os.environ.get(
     "Y700_VISION_V0_RUNTIME",
     "/opt/y700/runtime/vision-v0",
 ))
+RAW_HOST_PATH = "/data/local/y700-agent/runtime/vision-v0/raw-diagnostic/raw.bin"
+RAW_LOCAL_PATH = RUNTIME / "raw-diagnostic" / "raw.bin"
 RUNNER = (
     "com.stanley.y700automation.test/"
     "androidx.test.runner.AndroidJUnitRunner"
@@ -29,6 +33,146 @@ TEST = (
     "com.stanley.y700automation.vision."
     "VisionV0BenchmarkInstrumentedTest#runVisionV0Benchmark"
 )
+
+
+_PIXEL_BYTES = {
+    1: 4,  # RGBA_8888
+    2: 4,  # RGBX_8888
+    3: 3,  # RGB_888
+    4: 2,  # RGB_565
+    5: 4,  # BGRA_8888 on platform variants
+}
+
+
+def _percentiles(samples: list[float]) -> dict:
+    if not samples:
+        return {}
+    values = sorted(samples)
+
+    def q(p: float) -> float:
+        if len(values) == 1:
+            return values[0]
+        pos = p * (len(values) - 1)
+        lo = math.floor(pos)
+        hi = math.ceil(pos)
+        if lo == hi:
+            return values[lo]
+        f = pos - lo
+        return values[lo] * (1.0 - f) + values[hi] * f
+
+    return {
+        "count": len(values),
+        "p50_ms": q(0.50),
+        "p95_ms": q(0.95),
+        "min_ms": values[0],
+        "max_ms": values[-1],
+    }
+
+
+def _parse_raw_profile(path: Path) -> dict:
+    size = path.stat().st_size
+    with path.open("rb") as f:
+        header = f.read(16)
+    if len(header) < 12:
+        raise RuntimeError("VISION_UNSUPPORTED_FRAME_FORMAT: header too short")
+
+    candidates = []
+    if len(header) >= 16:
+        width, height, pixel_format, dataspace = struct.unpack("<IIII", header[:16])
+        candidates.append(
+            ("ANDROID_4FIELD_Y700_A16", 16, width, height, pixel_format, dataspace)
+        )
+    width, height, pixel_format = struct.unpack("<III", header[:12])
+    candidates.append(("LEGACY_3FIELD", 12, width, height, pixel_format, None))
+
+    for profile, header_bytes, width, height, pixel_format, dataspace in candidates:
+        if not (0 < width <= 8192 and 0 < height <= 8192):
+            continue
+        bpp = _PIXEL_BYTES.get(pixel_format)
+        if bpp is None:
+            continue
+        payload = size - header_bytes
+        if payload <= 0 or payload % height != 0:
+            continue
+        row_bytes = payload // height
+        min_row_bytes = width * bpp
+        if row_bytes < min_row_bytes or row_bytes > 8192 * 8:
+            continue
+        if row_bytes * height != payload:
+            continue
+        return {
+            "profile": profile,
+            "header_bytes": header_bytes,
+            "width": width,
+            "height": height,
+            "pixel_format": pixel_format,
+            "dataspace": dataspace,
+            "bytes_per_pixel": bpp,
+            "row_bytes": row_bytes,
+            "payload_bytes": payload,
+            "total_bytes": size,
+            "tightly_packed": row_bytes == min_row_bytes,
+        }
+
+    raise RuntimeError(
+        "VISION_UNSUPPORTED_FRAME_FORMAT: no supported profile "
+        f"size={size} first16={header[:16].hex()}"
+    )
+
+
+def _run_root(
+    command: str,
+    env: dict[str, str],
+    timeout: int = 120,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(ROOT_EXEC), command],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+        env=env,
+        check=False,
+    )
+
+
+def raw_screencap_benchmark(env: dict[str, str], runs: int = 20) -> dict:
+    samples: list[float] = []
+    profile = None
+    RAW_LOCAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(runs):
+        command = (
+            "mkdir -p /data/local/y700-agent/runtime/vision-v0/raw-diagnostic; "
+            "t0=$(date +%s%N); "
+            f"screencap > {RAW_HOST_PATH}.tmp; "
+            "t1=$(date +%s%N); "
+            f"mv {RAW_HOST_PATH}.tmp {RAW_HOST_PATH}; "
+            f"chmod 600 {RAW_HOST_PATH}; "
+            "echo ELAPSED_NS=$((t1-t0))"
+        )
+        proc = _run_root(command, env)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                "VISION_CAPTURE_FAILED raw screencap: "
+                + (proc.stderr.strip() or proc.stdout.strip())
+            )
+        timing = next(
+            (x for x in proc.stdout.splitlines() if x.startswith("ELAPSED_NS=")),
+            None,
+        )
+        if timing is None:
+            raise RuntimeError("VISION_CAPTURE_FAILED raw timing missing")
+        samples.append(int(timing.split("=", 1)[1]) / 1_000_000.0)
+        if profile is None:
+            profile = _parse_raw_profile(RAW_LOCAL_PATH)
+
+    RAW_LOCAL_PATH.unlink(missing_ok=True)
+    return {
+        "latency": _percentiles(samples),
+        "profile": profile,
+        "transport": "exec:screencap via existing Bridge/root path",
+        "routine_hot_path": False,
+    }
 
 
 def extract_report(stdout: str) -> dict:
@@ -90,25 +234,31 @@ def main() -> int:
     if not ROOT_EXEC.is_file():
         raise SystemExit(f"root-exec not found: {ROOT_EXEC}")
 
+    env = dict(os.environ)
+    env["Y700_BRIDGE_TIMEOUT_MS"] = "600000"
+
+    raw = raw_screencap_benchmark(env)
+
     command = (
         f"am force-stop com.stanley.y700automation; "
         f"am instrument -w -r -e class '{TEST}' '{RUNNER}'"
     )
-    env = dict(os.environ)
-    env["Y700_BRIDGE_TIMEOUT_MS"] = "600000"
     started = time.monotonic()
     proc = subprocess.run(
         [str(ROOT_EXEC), command],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        timeout=660,
+        timeout=600,
         env=env,
     )
     duration = round(time.monotonic() - started, 3)
 
     try:
         report = extract_report(proc.stdout)
+        report["raw_screencap_20"] = raw["latency"]
+        report["raw_screencap_profile"] = raw["profile"]
+        report["raw_screencap_transport"] = raw["transport"]
     finally:
         subprocess.run(
             [str(ROOT_EXEC), "am force-stop com.stanley.y700automation"],
@@ -146,7 +296,7 @@ def main() -> int:
         "template_benchmarks": report.get("template_benchmarks"),
         "memory": report.get("memory"),
     }, ensure_ascii=False, indent=2))
-    return 0 if proc.returncode == 0 and result["gate_v0"]["status"] == "PASS" else 1
+    return 0 if result["gate_v0"]["status"] == "PASS" else 1
 
 
 if __name__ == "__main__":

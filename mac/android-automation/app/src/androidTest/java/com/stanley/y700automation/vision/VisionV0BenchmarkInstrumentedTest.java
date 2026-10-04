@@ -11,6 +11,7 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -49,8 +50,23 @@ public class VisionV0BenchmarkInstrumentedTest {
         report.put("production_routing_enabled", false);
         report.put("ocr_enabled", false);
 
+        device.wakeUp();
+        try (ParcelFileDescriptor ignored =
+                     instrumentation.getUiAutomation().executeShellCommand("wm dismiss-keyguard")) {
+            // Command completion is enough; there is no stdout to consume.
+        }
+        SystemClock.sleep(350L);
+
         launchBenchmarkActivity(targetContext);
-        SystemClock.sleep(700L);
+        String expectedPackage = targetContext.getPackageName();
+        for (int i = 0; i < 30 && !expectedPackage.equals(device.getCurrentPackageName()); i++) {
+            SystemClock.sleep(100L);
+        }
+        String currentPackage = device.getCurrentPackageName();
+        report.put("current_package", currentPackage);
+        assertEquals("benchmark app must be foreground before capture",
+                expectedPackage, currentPackage);
+        SystemClock.sleep(350L);
 
         // The visible target is drawn inside one Canvas view and deliberately has
         // no semantic child node. This proves the benchmark exercises the exact
@@ -86,18 +102,6 @@ public class VisionV0BenchmarkInstrumentedTest {
         report.put("capture_stability_200", VisionV0Harness.percentiles(stabilityCapture));
         report.put("peak_concurrent_frames", VisionV0Harness.maxActiveFrames());
         assertTrue("frame ownership must remain bounded", VisionV0Harness.maxActiveFrames() <= 2);
-
-        List<Double> rawCapture = new ArrayList<>();
-        JSONObject rawProfile = null;
-        for (int i = 0; i < 20; i++) {
-            long t0 = SystemClock.elapsedRealtimeNanos();
-            byte[] raw = VisionV0Harness.captureRawScreencap(instrumentation);
-            rawCapture.add(msSince(t0));
-            JSONObject parsed = VisionV0Harness.parseRawScreencap(raw);
-            if (rawProfile == null) rawProfile = parsed;
-        }
-        report.put("raw_screencap_20", VisionV0Harness.percentiles(rawCapture));
-        report.put("raw_screencap_profile", rawProfile);
 
         Bitmap idleTemplate = VisionV0Harness.makeBenchmarkTemplate(
                 targetContext, false, false);
@@ -146,6 +150,10 @@ public class VisionV0BenchmarkInstrumentedTest {
             templateBench.put("full_screen", matchBench(frame, idleTemplate, full, false, 5));
             templateBench.put("alpha_mask", matchBench(
                     frame, idleAlphaTemplate, roi500, true, 10));
+            List<Double> narrowScales =
+                    VisionV0Harness.deterministicScales(0.90, 1.10, 0.05);
+            templateBench.put("narrow_multi_scale", multiScaleBench(
+                    frame, idleTemplate, roi500, false, narrowScales, 5));
         }
         report.put("template_benchmarks", templateBench);
 
@@ -232,6 +240,28 @@ public class VisionV0BenchmarkInstrumentedTest {
             times.add(msSince(t0));
         }
         return new JSONObject()
+                .put("latency", VisionV0Harness.percentiles(times))
+                .put("last", last == null ? JSONObject.NULL : last.json());
+    }
+
+    private static JSONObject multiScaleBench(
+            VisionV0Harness.Frame frame,
+            Bitmap template,
+            Rect roi,
+            boolean alpha,
+            List<Double> scales,
+            int runs) throws Exception {
+        List<Double> times = new ArrayList<>();
+        VisionV0Harness.VisionTarget last = null;
+        for (int i = 0; i < runs; i++) {
+            long t0 = SystemClock.elapsedRealtimeNanos();
+            last = VisionV0Harness.matchTemplateMultiScale(
+                    frame, template, roi, alpha, scales,
+                    MIN_CONFIDENCE, MIN_VARIANCE, MIN_SECOND_BEST_DELTA);
+            times.add(msSince(t0));
+        }
+        return new JSONObject()
+                .put("scales", new JSONArray(scales))
                 .put("latency", VisionV0Harness.percentiles(times))
                 .put("last", last == null ? JSONObject.NULL : last.json());
     }

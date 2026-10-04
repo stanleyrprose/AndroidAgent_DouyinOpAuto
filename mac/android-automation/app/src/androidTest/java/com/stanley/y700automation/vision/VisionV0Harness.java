@@ -130,6 +130,7 @@ public final class VisionV0Harness {
         public final String source;
         public final String method;
         public final double variance;
+        public final double scale;
 
         VisionTarget(
                 Rect bbox,
@@ -137,7 +138,8 @@ public final class VisionV0Harness {
                 double secondBest,
                 Frame frame,
                 String method,
-                double variance) {
+                double variance,
+                double scale) {
             this.bbox = bbox;
             this.centerX = bbox.centerX();
             this.centerY = bbox.centerY();
@@ -151,6 +153,7 @@ public final class VisionV0Harness {
             this.source = "vision_template";
             this.method = method;
             this.variance = variance;
+            this.scale = scale;
         }
 
         public JSONObject json() throws Exception {
@@ -163,6 +166,7 @@ public final class VisionV0Harness {
                     .put("screen_generation", frameGeneration)
                     .put("source_context", new JSONObject()
                             .put("method", method)
+                            .put("scale", scale)
                             .put("second_best", secondBest)
                             .put("candidate_variance", variance));
         }
@@ -507,7 +511,8 @@ public final class VisionV0Harness {
                     second,
                     frame,
                     useAlphaMask ? "TM_CCORR_NORMED_MASKED" : "TM_CCOEFF_NORMED",
-                    variance);
+                    variance,
+                    1.0);
         } finally {
             mean.release();
             stddev.release();
@@ -519,6 +524,75 @@ public final class VisionV0Harness {
             templateMat.release();
             frameMat.release();
         }
+    }
+
+    public static VisionTarget matchTemplateMultiScale(
+            Frame frame,
+            Bitmap template,
+            Rect roi,
+            boolean useAlphaMask,
+            List<Double> scales,
+            double minConfidence,
+            double minVariance,
+            double minSecondBestDelta) throws Exception {
+        if (scales == null || scales.isEmpty()) {
+            throw new VisionFailure(ERR_TEMPLATE_CONFIG, "scale set must be non-empty");
+        }
+
+        VisionTarget best = null;
+        for (double scale : scales) {
+            if (!Double.isFinite(scale) || scale <= 0.0) {
+                throw new VisionFailure(ERR_TEMPLATE_CONFIG, "scale must be finite and > 0");
+            }
+            int width = Math.max(1, (int) Math.round(template.getWidth() * scale));
+            int height = Math.max(1, (int) Math.round(template.getHeight() * scale));
+            if (width > roi.width() || height > roi.height()) {
+                continue;
+            }
+
+            Bitmap scaled = Math.abs(scale - 1.0) < 1e-9
+                    ? template
+                    : Bitmap.createScaledBitmap(template, width, height, true);
+            try {
+                VisionTarget candidate = matchTemplate(
+                        frame, scaled, roi, useAlphaMask,
+                        0.0, minVariance, 0.0);
+                if (best == null || candidate.confidence > best.confidence) {
+                    best = new VisionTarget(
+                            candidate.bbox,
+                            candidate.confidence,
+                            candidate.secondBest,
+                            frame,
+                            candidate.method + "_MULTISCALE",
+                            candidate.variance,
+                            scale);
+                }
+            } catch (VisionFailure e) {
+                if (!ERR_TEMPLATE_NOT_FOUND.equals(e.code)) {
+                    throw e;
+                }
+            } finally {
+                if (scaled != template && !scaled.isRecycled()) {
+                    scaled.recycle();
+                }
+            }
+        }
+
+        if (best == null || !Double.isFinite(best.confidence) ||
+                best.confidence < minConfidence) {
+            throw new VisionFailure(ERR_TEMPLATE_NOT_FOUND,
+                    String.format(Locale.US, "multi-scale best below threshold=%.5f",
+                            minConfidence));
+        }
+        if (Double.isFinite(best.secondBest) &&
+                best.confidence - best.secondBest < minSecondBestDelta) {
+            throw new VisionFailure(ERR_TEMPLATE_AMBIGUOUS,
+                    String.format(Locale.US,
+                            "multi-scale best=%.5f second=%.5f delta=%.5f scale=%.4f",
+                            best.confidence, best.secondBest,
+                            best.confidence - best.secondBest, best.scale));
+        }
+        return best;
     }
 
     public static void validatePreAction(
