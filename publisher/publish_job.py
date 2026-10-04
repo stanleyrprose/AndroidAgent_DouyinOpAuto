@@ -323,14 +323,14 @@ def main():
     update("PREFLIGHT",args.job_id,publish_mode=mode,visibility=visibility)
     run([str(PREFLIGHT)])
 
+    commit_entered=False
     try:
         update("STAGING",args.job_id)
         run([sys.executable,str(STAGER),args.job_id])
 
-        # Sprint 7 migration is intentionally DRY_RUN-only.  The generic core
-        # prepares and verifies POST_CONFIG but exposes no final publish action.
-        # COMMIT remains on the previously accepted publisher path until it gets
-        # its own explicit acceptance gate.
+        # DRY_RUN remains frozen at POST_CONFIG and never clicks Publish.
+        # COMMIT below uses the same generic preparation path, but crosses a
+        # durable COMMITTING boundary immediately before its one irreversible click.
         if mode=="DRY_RUN":
             update("NAVIGATING",args.job_id,ui_engine="androidx-uiautomator-2.4")
             try:
@@ -366,37 +366,41 @@ def main():
         if not args.commit:
             raise PublishError("manifest requests COMMIT but --commit was not supplied")
 
-        update("NAVIGATING",args.job_id,ui_engine="legacy-publisher")
-        controller.go_to_post_config(reset=True)
+        if visibility!="PRIVATE":
+            raise PublishError("generic COMMIT currently requires PRIVATE visibility")
 
-        if title:
-            title_result=controller.set_title(title)
-        else:
-            title_result={"status":"SKIPPED","reason":"empty_title"}
+        update("NAVIGATING",args.job_id,ui_engine="androidx-uiautomator-2.4")
 
-        controller.set_caption(caption)
-        visibility_result=controller.set_visibility(visibility)
-        st=verify_post_config()
+        def before_irreversible():
+            nonlocal commit_entered
+            update("READY_TO_COMMIT",args.job_id,
+                   ui_engine="androidx-uiautomator-2.4",
+                   caption_verified=True,
+                   visibility="PRIVATE")
+            update("COMMITTING",args.job_id,
+                   ui_engine="androidx-uiautomator-2.4",
+                   visibility="PRIVATE")
+            commit_entered=True
 
-        update("READY_TO_COMMIT",args.job_id,
-               ui_engine="legacy-publisher",
-               title=title_result,
-               caption_verified=True,
-               visibility=visibility_result,
-               ui_state=st)
+        generic_result=generic_tiktok.commit_private(
+            caption,
+            title=title,
+            visibility=visibility,
+            album="Y700Agent",
+            before_irreversible=before_irreversible,
+        )
+        evidence=store_generic_evidence(job,generic_result)
+        submission={
+            "accepted":True,
+            "confirmation":"generic_commit_dispatched",
+            "engine":generic_result["engine"],
+            "ready_workflow_job_id":generic_result["workflow_job_id"],
+            "commit_preflight_workflow_job_id":generic_result["commit_preflight_workflow_job_id"],
+            "commit_workflow_job_id":generic_result["commit_workflow_job_id"],
+            "evidence":evidence,
+        }
 
-        update("COMMITTING",args.job_id)
-        submission=commit_publish(job,args.job_id)
-
-        if visibility=="PRIVATE":
-            verification=verify_private_post(job,caption)
-        else:
-            verification={
-                "verified":True,
-                "method":"submission_confirmation_only",
-                "note":"profile exact-caption verification is currently implemented for PRIVATE posts",
-            }
-
+        verification=verify_private_post(job,caption)
         controller.restore_input_method()
 
         PUBLISHED.mkdir(parents=True,exist_ok=True)
@@ -421,7 +425,13 @@ def main():
             generic_tiktok.force_stop()
         else:
             controller.restore_input_method()
-        update("FAILED",args.job_id,reason=str(e))
+        if mode=="COMMIT" and commit_entered:
+            update("AMBIGUOUS_COMMIT_NEEDS_RECONCILE",args.job_id,
+                   reason=str(e),
+                   ui_engine="androidx-uiautomator-2.4",
+                   retry_allowed=False)
+        else:
+            update("FAILED",args.job_id,reason=str(e))
         raise
 
 if __name__=="__main__":

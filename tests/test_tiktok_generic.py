@@ -49,10 +49,25 @@ class TikTokGenericCoreTests(unittest.TestCase):
             "自己",
         )
 
-    def test_dry_run_has_no_commit_api(self) -> None:
+    def test_commit_api_is_explicit_but_not_legacy_named(self) -> None:
         self.assertFalse(hasattr(controller, "tap_publish"))
-        self.assertFalse(hasattr(controller, "commit"))
         self.assertFalse(hasattr(controller, "publish"))
+        self.assertTrue(callable(controller.commit_private))
+        with self.assertRaisesRegex(controller.TikTokCoreError, "before_irreversible"):
+            controller.commit_private("caption")
+
+    def test_commit_actions_have_exactly_one_irreversible_publish_click(self) -> None:
+        actions = controller.build_commit_actions("caption")
+        publish = controller.RID["publish"]
+        clicks = [
+            a for a in actions
+            if a.get("action") == "click"
+            and (a.get("selector") or {}).get("resource_id") == publish
+        ]
+        self.assertEqual(len(clicks), 1)
+        self.assertEqual(clicks[0]["action_id"], "commit-publish")
+        self.assertEqual(clicks[0]["side_effect"], "EXTERNAL_IRREVERSIBLE")
+        self.assertEqual(actions[-1], clicks[0])
 
     def test_public_dry_run_fails_closed_before_runtime(self) -> None:
         with self.assertRaisesRegex(controller.TikTokCoreError, "PRIVATE required"):
@@ -125,15 +140,19 @@ class TikTokGenericCoreTests(unittest.TestCase):
                     self.assertIsInstance(value, dict)
                     check_selector(value)
 
-        actions = controller.build_dry_run_actions("caption", "Y700Agent")
-        for action in actions:
-            if isinstance(action.get("selector"), dict):
-                check_selector(action["selector"])
-            for contract in ("precondition", "expect"):
-                obj = action.get(contract) or {}
-                for key in ("selector", "absent_selector"):
-                    if isinstance(obj.get(key), dict):
-                        check_selector(obj[key])
+        action_sets = [
+            controller.build_dry_run_actions("caption", "Y700Agent"),
+            controller.build_commit_actions("caption"),
+        ]
+        for actions in action_sets:
+            for action in actions:
+                if isinstance(action.get("selector"), dict):
+                    check_selector(action["selector"])
+                for contract in ("precondition", "expect"):
+                    obj = action.get(contract) or {}
+                    for key in ("selector", "absent_selector"):
+                        if isinstance(obj.get(key), dict):
+                            check_selector(obj[key])
 
 
 if __name__ == "__main__":

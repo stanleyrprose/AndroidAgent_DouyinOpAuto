@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""TikTok DRY_RUN adapter for the generic Y700 Android Automation Core.
+"""TikTok adapter for the generic Y700 Android Automation Core.
 
-This module intentionally has no COMMIT/publish action. Its hard boundary is
-POST_CONFIG: prepare one isolated staged video, verify metadata/PRIVATE
-visibility, capture evidence, and return READY_TO_COMMIT facts to the publisher.
+DRY_RUN has a hard boundary at POST_CONFIG and never clicks Publish. COMMIT is
+a separate explicit path: it reuses the same semantic preparation workflow,
+durably crosses the publisher's COMMITTING boundary via a required callback,
+then dispatches exactly one irreversible Publish click for later verification.
 """
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[2]
 AUTOMATION = ROOT / "automation"
@@ -524,4 +525,96 @@ def prepare_dry_run(
                 "requested": bool(title),
             },
             **ready,
+        }
+
+
+def build_commit_actions(caption: str) -> list[dict[str, Any]]:
+    """Revalidate POST_CONFIG, then dispatch exactly one irreversible Publish click."""
+    return [
+        {
+            "action_id": "commit-assert-caption",
+            "action": "assert",
+            "selector": {"resource_id": RID["caption"], "text": caption},
+        },
+        {
+            "action_id": "commit-assert-private",
+            "action": "assert",
+            "selector": {
+                "resource_id": RID["visibility"],
+                "content_desc_contains": "自己",
+                "clickable": True,
+                "has_ancestor": {"resource_id": RID["visibility_container"]},
+            },
+        },
+        {
+            "action_id": "commit-assert-publish-ready",
+            "action": "assert",
+            "selector": {
+                "resource_id": RID["publish"],
+                "text": "发布",
+                "enabled": True,
+            },
+        },
+        {
+            "action_id": "commit-before-evidence",
+            "action": "screenshot",
+            "filename": "private-before-commit.png",
+        },
+        {
+            "action_id": "commit-publish",
+            "action": "click",
+            "selector": {
+                "resource_id": RID["publish"],
+                "text": "发布",
+                "enabled": True,
+                "clickable": True,
+            },
+            "side_effect": "EXTERNAL_IRREVERSIBLE",
+        },
+    ]
+
+
+def commit_private(
+    caption: str,
+    *,
+    title: str = "",
+    visibility: str = "PRIVATE",
+    album: str = ALBUM,
+    before_irreversible: Callable[[], None] | None = None,
+) -> dict[str, Any]:
+    """Prepare generically, persist COMMITTING, then dispatch Publish exactly once."""
+    if not caption:
+        raise TikTokCoreError("caption must be non-empty")
+    if visibility.upper() != "PRIVATE":
+        raise TikTokCoreError(
+            f"generic COMMIT fails closed for visibility={visibility}; PRIVATE required"
+        )
+    if before_irreversible is None:
+        raise TikTokCoreError("before_irreversible callback is required for COMMIT")
+
+    with ui_lease():
+        ready = _run_single_session_dry_run(caption, album)
+        commit_actions = build_commit_actions(caption)
+        precommit = _run(
+            "commit-preflight",
+            commit_actions[:-1],
+            max_duration_ms=45_000,
+        )
+        before_irreversible()
+        commit_result = _run(
+            "commit-click",
+            [commit_actions[-1]],
+            max_duration_ms=30_000,
+        )
+        return {
+            "engine": "androidx-uiautomator-2.4",
+            "title": {
+                "status": "SKIPPED",
+                "reason": "title_field_not_present_in_verified_ui",
+                "requested": bool(title),
+            },
+            **ready,
+            "commit_preflight_workflow_job_id": precommit["job_id"],
+            "commit_workflow_job_id": commit_result["job_id"],
+            "commit_dispatched": True,
         }

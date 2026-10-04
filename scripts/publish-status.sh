@@ -43,6 +43,8 @@ elif running:
     derived="RUNNING"
 elif st=="READY_TO_COMMIT" and mode=="DRY_RUN":
     derived="DRY_RUN_PASS"
+elif st=="AMBIGUOUS_COMMIT_NEEDS_RECONCILE":
+    derived="AMBIGUOUS_COMMIT_NEEDS_RECONCILE"
 elif st=="FAILED":
     derived="FAILED"
 elif st=="COMMITTING":
