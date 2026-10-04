@@ -11,8 +11,13 @@ import os
 import secrets
 import statistics
 import subprocess
+import sys
 import time
 from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
 
 RUNTIME = Path(os.environ.get("Y700_VISION_V1_RUNTIME", "/opt/y700/runtime/vision-v1"))
 UI_JOBS = RUNTIME / "ui-jobs"
