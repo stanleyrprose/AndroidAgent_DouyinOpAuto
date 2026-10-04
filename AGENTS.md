@@ -26,10 +26,18 @@ This repository is the canonical Git SOT for the Y700 Android automation node pl
 - Capability-based export to Y700.
 - Downloaded/runtime media never enters Git.
 
+### Telegram control plane
+
+- Telegram is a narrow control/notification surface for Y700 automation, not a general-purpose shell or root interface.
+- A dedicated Hermes profile must use a dedicated Telegram bot and an allowlisted user/chat identity.
+- A bare valid Douyin share URL may select the `douyin-tiktok-publish` workflow; `/status`, `/cancel`, and `/help` are the only additional control intents.
+- Telegram credentials, user/chat ids, runtime sessions and message history remain outside Git.
+- Notification delivery failure must not mutate publication truth or cause a COMMIT replay.
+
 ### Publish boundary
 
 - TikTok DRY_RUN must stop before the final publish action.
-- COMMIT requires explicit user approval for the current content.
+- COMMIT requires explicit user approval for the current content. Under the authorized `douyin-tiktok-publish` workflow, supplying one Douyin URL is that explicit authorization for exactly one PUBLIC COMMIT attempt after DRY_RUN.
 - A failed or ambiguous COMMIT is reconciled from durable state/profile evidence before any retry.
 - PUBLIC is the default visibility for the production publish workflow. A different visibility requires an explicit user request.
 

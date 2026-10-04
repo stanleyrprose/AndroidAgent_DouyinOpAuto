@@ -492,3 +492,30 @@ Public-safe evidence:
 Sprint V1 production Template Vision, Sprint V2 OCR and Sprint V3 hybrid routing
 remain **NOT AUTHORIZED / NOT STARTED** by this V0 closure.
 
+
+
+
+## Telegram Y700 Automation Control Plane v0.1 — CODE / LOCAL PROFILE PREP PASS
+
+Status on 2026-10-04:
+
+- Architecture decision: Telegram is a thin ingress + notification plane; existing Mac production, filesystem-first Y700 bridge and TikTok publisher remain authoritative.
+- Dedicated Hermes profile name: `y700automation`; no bundled Skill set is inherited.
+- Canonical `douyin-tiktok-publish` Skill is synchronized from `stanleyrprose/chatgpt-skills`.
+- Dedicated profile Skill load smoke: PASS.
+- Telegram tool surface is reduced to terminal/file/vision/skills/todo/clarify; unrelated web/browser/generation/memory/delegation/cron/computer-use surfaces are disabled.
+- Dedicated profile working directory points to a clean GitHub-driven Mac runtime checkout, not the dirty development worktree.
+- Clean Mac production pipeline bootstrap: PASS; faster-whisper runtime available.
+- Existing local Y700 media server health: PASS (expected HTTP 404 at server root).
+- Telegram status sender is best-effort and cannot mutate publisher truth or replay COMMIT.
+- Bot token, allowlist identity, home channel/thread and runtime sessions remain outside Git.
+
+Pending live gate:
+
+1. inject the dedicated Telegram bot token and allowlisted user/chat identity;
+2. start/install the `y700automation` Hermes gateway;
+3. send one real Douyin URL through Telegram;
+4. observe RECEIVED -> PRODUCING -> TRANSFERRING -> DRY_RUN -> COMMITTING -> terminal Telegram receipts;
+5. verify one-shot PUBLIC publication/reconciliation and no secret/capability leakage.
+
+Do not mark Telegram E2E PASS until the dedicated bot live gate completes.
