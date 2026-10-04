@@ -192,6 +192,151 @@ def copy_screenshot(path: str, ui_dir: Path, name: str) -> str | None:
     return None
 
 
+def _compact_xml_tree(path: Path, limit: int = 256) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        import xml.etree.ElementTree as ET
+        root = ET.parse(path).getroot()
+    except Exception:
+        return None
+    rows: list[dict[str, Any]] = []
+    for node in root.iter("node"):
+        if len(rows) >= limit:
+            break
+        attrs = node.attrib
+        rows.append({
+            "resource_id": attrs.get("resource-id") or None,
+            "text": attrs.get("text") or None,
+            "content_desc": attrs.get("content-desc") or None,
+            "class": attrs.get("class") or None,
+            "package": attrs.get("package") or None,
+            "clickable": attrs.get("clickable") == "true",
+            "enabled": attrs.get("enabled") == "true",
+            "selected": attrs.get("selected") == "true",
+            "checked": attrs.get("checked") == "true",
+            "scrollable": attrs.get("scrollable") == "true",
+            "bounds": attrs.get("bounds") or None,
+        })
+    return {
+        "source": "legacy_uiautomator_dump_fallback",
+        "node_count": len(rows),
+        "truncated": len(list(root.iter("node"))) > len(rows),
+        "elements": rows,
+    }
+
+
+def _host_failure_fallback(ui_dir: Path) -> dict[str, Any]:
+    """Best-effort evidence when the instrumentation cannot provide it."""
+    evidence_dir = ui_dir / "evidence"
+    host_dir = f"/data/local/y700-agent/ui-jobs/{ui_dir.name}/evidence"
+    screen_host = f"{host_dir}/failure-host.png"
+    xml_host = f"{host_dir}/failure-host.xml"
+    command = (
+        f"mkdir -p {host_dir}; chmod 700 {host_dir}; "
+        f"screencap -p {screen_host} >/dev/null 2>&1 || true; "
+        f"chmod 600 {screen_host} 2>/dev/null || true; "
+        f"uiautomator dump {xml_host} >/dev/null 2>&1 || true; "
+        f"chmod 600 {xml_host} 2>/dev/null || true; "
+        "dumpsys activity activities | grep -m1 -E 'mResumedActivity|topResumedActivity' || true"
+    )
+    out: dict[str, Any] = {"source": "host_fallback"}
+    try:
+        _, stdout, stderr, _ = run_bridge_command(command, ui_dir, timeout_sec=30)
+        if stdout.strip():
+            out["activity"] = stdout.strip().splitlines()[-1][:2048]
+        if stderr.strip():
+            out["capture_stderr"] = stderr.strip()[-2048:]
+    except Exception as exc:
+        out["capture_error"] = f"{type(exc).__name__}: {exc}"
+    screen = evidence_dir / "failure-host.png"
+    if screen.is_file() and screen.stat().st_size > 0:
+        out["screenshot"] = "evidence/failure-host.png"
+    tree = _compact_xml_tree(evidence_dir / "failure-host.xml")
+    if tree is not None:
+        atomic_json(evidence_dir / "failure-tree.json", tree)
+        out["compact_ui_tree"] = "evidence/failure-tree.json"
+    return out
+
+
+def export_failure_evidence(
+    ui_dir: Path,
+    req: dict[str, Any],
+    result: dict[str, Any],
+) -> dict[str, Any] | None:
+    actions = result.get("actions") or []
+    failed_index = next(
+        (i for i, row in enumerate(actions) if row.get("status") != "PASS"),
+        None,
+    )
+    action_result = actions[failed_index] if failed_index is not None else {}
+    driver = dict(action_result.get("failure_evidence") or {})
+    action = (
+        req.get("actions", [])[failed_index]
+        if failed_index is not None and failed_index < len(req.get("actions", []))
+        else {}
+    )
+
+    tree = driver.pop("compact_ui_tree", None)
+    screenshot = driver.pop("screenshot", None)
+    screenshot_rel: str | None = None
+    if isinstance(screenshot, dict) and screenshot.get("path"):
+        screenshot_rel = copy_screenshot(
+            str(screenshot["path"]),
+            ui_dir,
+            Path(str(screenshot["path"])).name,
+        )
+
+    tree_rel: str | None = None
+    if isinstance(tree, dict):
+        atomic_json(ui_dir / "evidence" / "failure-tree.json", tree)
+        tree_rel = "evidence/failure-tree.json"
+
+    fallback: dict[str, Any] = {}
+    if screenshot_rel is None or tree_rel is None:
+        fallback = _host_failure_fallback(ui_dir)
+        screenshot_rel = screenshot_rel or fallback.get("screenshot")
+        tree_rel = tree_rel or fallback.get("compact_ui_tree")
+
+    err = action_result.get("error") or result.get("error") or {}
+    context = {
+        "timestamp": now_iso(),
+        "timestamp_ms": driver.get("timestamp_ms"),
+        "job_id": req.get("job_id"),
+        "session_id": req.get("session_id"),
+        "action_index": failed_index,
+        "action_id": action.get("action_id"),
+        "action": action.get("action"),
+        "selector": action.get("selector"),
+        "precondition": action.get("precondition"),
+        "postcondition": action.get("expect"),
+        "error": err,
+        "package": driver.get("package"),
+        "activity": driver.get("activity") or fallback.get("activity"),
+        "screenshot": screenshot_rel,
+        "compact_ui_tree": tree_rel,
+        "observation_error": driver.get("observation_error"),
+        "screenshot_error": driver.get("screenshot_error"),
+        "fallback": fallback or None,
+    }
+    atomic_json(ui_dir / "evidence" / "failure-context.json", context)
+    ref = {
+        "context": "evidence/failure-context.json",
+        "screenshot": screenshot_rel,
+        "compact_ui_tree": tree_rel,
+    }
+    if isinstance(action_result, dict) and action_result:
+        action_result["failure_evidence"] = ref
+    result["failure_evidence"] = ref
+    append_journal(ui_dir / "journal.jsonl", {
+        "timestamp": now_iso(),
+        "phase": "FAILURE_EVIDENCE_CAPTURED",
+        "action_index": failed_index,
+        **ref,
+    })
+    return ref
+
+
 def write_checkpoint(ui_dir: Path, req: dict[str, Any], completed_index: int, safe: bool) -> None:
     actions = req["actions"]
     last = actions[completed_index] if completed_index >= 0 else None
@@ -315,6 +460,16 @@ def run_workflow(path: Path) -> dict[str, Any]:
     elif markers:
         safe = True if completed_index < 0 else all_safe
         write_checkpoint(ui_dir, req, completed_index, safe)
+
+    if result.get("status") not in {"PASS", "CANCELLED"}:
+        try:
+            export_failure_evidence(ui_dir, req, result)
+        except Exception as exc:
+            append_journal(ui_dir / "journal.jsonl", {
+                "timestamp": now_iso(),
+                "phase": "FAILURE_EVIDENCE_CAPTURE_FAILED",
+                "error": f"{type(exc).__name__}: {exc}",
+            })
 
     result["host_duration_ms"] = round((time.monotonic() - started) * 1000, 1)
     result["host_exit_code"] = rc

@@ -49,12 +49,15 @@ public class AutomationInstrumentedTest {
     private static final long WAIT_FOR_IDLE_TIMEOUT_MS = 500L;
     private static final long WAIT_FOR_SELECTOR_TIMEOUT_MS = 0L;
     private static final int MAX_TREE_NODES = 5000;
+    private static final int MAX_FAILURE_EVIDENCE_NODES = 256;
 
     private Instrumentation instrumentation;
     private UiDevice device;
     private Context context;
     private String jobId;
     private String sessionId;
+    private boolean testMode;
+    private int testObserveFailuresRemaining;
 
     @Test
     public void runWorkflow() throws Exception {
@@ -79,6 +82,10 @@ public class AutomationInstrumentedTest {
             JSONObject request = loadRequest();
             jobId = request.optString("job_id", "anonymous");
             sessionId = request.optString("session_id", UUID.randomUUID().toString());
+            testMode = request.optBoolean("test_mode", false);
+            testObserveFailuresRemaining = testMode
+                    ? Math.max(0, Math.min(5, request.optInt("test_observe_failures", 0)))
+                    : 0;
             int protocol = request.optInt("protocol_version", -1);
 
             result.put("job_id", jobId);
@@ -262,20 +269,47 @@ public class AutomationInstrumentedTest {
         int maxRetry = retrySafe ? requestedRetry : 0;
 
         JSONArray delays = new JSONArray();
+        JSONArray recovery = new JSONArray();
         JSONObject last = null;
         for (int attempt = 0; attempt <= maxRetry; attempt++) {
             last = executeAction(action, index);
             last.put("attempts", attempt + 1);
             if ("PASS".equals(last.optString("status"))) {
                 last.put("retry_delays_ms", delays);
+                if (recovery.length() > 0) last.put("recovery", recovery);
                 return last;
             }
 
             JSONObject err = last.optJSONObject("error");
             boolean retryable = err != null && err.optBoolean("retryable", false);
+            String code = err == null ? "" : err.optString("code", "");
+            boolean observationFailure = "observe".equals(action.optString("action")) &&
+                    "UI_OBSERVATION_FAILED".equals(code);
             if (!retryable || attempt >= maxRetry) {
+                if (observationFailure) {
+                    recovery.put("LEVEL_7_BLOCKED_EVIDENCE");
+                    last.put("status", "BLOCKED");
+                    if (err != null) err.put("retryable", false);
+                }
                 last.put("retry_delays_ms", delays);
+                if (recovery.length() > 0) last.put("recovery", recovery);
                 return last;
+            }
+
+            if (observationFailure) {
+                if (attempt == 0) {
+                    recovery.put("LEVEL_0_REOBSERVE");
+                } else {
+                    try {
+                        waitStable(new JSONObject()
+                                .put("timeout_ms", 2000L)
+                                .put("stable_interval_ms", 300L)
+                                .put("poll_interval_ms", 100L));
+                        recovery.put("LEVEL_1_WAIT_STABLE");
+                    } catch (Throwable ignored) {
+                        recovery.put("LEVEL_1_WAIT_STABLE_UNAVAILABLE");
+                    }
+                }
             }
 
             long delay = retryBackoffMs(action, attempt);
@@ -385,15 +419,87 @@ public class AutomationInstrumentedTest {
             }
             out.put("status", "PASS");
         } catch (ActionFailure t) {
+            JSONObject err = error(t.code, t.getMessage(), t.retryable);
             out.put("status", t.status);
-            out.put("error", error(t.code, t.getMessage(), t.retryable));
+            out.put("error", err);
+            out.put("failure_evidence", captureFailureEvidence(action, index, err));
         } catch (Throwable t) {
+            String code = "observe".equals(name) ? "UI_OBSERVATION_FAILED" : classify(t);
+            JSONObject err = error(code, t.getClass().getSimpleName() + ": " +
+                    String.valueOf(t.getMessage()), true);
             out.put("status", "FAILED");
-            out.put("error", error(classify(t), t.getClass().getSimpleName() + ": " +
-                    String.valueOf(t.getMessage()), true));
+            out.put("error", err);
+            out.put("failure_evidence", captureFailureEvidence(action, index, err));
         }
         out.put("latency_ms", SystemClock.elapsedRealtime() - started);
         return out;
+    }
+
+    private JSONObject captureFailureEvidence(JSONObject action, int index, JSONObject err) {
+        JSONObject evidence = new JSONObject();
+        try {
+            evidence.put("timestamp_ms", System.currentTimeMillis());
+            evidence.put("action_index", index);
+            evidence.put("action_id", action.optString("action_id", "action-" + index));
+            evidence.put("action", action.optString("action", ""));
+            evidence.put("selector", action.optJSONObject("selector"));
+            evidence.put("precondition", action.optJSONObject("precondition"));
+            evidence.put("postcondition", action.optJSONObject("expect"));
+            evidence.put("error", err);
+            evidence.put("package", device == null ? JSONObject.NULL : nullableString(device.getCurrentPackageName()));
+
+            try {
+                String dump = shell("dumpsys activity activities");
+                String activity = "";
+                for (String line : dump.split("\\r?\\n")) {
+                    String trimmed = line.trim();
+                    if (trimmed.contains("mResumedActivity") || trimmed.contains("topResumedActivity")) {
+                        activity = trimmed;
+                        break;
+                    }
+                }
+                evidence.put("activity", activity.isEmpty() ? JSONObject.NULL : activity);
+            } catch (Throwable t) {
+                evidence.put("activity_error", t.getClass().getSimpleName() + ": " + String.valueOf(t.getMessage()));
+            }
+
+            try {
+                JSONObject shot = screenshot("failure-action-" + index + ".png");
+                evidence.put("screenshot", shot);
+            } catch (Throwable t) {
+                evidence.put("screenshot_error", t.getClass().getSimpleName() + ": " + String.valueOf(t.getMessage()));
+            }
+
+            int savedFailures = testObserveFailuresRemaining;
+            try {
+                testObserveFailuresRemaining = 0;
+                JSONObject observed = observe();
+                JSONArray src = observed.optJSONArray("elements");
+                JSONArray compact = new JSONArray();
+                if (src != null) {
+                    int n = Math.min(MAX_FAILURE_EVIDENCE_NODES, src.length());
+                    for (int i = 0; i < n; i++) compact.put(src.get(i));
+                }
+                JSONObject tree = new JSONObject();
+                tree.put("package", observed.opt("package"));
+                tree.put("display_width", observed.opt("display_width"));
+                tree.put("display_height", observed.opt("display_height"));
+                tree.put("display_rotation", observed.opt("display_rotation"));
+                tree.put("root_count", observed.opt("root_count"));
+                tree.put("node_count", observed.opt("node_count"));
+                tree.put("truncated", observed.optBoolean("truncated", false) ||
+                        (src != null && src.length() > MAX_FAILURE_EVIDENCE_NODES));
+                tree.put("tree_hash", observed.opt("tree_hash"));
+                tree.put("elements", compact);
+                evidence.put("compact_ui_tree", tree);
+            } catch (Throwable t) {
+                evidence.put("observation_error", t.getClass().getSimpleName() + ": " + String.valueOf(t.getMessage()));
+            } finally {
+                testObserveFailuresRemaining = savedFailures;
+            }
+        } catch (Throwable ignored) {
+        }
+        return evidence;
     }
 
     private JSONObject health() throws Exception {
@@ -438,6 +544,13 @@ public class AutomationInstrumentedTest {
     }
 
     private JSONObject observe() throws Exception {
+        if (testMode && testObserveFailuresRemaining > 0) {
+            testObserveFailuresRemaining--;
+            throw new ActionFailure(
+                    "UI_OBSERVATION_FAILED",
+                    "injected observation failure for acceptance testing",
+                    true);
+        }
         long started = SystemClock.elapsedRealtime();
         int width = device.getDisplayWidth();
         int height = device.getDisplayHeight();
