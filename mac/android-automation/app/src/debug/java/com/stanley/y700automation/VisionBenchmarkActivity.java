@@ -25,11 +25,13 @@ public class VisionBenchmarkActivity extends Activity {
         private final RectF target = new RectF();
         private final RectF duplicateTarget = new RectF();
         private final boolean duplicate;
+        private final String ocrText;
         private boolean clicked = false;
 
         BenchmarkView() {
             super(VisionBenchmarkActivity.this);
             duplicate = getIntent().getBooleanExtra("duplicate", false);
+            ocrText = getIntent().getStringExtra("ocr_text");
             clicked = getIntent().getBooleanExtra("clicked", false);
             // The visible target itself is drawn on Canvas and has no semantic
             // child. The parent view becomes semantically identifiable only
@@ -57,9 +59,16 @@ public class VisionBenchmarkActivity extends Activity {
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             updateTargets();
-            VisionBenchmarkPattern.drawTarget(canvas, target, clicked);
-            if (duplicate) {
-                VisionBenchmarkPattern.drawTarget(canvas, duplicateTarget, clicked);
+            if (ocrText != null && !ocrText.isEmpty()) {
+                drawOcrTarget(canvas, target, ocrText, clicked);
+                if (duplicate) {
+                    drawOcrTarget(canvas, duplicateTarget, ocrText, clicked);
+                }
+            } else {
+                VisionBenchmarkPattern.drawTarget(canvas, target, clicked);
+                if (duplicate) {
+                    VisionBenchmarkPattern.drawTarget(canvas, duplicateTarget, clicked);
+                }
             }
 
             paint.setStyle(Paint.Style.FILL);
@@ -67,6 +76,24 @@ public class VisionBenchmarkActivity extends Activity {
             paint.setTextSize(34f * getResources().getDisplayMetrics().scaledDensity);
             canvas.drawText(clicked ? "VISION_V1_CLICKED" : "VISION_V1_IDLE",
                     48f, 72f * getResources().getDisplayMetrics().density, paint);
+        }
+
+        private void drawOcrTarget(
+                Canvas canvas,
+                RectF rect,
+                String text,
+                boolean isClicked) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(isClicked ? Color.rgb(32, 180, 96) : Color.rgb(18, 20, 24));
+            canvas.drawRoundRect(rect, 18f, 18f, paint);
+
+            paint.setColor(Color.WHITE);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(rect.height() * 0.50f);
+            Paint.FontMetrics fm = paint.getFontMetrics();
+            float baseline = rect.centerY() - (fm.ascent + fm.descent) / 2f;
+            canvas.drawText(text, rect.centerX(), baseline, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
         }
 
         @Override

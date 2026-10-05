@@ -48,6 +48,7 @@ public final class VisionTemplateLocator {
         public final boolean enabled;
         public final String mode;
         public final boolean templateEnabled;
+        public final boolean ocrEnabled;
         public final boolean allowHighRiskVision;
         public final long evidenceMaxBytes;
 
@@ -56,6 +57,7 @@ public final class VisionTemplateLocator {
             this.enabled = v.optBoolean("enabled", false);
             this.mode = v.optString("mode", "fallback");
             this.templateEnabled = v.optBoolean("template_enabled", true);
+            this.ocrEnabled = v.optBoolean("ocr_enabled", false);
             this.allowHighRiskVision = v.optBoolean("allow_high_risk_vision", false);
             long requested = v.optLong("evidence_max_bytes", 64L * 1024L * 1024L);
             this.evidenceMaxBytes = Math.max(8L * 1024L * 1024L,
@@ -67,6 +69,7 @@ public final class VisionTemplateLocator {
                     .put("enabled", enabled)
                     .put("mode", mode)
                     .put("template_enabled", templateEnabled)
+                    .put("ocr_enabled", ocrEnabled)
                     .put("allow_high_risk_vision", allowHighRiskVision)
                     .put("evidence_max_bytes", evidenceMaxBytes);
         }

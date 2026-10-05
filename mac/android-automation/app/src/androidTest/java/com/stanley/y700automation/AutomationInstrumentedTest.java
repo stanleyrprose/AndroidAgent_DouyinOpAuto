@@ -25,6 +25,7 @@ import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiDeviceExt;
 import androidx.test.uiautomator.UiObject2;
 
+import com.stanley.y700automation.vision.OcrTextLocator;
 import com.stanley.y700automation.vision.VisionTemplateLocator;
 import com.stanley.y700automation.vision.VisionV0Harness;
 
@@ -66,6 +67,7 @@ public class AutomationInstrumentedTest {
     private int testObserveFailuresRemaining;
     private VisionTemplateLocator.Config visionConfig;
     private VisionTemplateLocator visionLocator;
+    private OcrTextLocator ocrLocator;
     private JSONObject lastVisionContext;
     private boolean visionRequested;
 
@@ -100,6 +102,7 @@ public class AutomationInstrumentedTest {
             visionRequested = request.has("vision");
             visionConfig = new VisionTemplateLocator.Config(request.optJSONObject("vision"));
             visionLocator = null;
+            ocrLocator = null;
             lastVisionContext = null;
             int protocol = request.optInt("protocol_version", -1);
 
@@ -275,6 +278,7 @@ public class AutomationInstrumentedTest {
     private void prepareVisionBenchmark(JSONObject request) throws Exception {
         boolean duplicate = request.optBoolean("test_benchmark_duplicate", false);
         boolean clicked = request.optBoolean("test_benchmark_clicked", false);
+        String ocrText = request.optString("test_benchmark_ocr_text", "");
         Intent intent = new Intent();
         intent.setClassName("com.stanley.y700automation",
                 "com.stanley.y700automation.VisionBenchmarkActivity");
@@ -283,6 +287,9 @@ public class AutomationInstrumentedTest {
                 Intent.FLAG_ACTIVITY_SINGLE_TOP);
         intent.putExtra("duplicate", duplicate);
         intent.putExtra("clicked", clicked);
+        if (!ocrText.isEmpty()) {
+            intent.putExtra("ocr_text", ocrText);
+        }
         context.startActivity(intent);
         long deadline = SystemClock.elapsedRealtime() + 2500L;
         while (SystemClock.elapsedRealtime() < deadline) {
@@ -739,9 +746,32 @@ public class AutomationInstrumentedTest {
         return visionLocator;
     }
 
+    private OcrTextLocator ensureOcrLocator() throws ActionFailure {
+        if (visionConfig == null || !visionConfig.enabled) {
+            throw new ActionFailure(
+                    OcrTextLocator.ERR_POLICY_BLOCKED,
+                    "vision_enabled=false",
+                    false,
+                    "BLOCKED");
+        }
+        if (!visionConfig.ocrEnabled) {
+            throw new ActionFailure(
+                    OcrTextLocator.ERR_POLICY_BLOCKED,
+                    "ocr_enabled=false",
+                    false,
+                    "BLOCKED");
+        }
+        if (ocrLocator == null) {
+            ocrLocator = new OcrTextLocator(instrumentation, device, visionConfig);
+        }
+        return ocrLocator;
+    }
+
     private ActionFailure visionActionFailure(VisionV0Harness.VisionFailure e) {
         boolean retryable =
                 VisionV0Harness.ERR_TEMPLATE_NOT_FOUND.equals(e.code) ||
+                OcrTextLocator.ERR_NOT_FOUND.equals(e.code) ||
+                OcrTextLocator.ERR_TIMEOUT.equals(e.code) ||
                 VisionV0Harness.ERR_CAPTURE_FAILED.equals(e.code) ||
                 VisionV0Harness.ERR_STALE_TARGET.equals(e.code) ||
                 VisionV0Harness.ERR_ROTATION_MISMATCH.equals(e.code) ||
@@ -754,14 +784,19 @@ public class AutomationInstrumentedTest {
     private void validateVisionSelectors(JSONObject spec) throws ActionFailure {
         if (spec == null) return;
         try {
-            if ("vision_template".equals(spec.optString("type"))) {
+            String directType = spec.optString("type");
+            if ("vision_template".equals(directType)) {
                 VisionTemplateLocator.validateTemplateSpec(spec);
+                return;
+            }
+            if ("vision_text".equals(directType)) {
+                OcrTextLocator.validateTextSpec(spec);
                 return;
             }
             if (spec.has("type")) {
                 throw new VisionV0Harness.VisionFailure(
                         VisionV0Harness.ERR_TEMPLATE_CONFIG,
-                        "V1 only supports type=vision_template");
+                        "V2 supports only type=vision_template or type=vision_text");
             }
             JSONArray fallback = spec.optJSONArray("fallback");
             if (spec.has("fallback") && fallback == null) {
@@ -769,16 +804,34 @@ public class AutomationInstrumentedTest {
                         VisionV0Harness.ERR_TEMPLATE_CONFIG,
                         "fallback must be an array");
             }
+            boolean sawTemplate = false;
+            boolean sawOcr = false;
             if (fallback != null) {
                 for (int i = 0; i < fallback.length(); i++) {
                     JSONObject item = fallback.optJSONObject(i);
-                    if (item == null || !"vision_template".equals(item.optString("type"))) {
+                    if (item == null) {
                         throw new VisionV0Harness.VisionFailure(
                                 VisionV0Harness.ERR_TEMPLATE_CONFIG,
-                                "V1 fallback entries must be vision_template objects");
+                                "V2 fallback entries must be vision objects");
                     }
-                    VisionTemplateLocator.validateTemplateSpec(item);
+                    String type = item.optString("type");
+                    if ("vision_template".equals(type)) {
+                        sawTemplate = true;
+                        VisionTemplateLocator.validateTemplateSpec(item);
+                    } else if ("vision_text".equals(type)) {
+                        sawOcr = true;
+                        OcrTextLocator.validateTextSpec(item);
+                    } else {
+                        throw new VisionV0Harness.VisionFailure(
+                                VisionV0Harness.ERR_TEMPLATE_CONFIG,
+                                "V2 fallback entries must be vision_template or vision_text");
+                    }
                 }
+            }
+            if (sawTemplate && sawOcr) {
+                throw new VisionV0Harness.VisionFailure(
+                        VisionV0Harness.ERR_TEMPLATE_CONFIG,
+                        "mixed template+OCR fallback is reserved for Sprint V3");
             }
         } catch (VisionV0Harness.VisionFailure e) {
             throw visionActionFailure(e);
@@ -790,8 +843,21 @@ public class AutomationInstrumentedTest {
             if (visionRequested && visionConfig != null) {
                 result.put("vision_policy", visionConfig.json());
             }
-            if (visionLocator != null) {
-                result.put("vision_metrics", visionLocator.metrics().json());
+            JSONObject combined = visionLocator != null
+                    ? visionLocator.metrics().json()
+                    : new JSONObject();
+            if (ocrLocator != null) {
+                JSONObject ocr = ocrLocator.metrics().json();
+                result.put("ocr_metrics", ocr);
+                result.put("ocr_runtime", ocrLocator.runtimeStatus());
+                Iterator<String> keys = ocr.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    combined.put(key, ocr.get(key));
+                }
+            }
+            if (combined.length() > 0) {
+                result.put("vision_metrics", combined);
             }
         } catch (Throwable ignored) {
         }
@@ -802,7 +868,8 @@ public class AutomationInstrumentedTest {
             throw new ActionFailure("JOB_PAYLOAD_INVALID", "selector is required", false);
         }
         validateVisionSelectors(spec);
-        if ("vision_template".equals(spec.optString("type"))) {
+        if ("vision_template".equals(spec.optString("type")) ||
+                "vision_text".equals(spec.optString("type"))) {
             return;
         }
 
@@ -956,7 +1023,9 @@ public class AutomationInstrumentedTest {
         }
         validateSelectorKeys(selector);
 
-        JSONObject visionSpec = VisionTemplateLocator.visionSpec(selector);
+        JSONObject templateSpec = VisionTemplateLocator.visionSpec(selector);
+        JSONObject ocrSpec = OcrTextLocator.visionTextSpec(selector);
+        JSONObject visionSpec = templateSpec != null ? templateSpec : ocrSpec;
         boolean semanticAvailable = hasSemanticCriteria(selector);
         if (semanticAvailable) {
             List<UiObject2> matches = findObjects(selector);
@@ -982,11 +1051,11 @@ public class AutomationInstrumentedTest {
                         "selector matched " + matches.size() + " elements",
                         false);
             }
-            ensureVisionLocator().noteSemanticFallback();
+            if (templateSpec != null) ensureVisionLocator().noteSemanticFallback();
         } else if (visionSpec == null) {
             throw new ActionFailure(
                     "JOB_PAYLOAD_INVALID",
-                    "selector has neither semantic criteria nor vision_template",
+                    "selector has neither semantic criteria nor an explicit Vision locator",
                     false);
         }
 
@@ -995,9 +1064,13 @@ public class AutomationInstrumentedTest {
         if ("EXTERNAL_IRREVERSIBLE".equals(sideEffect)) {
             throw new ActionFailure(
                     VisionTemplateLocator.ERR_POLICY_BLOCKED,
-                    "V1 denies Vision routing for EXTERNAL_IRREVERSIBLE actions",
+                    "V2 denies Vision routing for EXTERNAL_IRREVERSIBLE actions",
                     false,
                     "BLOCKED");
+        }
+
+        if (ocrSpec != null) {
+            return clickOcr(action, selector, ocrSpec, semanticAvailable);
         }
 
         JSONObject effectiveVision = new JSONObject(visionSpec.toString());
@@ -1058,6 +1131,76 @@ public class AutomationInstrumentedTest {
 
         return new JSONObject()
                 .put("locator_source", "vision_template")
+                .put("resolved_target", resolved.metadata)
+                .put("click_point", new JSONArray().put(point[0]).put(point[1]))
+                .put("postcondition_pass", true);
+    }
+
+
+    private JSONObject clickOcr(
+            JSONObject action,
+            JSONObject selector,
+            JSONObject ocrSpec,
+            boolean semanticAvailable) throws Exception {
+        JSONObject effectiveOcr = new JSONObject(ocrSpec.toString());
+        if (!effectiveOcr.has("expected_package") && selector.has("package")) {
+            effectiveOcr.put("expected_package", selector.getString("package"));
+        }
+
+        OcrTextLocator locator = ensureOcrLocator();
+        OcrTextLocator.Resolved resolved;
+        try {
+            resolved = locator.resolve(
+                    effectiveOcr,
+                    action.optLong("timeout_ms", 10000L));
+            lastVisionContext = new JSONObject(resolved.metadata.toString())
+                    .put("route", semanticAvailable
+                            ? "SEMANTIC_TO_VISION_TEXT"
+                            : "VISION_TEXT");
+            locator.validatePreAction(resolved);
+        } catch (VisionV0Harness.VisionFailure e) {
+            if (lastVisionContext == null) {
+                lastVisionContext = new JSONObject()
+                        .put("locator_type", "vision_text")
+                        .put("pattern", effectiveOcr.optString("pattern", ""))
+                        .put("match", effectiveOcr.optString("match", "substring"))
+                        .put("error_code", e.code)
+                        .put("error_message", e.getMessage());
+            } else {
+                lastVisionContext.put("error_code", e.code)
+                        .put("error_message", e.getMessage());
+            }
+            throw visionActionFailure(e);
+        }
+
+        int[] point = new int[]{resolved.centerX, resolved.centerY};
+        lastVisionContext.put("click_point", new JSONArray().put(point[0]).put(point[1]));
+        boolean clicked = device.click(point[0], point[1]);
+        if (!clicked) {
+            throw new ActionFailure(
+                    "ACTION_FAILED",
+                    "UiDevice.click returned false for OCR target",
+                    true);
+        }
+
+        try {
+            verifyExpectation(
+                    action.optJSONObject("expect"),
+                    action.optLong("timeout_ms", 10000L));
+            lastVisionContext.put("postcondition_pass", true);
+        } catch (ActionFailure e) {
+            locator.notePostconditionFailure();
+            lastVisionContext.put("postcondition_pass", false)
+                    .put("postcondition_error", e.getMessage());
+            throw new ActionFailure(
+                    "VISION_POSTCONDITION_FAILED",
+                    e.getMessage(),
+                    e.retryable,
+                    e.status);
+        }
+
+        return new JSONObject()
+                .put("locator_source", "vision_text")
                 .put("resolved_target", resolved.metadata)
                 .put("click_point", new JSONArray().put(point[0]).put(point[1]))
                 .put("postcondition_pass", true);

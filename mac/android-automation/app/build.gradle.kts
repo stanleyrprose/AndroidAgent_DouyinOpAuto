@@ -1,5 +1,6 @@
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -41,6 +42,12 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
+    }
+}
+
 dependencies {
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
@@ -48,4 +55,6 @@ dependencies {
     debugImplementation("org.opencv:opencv:4.12.0")
     debugImplementation("com.google.mlkit:text-recognition:16.0.1")
     debugImplementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+    debugImplementation("com.microsoft.onnxruntime:onnxruntime-android:1.21.1")
+    debugImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

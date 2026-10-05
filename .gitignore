@@ -48,6 +48,7 @@ id_ed25519*
 *.wav
 *.mp3
 *.apk
+mac/android-automation/app/src/debug/assets/models/
 
 # OS/editor
 .DS_Store
