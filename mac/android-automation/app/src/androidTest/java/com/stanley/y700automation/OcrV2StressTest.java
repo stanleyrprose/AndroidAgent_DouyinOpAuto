@@ -23,7 +23,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
-public final class OcrV2StressTest {
+public final class OcrV2StressTest extends PersistentOcrV2TestBase {
     private static final int RUNS = 200;
 
     @Test
@@ -147,6 +147,11 @@ public final class OcrV2StressTest {
                             .put("native_reclaimed_from_warm_bytes",
                                     nativeAfterWarm - nativeAfterUnload));
             System.out.println("[OCRV2-STRESS] unloaded=" + unloadReport);
+            writePersistentArtifact(
+                    "stress-report.json",
+                    new JSONObject()
+                            .put("warm", report)
+                            .put("unload", unloadReport));
         } finally {
             bitmap.recycle();
             reset.invoke(null);

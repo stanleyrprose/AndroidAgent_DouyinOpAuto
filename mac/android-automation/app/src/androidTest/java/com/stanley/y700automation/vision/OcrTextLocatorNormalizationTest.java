@@ -2,10 +2,12 @@ package com.stanley.y700automation.vision;
 
 import android.graphics.Rect;
 
+import com.stanley.y700automation.PersistentOcrV2TestBase;
+
 import org.junit.Assert;
 import org.junit.Test;
 
-public final class OcrTextLocatorNormalizationTest {
+public final class OcrTextLocatorNormalizationTest extends PersistentOcrV2TestBase {
     @Test
     public void stripsWhitespaceAndCaseFolds() {
         Assert.assertEquals("wlan", OcrTextLocator.normalize(" W L A N "));

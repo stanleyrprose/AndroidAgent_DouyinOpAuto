@@ -14,7 +14,7 @@ import org.junit.Test;
 
 import java.lang.reflect.Method;
 
-public final class OcrV2RuntimeLifecycleTest {
+public final class OcrV2RuntimeLifecycleTest extends PersistentOcrV2TestBase {
     @Test
     public void lazyLoadWarmReuseIdleUnloadAndReload() throws Exception {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();

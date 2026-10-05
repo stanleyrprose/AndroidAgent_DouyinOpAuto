@@ -9,7 +9,7 @@ import org.json.JSONObject;
 import org.junit.Assert;
 import org.junit.Test;
 
-public final class OcrV2ContractTest {
+public final class OcrV2ContractTest extends PersistentOcrV2TestBase {
     @Test
     public void substringSpecValidates() throws Exception {
         OcrTextLocator.validateTextSpec(new JSONObject()

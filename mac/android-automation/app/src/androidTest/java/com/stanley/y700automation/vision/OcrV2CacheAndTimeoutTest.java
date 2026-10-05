@@ -12,13 +12,15 @@ import androidx.test.uiautomator.UiDevice;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import com.stanley.y700automation.PersistentOcrV2TestBase;
+
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-public final class OcrV2CacheAndTimeoutTest {
+public final class OcrV2CacheAndTimeoutTest extends PersistentOcrV2TestBase {
     private static final String PACKAGE = "com.stanley.y700automation";
 
     @Test
