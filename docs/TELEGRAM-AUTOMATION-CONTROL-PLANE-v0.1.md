@@ -41,6 +41,8 @@ For the canonical Skill, one supplied Douyin URL is explicit authorization for o
 
 No blind second COMMIT is allowed after timeout, UI uncertainty, disconnect, or ambiguous durable state.
 
+The Telegram executor must use Y700 `scripts/approve-public-commit.sh` for the one-shot boundary. That entrypoint owns the READY_TO_COMMIT/PUBLIC checks, atomic `DRY_RUN -> COMMIT` manifest transition, one-attempt audit record, and publisher start; `publish-async.sh --commit` is not a substitute because it deliberately does not mutate the manifest.
+
 ## Notifications
 
 For Telegram-originated jobs the orchestrator emits public-safe transition receipts:
@@ -58,6 +60,8 @@ For Telegram-originated jobs the orchestrator emits public-safe transition recei
 - `DUPLICATE`
 
 The notifier uses Hermes `send` directly. Delivery is best-effort by default and is deliberately outside publisher truth: a Telegram outage must not change job state or cause a publication retry.
+
+After the one-shot COMMIT starts, Mac launches `start-publication-closure.sh`. The detached watcher polls durable Y700 state, starts reconciliation at most once when required, finalizes the Mac job on verified publication, and emits the terminal Telegram receipt. The watcher has no COMMIT/publish capability, so it can survive an LLM/gateway turn timeout without creating duplicate-publication risk.
 
 ## Security boundary
 

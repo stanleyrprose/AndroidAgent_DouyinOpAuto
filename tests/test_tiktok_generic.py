@@ -15,38 +15,177 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertTrue(selector["clickable"])
         self.assertEqual(
             selector["has_parent"],
-            {"resource_id": f"{TIKTOK}:id/jc5"},
+            {"class_name": "android.widget.GridView"},
         )
+
+    def test_dry_run_home_create_uses_semantic_selector_not_resource_id(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        expected = {"content_desc": "创建", "clickable": True}
+        self.assertEqual(by_id["wait-cold-home"]["selector"], expected)
+        self.assertEqual(by_id["home-create"]["selector"], expected)
+        self.assertNotIn("resource_id", by_id["wait-cold-home"]["selector"])
+
+    def test_cold_launch_recovers_keyguard_with_secure_unlock_capability(self) -> None:
+        import inspect
+        source = inspect.getsource(controller._cold_launch)
+        self.assertIn("_ensure_device_unlocked()", source)
+        self.assertIn("KEYGUARD_BLOCKING", source)
+        helper = inspect.getsource(controller._ensure_device_unlocked)
+        self.assertIn("secure-unlock.sh", str(controller.SECURE_UNLOCK))
+        self.assertIn('["bash", str(SECURE_UNLOCK)]', helper)
+        self.assertNotIn("device_unlock.pin", helper)
+
+    def test_cold_launch_waits_for_splash_to_exit_before_ui_workflow(self) -> None:
+        import inspect
+        source = inspect.getsource(controller._cold_launch)
+        self.assertIn("SplashActivity", source)
+        self.assertIn("90.0", source)
+        self.assertIn("topResumedActivity", source)
+        self.assertIn(".stdout.strip()", source)
+        self.assertIn("check=False", source)
+        self.assertIn("MainActivity", source)
+        self.assertIn("am start -n", source)
+        self.assertIn("stable_main >= 2", source)
+        self.assertIn("stable_home_ui >= 2", source)
+        self.assertIn("cold-launch-home-probe", source)
+        self.assertIn("or not last_top", source)
+        self.assertIn("Two consecutive semantic HOME observations", source)
+
+    def test_commit_preflight_uses_semantic_post_config_controls(self) -> None:
+        actions = controller.build_commit_actions("caption")
+        by_id = {a["action_id"]: a for a in actions}
+        self.assertEqual(
+            by_id["commit-assert-caption"]["selector"],
+            {**controller.caption_selector(), "text": "caption"},
+        )
+        self.assertEqual(
+            by_id["commit-assert-publish-ready"]["selector"],
+            controller.publish_button_selector(),
+        )
+        self.assertEqual(
+            by_id["commit-publish"]["selector"],
+            controller.publish_button_selector(),
+        )
+        self.assertEqual(by_id["commit-publish"]["side_effect"], "EXTERNAL_IRREVERSIBLE")
+
+    def test_public_profile_entry_is_semantic(self) -> None:
+        import inspect
+        source = inspect.getsource(controller._open_public_grid_unlocked)
+        self.assertIn('"content_desc": "主页"', source)
+        self.assertNotIn('RID["profile"]', source)
+
+    def test_public_post_match_uses_exact_caption_and_restricted_tokens(self) -> None:
+        self.assertTrue(controller._public_post_matches([{"text": "caption"}], "caption"))
+        self.assertFalse(controller._public_post_matches([{"text": "caption"}, {"text": "仅自己"}], "caption"))
+
+    def test_dry_run_waits_for_home_stability_before_create_click(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        ids = [a["action_id"] for a in actions]
+        self.assertLess(ids.index("wait-home-stable"), ids.index("home-create"))
+        by_id = {a["action_id"]: a for a in actions}
+        self.assertEqual(by_id["wait-home-stable"]["action"], "waitStable")
+        self.assertEqual(by_id["wait-home-stable"]["stable_interval_ms"], 800)
+
+    def test_album_menu_uses_semantic_selector_not_obfuscated_resource_id(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        selector = by_id["album-menu"]["selector"]
+        self.assertEqual(selector["class_name"], "android.widget.LinearLayout")
+        self.assertTrue(selector["clickable"])
+        self.assertEqual(selector["has_descendant"], {"text": "最近项目"})
+        self.assertNotIn("resource_id", selector)
+
+    def test_album_row_uses_exact_text_without_obfuscated_resource_id(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        expected = {
+            "class_name": "android.widget.RelativeLayout",
+            "clickable": True,
+            "has_descendant": {"text": "Y700Agent"},
+        }
+        self.assertEqual(by_id["wait-album-entry"]["selector"], expected)
+        self.assertEqual(by_id["select-album"]["selector"], expected)
+        self.assertNotIn("resource_id", expected["has_descendant"])
+
+    def test_edit_next_uses_semantic_selector_not_obfuscated_resource_id(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        expected = {
+            "class_name": "android.widget.LinearLayout",
+            "clickable": True,
+            "has_descendant": {"text": "下一步"},
+        }
+        self.assertEqual(by_id["wait-edit"]["selector"], expected)
+        self.assertEqual(by_id["next-to-post-config"]["selector"], expected)
+        self.assertEqual(by_id["next-to-post-config"]["precondition"]["selector"], expected)
+        self.assertNotIn("resource_id", expected)
 
     def test_dry_run_actions_never_click_publish_button(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
-        publish = controller.RID["publish"]
+        publish = controller.publish_button_selector()
         for action in actions:
             if action.get("action") != "click":
                 continue
             self.assertNotEqual(
-                (action.get("selector") or {}).get("resource_id"),
+                action.get("selector"),
                 publish,
                 msg=f"DRY_RUN must never click final publish button: {action}",
             )
+
+    def test_post_config_controls_use_semantic_selectors(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        publish = {
+            "class_name": "android.widget.Button",
+            "text": "发布",
+            "clickable": True,
+            "enabled": True,
+        }
+        caption = {
+            "class_name": "android.widget.EditText",
+            "clickable": True,
+        }
+        self.assertEqual(by_id["next-to-post-config"]["expect"]["selector"], publish)
+        self.assertEqual(by_id["wait-caption"]["selector"], caption)
+        self.assertEqual(by_id["caption"]["selector"], caption)
+        self.assertEqual(by_id["caption"]["precondition"]["selector"], publish)
+        self.assertEqual(by_id["assert-publish-ready"]["selector"], publish)
+
+    def test_visibility_summary_uses_semantic_selector(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        expected = {
+            "class_name": "android.widget.Button",
+            "content_desc": "所有人可见",
+            "clickable": True,
+        }
+        self.assertEqual(by_id["open-visibility"]["selector"], expected)
+        self.assertEqual(by_id["wait-public-summary"]["selector"], expected)
+        self.assertEqual(by_id["assert-public"]["selector"], expected)
+        self.assertEqual(by_id["open-visibility"]["expect"]["selector"], {"text": "谁可以看"})
 
     def test_visibility_selection_separates_sheet_close_from_summary(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
         by_id = {a["action_id"]: a for a in actions}
         choose = by_id["choose-public"]
         self.assertEqual(
-            choose["expect"]["absent_selector"],
+            choose["selector"],
             {
-                "resource_id": controller.RID["visibility_heading"],
-                "text": "谁可以看",
+                "class_name": "android.view.ViewGroup",
+                "content_desc": "所有人",
+                "clickable": True,
+                "checkable": True,
             },
         )
+        self.assertEqual(choose["precondition"]["selector"], {"text": "谁可以看"})
+        self.assertEqual(choose["expect"]["absent_selector"], {"text": "谁可以看"})
         wait = by_id["wait-public-summary"]
         self.assertEqual(wait["action"], "waitFor")
         self.assertEqual(wait["timeout_ms"], 15_000)
         self.assertEqual(
-            wait["selector"]["content_desc_contains"],
-            "所有人",
+            wait["selector"],
+            controller.visibility_summary_selector(),
         )
 
     def test_commit_api_is_explicit_but_not_legacy_named(self) -> None:
@@ -58,11 +197,11 @@ class TikTokGenericCoreTests(unittest.TestCase):
 
     def test_commit_actions_have_exactly_one_irreversible_publish_click(self) -> None:
         actions = controller.build_commit_actions("caption")
-        publish = controller.RID["publish"]
+        publish = controller.publish_button_selector()
         clicks = [
             a for a in actions
             if a.get("action") == "click"
-            and (a.get("selector") or {}).get("resource_id") == publish
+            and a.get("selector") == publish
         ]
         self.assertEqual(len(clicks), 1)
         self.assertEqual(clicks[0]["action_id"], "commit-publish")
@@ -100,28 +239,14 @@ class TikTokGenericCoreTests(unittest.TestCase):
         ]
         self.assertFalse(controller._public_post_matches(restricted, caption))
 
-    def test_private_tile_bounds_are_filtered_and_sorted(self) -> None:
+    def test_profile_video_tile_bounds_are_structural_filtered_and_sorted(self) -> None:
         elements = [
-            {
-                "resource_id": controller.RID["private_tile"],
-                "clickable": True,
-                "bounds": [636, 1030, 1268, 1874],
-            },
-            {
-                "resource_id": controller.RID["private_tile"],
-                "clickable": True,
-                "bounds": [0, 1030, 633, 1874],
-            },
-            {
-                "resource_id": controller.RID["private_tile"],
-                "clickable": False,
-                "bounds": [1271, 1030, 1904, 1874],
-            },
-            {
-                "resource_id": "other",
-                "clickable": True,
-                "bounds": [0, 0, 10, 10],
-            },
+            {"node_id":"grid","parent_id":None,"class":"android.widget.GridView","clickable":False,"bounds":[0,1000,1904,2800]},
+            {"node_id":"v2","parent_id":"grid","class":"android.widget.FrameLayout","resource_id":"pkg:id/f1k","clickable":True,"bounds":[636,1030,1268,1874]},
+            {"node_id":"v1","parent_id":"grid","class":"android.widget.FrameLayout","resource_id":"pkg:id/whatever","clickable":True,"bounds":[0,1030,633,1874]},
+            {"node_id":"draft","parent_id":"grid","class":"android.widget.FrameLayout","clickable":False,"bounds":[1271,1030,1904,1874]},
+            {"node_id":"draft-cover","parent_id":"draft","class":"android.widget.ImageView","resource_id":"pkg:id/cover","clickable":True,"bounds":[1271,1030,1904,1874]},
+            {"node_id":"other","parent_id":None,"class":"android.widget.FrameLayout","resource_id":"other","clickable":True,"bounds":[0,0,10,10]},
         ]
         self.assertEqual(
             controller._video_tile_bounds(elements),
