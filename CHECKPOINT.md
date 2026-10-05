@@ -518,65 +518,77 @@ Public-safe evidence:
 Sprint V1 production Template Vision was separately authorized on 2026-10-05.
 Sprint V2 OCR and Sprint V3 hybrid routing remain **NOT AUTHORIZED / NOT STARTED**.
 
-## Vision Locator PRD v0.3 Sprint V1 — IN PROGRESS / GATE RESULT PENDING
+## Vision Locator PRD v0.3 Sprint V1 — PASS
 
-Status on 2026-10-05:
+Accepted on the real Y700 on 2026-10-05.
 
-- branch: `feat/vision-locator-v1`; V1 remains semantic-first with explicit
-  `vision_template` fallback only, shared click/postcondition/evidence paths, and
-  high-risk Vision denied by default;
-- Python Vision policy/evidence regression: 13/13 PASS; Android app + androidTest
-  build on the Mac build plane: PASS;
-- acceptance lifecycle/keyguard isolation is fixed; zero wrong-target destructive
-  actions were observed in the invalidated/failed gate runs;
-- artifact transport was generalized from media-only into a capability-scoped
-  Mac Artifact Gateway. Commit `c46e55b` replaces large APK SCP transfers with
-  Y700 HTTPS pull, resumable `.part` downloads, byte-size + SHA-256 validation,
-  atomic completed bundles, and a second SHA-256 gate immediately before install.
-  SSH/CodexPro remains the control plane;
-- real-device artifact-pull deployment PASS: Y700 successfully pulled both app and
-  androidTest APKs from `y700media.stanleyxyz.com`, verified hashes, and installed
-  them without SCP;
-- the first post-artifact Gate result
-  `/opt/y700/runtime/vision-v1/vision-v1-20261005-064121.json` is FAIL at 0/20
-  because OpenCV still returned
-  `VISION_MODEL_UNAVAILABLE: loadLibrary=UnsatisfiedLinkError, absoluteLoad=UnsatisfiedLinkError`;
-- device inspection proved the real native-load root cause: the installed target app
-  had `extractNativeLibs=false`, and its `lib/arm64` directory was empty even
-  though `libopencv_java4.so` was present inside the APK;
-- a temporary debug-manifest proof with native extraction enabled was deployed and
-  verified on Y700: `extractNativeLibs=true`, with
-  `libopencv_java4.so` (23,465,088 bytes) and `libc++_shared.so` physically
-  present under the installed app `lib/arm64` directory;
-- the final source form follows AGP guidance instead of hardcoding the manifest:
-  commit `c47c154` sets `packaging.jniLibs.useLegacyPackaging=true`.
-  The Mac Android build passes without the earlier AGP warning; this exact Gradle
-  build still needs one real-device redeploy/verification after the control tunnel returns;
-- a second full Gate was then started against the proven extracted-native-libs build.
-  It progressed through semantic-first, all 20 repeated runs, alpha, ambiguity,
-  bad-hash, postcondition and high-risk cases before the control tunnel dropped.
-  The final result must be read from the already-running/completed gate; do not rerun
-  unless that result is unavailable;
-- recurring Cloudflare 1033 outages were traced to the existing health loop only
-  reporting an offline tunnel without restarting it. Commit `c758444` adds
-  cloudflared recovery inside the existing 60-second health loop with a 300-second
-  cooldown; it adds no second daemon. This change is in Git but is not active on the
-  release workspace until the tunnel is recovered once and the runtime is synced;
-- pre-V1 installed app/test APK backups remain on Y700 under
-  `/data/local/y700-agent/runtime/automation-driver/backups/pre-v1-20261005`.
+- branch acceptance baseline: `feat/vision-locator-v1`, code commit `249c541`;
+- architecture remains semantic-first with explicit `vision_template` fallback
+  only; click/postcondition/recovery/evidence stay shared with the Android
+  Automation Core; high-risk/external irreversible Vision remains denied by default;
+- OpenCV 4.12 native loading is closed on Android 16:
+  `packaging.jniLibs.useLegacyPackaging=true` yields
+  `extractNativeLibs=true`, `libopencv_java4.so` and `libc++_shared.so`
+  are present, and the target app initializes OpenCV through
+  `OpenCVLoader.initLocal()` in the target-app classloader/native namespace;
+- the OpenCV AAR naming mismatch was explicitly handled: the packaged/StaticHelper
+  library is `opencv_java4`, while `Core.NATIVE_LIBRARY_NAME` reports
+  `opencv_java4120`;
+- single real Vision fallback smoke: PASS, `locator_source=vision_template`,
+  confidence approximately 0.9544, shared postcondition PASS;
+- final durable Gate result:
+  `/opt/y700/runtime/vision-v1/vision-v1-20261005-074917.json`;
+- Gate V1: **20/20 locate-click-postcondition PASS (100%)**;
+- semantic-first path: PASS with no unnecessary Vision request;
+- alpha template, ambiguity fail-closed, bad template SHA fail-closed,
+  postcondition-failure evidence, high-risk block, and Vision-disabled rollback:
+  all PASS;
+- wrong-target destructive actions: **0**;
+- absolute-coordinate primary path: **not used**;
+- 20-run host latency: P50 **5305.7 ms**, max **6708.5 ms**;
+- Python Vision policy/evidence regression: 13/13 PASS;
+- TikTok/state/publish routing regression: 19/19 PASS;
+- artifact gateway regression: 4/4 PASS;
+- Android app + androidTest build and Python compile checks: PASS;
+- public-safe acceptance evidence:
+  `docs/VISION-V1-ACCEPTANCE-2026-10-05.md`.
 
-Resume point after the control tunnel recovers:
+Mac -> Y700 APK transport is also accepted in this V1 work:
 
-1. read the newest existing `vision-v1-*.json` and finish evaluating the second Gate;
-2. sync/deploy `c47c154` and verify the installed app still reports
-   `extractNativeLibs=true` with the OpenCV libraries present;
-3. activate/verify the `c758444` health-loop tunnel recovery in the release runtime;
-4. if Gate V1 is not yet valid PASS, fix only the observed failing case(s) and rerun
-   the minimum required acceptance;
-5. rerun directly affected semantic regression and record acceptance evidence before
-   any V1 production enablement.
+```text
+Mac build
+-> capability-scoped artifact manifest
+-> Y700 HTTPS pull to .part
+-> byte-size + SHA-256 validation
+-> atomic completed bundle
+-> second SHA-256 gate
+-> root bridge / pm install
+```
 
-Do not mark Sprint V1 PASS and do not enable production Vision until Gate V1 passes.
+SSH/CodexPro remains the control plane; large APK bytes no longer rely on SCP.
+The accepted candidate installed hashes are:
+
+```text
+app  = f2c691a71dfcb9471dd65b0b0a640ffe6efb0535ac5b17ef0391abb6e96d9e43
+test = 35578bc7ae8d2823aae596907bd3c0abc2610cd6eb83c488930ad3302d09bb8f
+```
+
+Recurring Cloudflare connector loss is hardened by `c758444`: the existing health
+loop may restart the same cloudflared connector after a bounded cooldown; no
+second daemon or failover tunnel is introduced.
+
+Accepted capability state:
+
+```text
+Template Vision capability = READY
+default/global Vision routing = OFF unless explicitly requested
+OCR = OFF
+Sprint V2 OCR = NOT STARTED
+Sprint V3 hybrid routing = NOT STARTED
+```
+
+Pre-V1 installed app/test APK backups remain on Y700 under
+`/data/local/y700-agent/runtime/automation-driver/backups/pre-v1-20261005`.
 
 ## Telegram Y700 Automation Control Plane v0.1 — CODE / LOCAL PROFILE PREP PASS
 
