@@ -14,6 +14,9 @@ class HostExecutorSingletonContractTests(unittest.TestCase):
         self.assertIn("duplicate_executor_exit", text)
         self.assertIn("$PIDFILE.tmp.$$", text)
         self.assertLess(text.index("acquire_singleton"), text.rindex('STARTED_AT="$(now_iso)"'))
+        self.assertIn("trap release_singleton EXIT", text)
+        self.assertIn("trap 'exit 143' TERM", text)
+        self.assertNotIn("trap release_singleton EXIT HUP INT TERM", text)
 
     def test_restart_kills_all_matching_old_executors_not_only_pidfile(self) -> None:
         text = (ROOT / "scripts" / "restart-host-executor.sh").read_text()
@@ -21,6 +24,13 @@ class HostExecutorSingletonContractTests(unittest.TestCase):
         self.assertIn("/bridge/host-executor.sh", text)
         self.assertIn('[ "$pid" = "$self" ] && continue', text)
         self.assertNotIn("kill $old", text)
+        self.assertIn('victims="$victims $pid"', text)
+        self.assertIn('RESTART_BLOCKED_OLD_EXECUTOR_ALIVE', text)
+        self.assertIn('kill -0 "$pid"', text)
+        self.assertLess(
+            text.index('RESTART_BLOCKED_OLD_EXECUTOR_ALIVE'),
+            text.index('rm -rf /data/local/y700-agent/runtime/host-executor.lock'),
+        )
 
     def test_start_uses_lock_owner_as_pid_authority(self) -> None:
         text = (ROOT / "scripts" / "start-host-executor.sh").read_text()

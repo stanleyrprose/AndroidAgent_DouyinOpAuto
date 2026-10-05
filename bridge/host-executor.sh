@@ -119,7 +119,10 @@ acquire_singleton() {
       printf '%s\n' "$SELF_PID" >"$PIDFILE.tmp.$$"
       "$TOYBOX" chmod 600 "$PIDFILE.tmp.$$" 2>/dev/null || true
       "$TOYBOX" mv "$PIDFILE.tmp.$$" "$PIDFILE"
-      trap release_singleton EXIT HUP INT TERM
+      trap release_singleton EXIT
+      trap 'exit 129' HUP
+      trap 'exit 130' INT
+      trap 'exit 143' TERM
       return 0
     fi
 
