@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -14,8 +15,22 @@ STATE=Path("/opt/y700/runtime/state/publisher.json")
 HOST_READY="/data/local/y700-agent/media/ready"
 ALBUM="/sdcard/Movies/Y700Agent"
 
-def root_exec(command, check=True):
-    p=subprocess.run([str(ROOT_EXEC),command],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+def root_exec(command, check=True, timeout_ms=30000):
+    env=os.environ.copy()
+    env["Y700_BRIDGE_TIMEOUT_MS"]=str(int(timeout_ms))
+    try:
+        p=subprocess.run(
+            [str(ROOT_EXEC),command],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            timeout=max(5.0, timeout_ms/1000 + 5.0),
+        )
+    except subprocess.TimeoutExpired as exc:
+        if check:
+            raise RuntimeError(f"root_exec local timeout after {timeout_ms}ms") from exc
+        return subprocess.CompletedProcess([str(ROOT_EXEC),command],124,"","root_exec local timeout")
     if check and p.returncode!=0:
         raise RuntimeError(f"root_exec failed rc={p.returncode}: {p.stderr}")
     return p
@@ -43,7 +58,7 @@ def main():
         f"--where \"_display_name='{display_name}' AND relative_path='Movies/Y700Agent/'\""
     )
     for _ in range(30):
-        q=root_exec(query,check=False)
+        q=root_exec(query,check=False,timeout_ms=5000)
         if display_name in (q.stdout or "") and "Movies/Y700Agent/" in (q.stdout or ""):
             found=True
             break
