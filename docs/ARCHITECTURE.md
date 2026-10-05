@@ -52,3 +52,20 @@ Ambiguous COMMIT results are reconciled from TikTok Profile/durable state before
 ## Why filesystem-first
 
 The workload is single-device and low-throughput. Files provide durable, inspectable state and simplify recovery. MQ/socket infrastructure would add failure modes without solving a measured requirement.
+
+## Intermittent connectivity invariant
+
+The Y700 is a mobile runtime node, not an always-online server. Loss of Wi-Fi or
+phone-hotspot connectivity is an expected operating state. The local Android
+automation runtime, durable job state, and bridge must continue independently of
+the remote development/control plane.
+
+Remote-plane health is connectivity-aware:
+
+- `NETWORK_OFFLINE` suspends the remote plane and is not itself a local runtime failure.
+- `NETWORK_ONLINE + tunnel process healthy` is `READY`.
+- `NETWORK_ONLINE + tunnel process offline` is `DEGRADED` and may trigger bounded self-heal.
+- Cloudflared restart attempts use exponential backoff and are never retried continuously while the device is offline.
+- A live cloudflared process is left running across network loss so its native reconnect behavior can recover when connectivity returns.
+
+Cloudflare Tunnel, CodexPro, SSH, and the Mac are control/development-plane conveniences. They are not hard runtime dependencies for an already-running local Android automation job.

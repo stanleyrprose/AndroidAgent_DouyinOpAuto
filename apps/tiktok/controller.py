@@ -22,6 +22,7 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[2]
 AUTOMATION = ROOT / "automation"
 ROOT_EXEC = ROOT / "bridge" / "root-exec.sh"
+SECURE_UNLOCK = ROOT / "bridge" / "secure-unlock.sh"
 REQUEST_RUNTIME = Path(
     os.environ.get("Y700_AUTOMATION_REQUEST_RUNTIME", "/opt/y700/runtime/automation-driver")
 )
@@ -116,6 +117,20 @@ def _root(
 
 def force_stop() -> None:
     _root(f"am force-stop {TIKTOK}", timeout=20, check=False)
+
+
+def _ensure_device_unlocked() -> None:
+    p = subprocess.run(
+        ["bash", str(SECURE_UNLOCK)],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=45,
+    )
+    if p.returncode != 0:
+        detail = (p.stderr or p.stdout).strip()
+        raise TikTokCoreError(f"secure unlock failed rc={p.returncode}: {detail}")
 
 
 def _job_id(label: str) -> str:
@@ -247,25 +262,82 @@ def media_selector() -> dict[str, Any]:
     return {
         "class_name": "android.widget.FrameLayout",
         "clickable": True,
-        "has_parent": {"resource_id": RID["grid"]},
+        "has_parent": {"class_name": "android.widget.GridView"},
+    }
+
+
+def home_create_selector() -> dict[str, Any]:
+    """Semantic create-tab selector resilient to TikTok resource-id drift."""
+    return {"content_desc": "创建", "clickable": True}
+
+
+def album_menu_selector() -> dict[str, Any]:
+    """Semantic album picker selector; TikTok obfuscates this container id."""
+    return {
+        "class_name": "android.widget.LinearLayout",
+        "clickable": True,
+        "has_descendant": {"text": "最近项目"},
+    }
+
+
+def edit_next_selector() -> dict[str, Any]:
+    """Semantic edit-page Next selector resilient to resource-id drift."""
+    return {
+        "class_name": "android.widget.LinearLayout",
+        "clickable": True,
+        "has_descendant": {"text": "下一步"},
+    }
+
+
+def caption_selector() -> dict[str, Any]:
+    """Semantic post description editor selector."""
+    return {
+        "class_name": "android.widget.EditText",
+        "clickable": True,
+    }
+
+
+def publish_button_selector() -> dict[str, Any]:
+    """Semantic final Publish button selector."""
+    return {
+        "class_name": "android.widget.Button",
+        "text": "发布",
+        "clickable": True,
+        "enabled": True,
+    }
+
+
+def visibility_summary_selector() -> dict[str, Any]:
+    """Semantic public visibility summary button on post-config."""
+    return {
+        "class_name": "android.widget.Button",
+        "content_desc": "所有人可见",
+        "clickable": True,
     }
 
 
 def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, Any]]:
     """One instrumentation session from cold-launch HOME to verified POST_CONFIG."""
     media = media_selector()
+    home_create = home_create_selector()
     return [
         {
             "action_id": "wait-cold-home",
             "action": "waitFor",
-            "selector": {"resource_id": RID["home_create"], "clickable": True},
+            "selector": home_create,
             "unique": True,
             "timeout_ms": 45_000,
         },
         {
+            "action_id": "wait-home-stable",
+            "action": "waitStable",
+            "timeout_ms": 5_000,
+            "stable_interval_ms": 800,
+        },
+        {
             "action_id": "home-create",
             "action": "click",
-            "selector": {"resource_id": RID["home_create"], "clickable": True},
+            "selector": home_create,
             "expect": {"selector": {"resource_id": RID["upload"]}, "unique": True},
             "timeout_ms": 12_000,
             "side_effect": "REVERSIBLE_LOCAL",
@@ -281,7 +353,7 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
         {
             "action_id": "album-menu",
             "action": "click",
-            "selector": {"resource_id": RID["album_menu"], "clickable": True},
+            "selector": album_menu_selector(),
             "side_effect": "REVERSIBLE_LOCAL",
         },
         {
@@ -291,7 +363,6 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
                 "class_name": "android.widget.RelativeLayout",
                 "clickable": True,
                 "has_descendant": {
-                    "resource_id": RID["album_row_text"],
                     "text": album,
                 },
             },
@@ -305,7 +376,6 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
                 "class_name": "android.widget.RelativeLayout",
                 "clickable": True,
                 "has_descendant": {
-                    "resource_id": RID["album_row_text"],
                     "text": album,
                 },
             },
@@ -330,48 +400,42 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
         {
             "action_id": "wait-edit",
             "action": "waitFor",
-            "selector": {"resource_id": RID["edit_next"], "clickable": True},
+            "selector": edit_next_selector(),
             "unique": True,
             "timeout_ms": 20_000,
         },
         {
             "action_id": "next-to-post-config",
             "action": "click",
-            "selector": {"resource_id": RID["edit_next"], "clickable": True},
+            "selector": edit_next_selector(),
             "precondition": {
-                "selector": {"resource_id": RID["edit_next_text"], "text": "下一步"},
+                "selector": edit_next_selector(),
                 "unique": True,
             },
-            "expect": {"selector": {"resource_id": RID["publish"]}, "unique": True},
+            "expect": {"selector": publish_button_selector(), "unique": True},
             "timeout_ms": 25_000,
             "side_effect": "REVERSIBLE_LOCAL",
         },
         {
             "action_id": "wait-caption",
             "action": "waitFor",
-            "selector": {
-                "resource_id": RID["caption"],
-                "class_name": "android.widget.EditText",
-            },
+            "selector": caption_selector(),
             "unique": True,
             "timeout_ms": 15_000,
         },
         {
             "action_id": "caption",
             "action": "inputText",
-            "selector": {
-                "resource_id": RID["caption"],
-                "class_name": "android.widget.EditText",
-            },
+            "selector": caption_selector(),
             "text": caption,
             "clear_first": True,
             "dismiss_ime": True,
             "precondition": {
-                "selector": {"resource_id": RID["publish"], "enabled": True},
+                "selector": publish_button_selector(),
                 "unique": True,
             },
             "expect": {
-                "selector": {"resource_id": RID["caption"], "text": caption},
+                "selector": {**caption_selector(), "text": caption},
                 "unique": True,
             },
             "timeout_ms": 12_000,
@@ -380,16 +444,9 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
         {
             "action_id": "open-visibility",
             "action": "click",
-            "selector": {
-                "resource_id": RID["visibility"],
-                "clickable": True,
-                "has_ancestor": {"resource_id": RID["visibility_container"]},
-            },
+            "selector": visibility_summary_selector(),
             "expect": {
-                "selector": {
-                    "resource_id": RID["visibility_heading"],
-                    "text": "谁可以看",
-                },
+                "selector": {"text": "谁可以看"},
                 "unique": True,
             },
             "timeout_ms": 8_000,
@@ -399,23 +456,17 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
             "action_id": "choose-public",
             "action": "click",
             "selector": {
-                "resource_id": RID["visibility"],
+                "class_name": "android.view.ViewGroup",
                 "content_desc": "所有人",
                 "clickable": True,
                 "checkable": True,
             },
             "precondition": {
-                "selector": {
-                    "resource_id": RID["visibility_heading"],
-                    "text": "谁可以看",
-                },
+                "selector": {"text": "谁可以看"},
                 "unique": True,
             },
             "expect": {
-                "absent_selector": {
-                    "resource_id": RID["visibility_heading"],
-                    "text": "谁可以看",
-                }
+                "absent_selector": {"text": "谁可以看"}
             },
             "timeout_ms": 8_000,
             "side_effect": "IDEMPOTENT",
@@ -423,38 +474,24 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
         {
             "action_id": "wait-public-summary",
             "action": "waitFor",
-            "selector": {
-                "resource_id": RID["visibility"],
-                "content_desc_contains": "所有人",
-                "clickable": True,
-                "has_ancestor": {"resource_id": RID["visibility_container"]},
-            },
+            "selector": visibility_summary_selector(),
             "unique": True,
             "timeout_ms": 15_000,
         },
         {
             "action_id": "assert-caption",
             "action": "assert",
-            "selector": {"resource_id": RID["caption"], "text": caption},
+            "selector": {**caption_selector(), "text": caption},
         },
         {
             "action_id": "assert-public",
             "action": "assert",
-            "selector": {
-                "resource_id": RID["visibility"],
-                "content_desc_contains": "所有人",
-                "clickable": True,
-                "has_ancestor": {"resource_id": RID["visibility_container"]},
-            },
+            "selector": visibility_summary_selector(),
         },
         {
             "action_id": "assert-publish-ready",
             "action": "assert",
-            "selector": {
-                "resource_id": RID["publish"],
-                "text": "发布",
-                "enabled": True,
-            },
+            "selector": publish_button_selector(),
         },
         {"action_id": "observe-ready", "action": "observe"},
         {
@@ -466,10 +503,74 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
 
 
 def _cold_launch() -> None:
+    _ensure_device_unlocked()
     force_stop()
     _root(
         f"monkey -p {TIKTOK} -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1",
         timeout=20,
+    )
+
+    # TikTok can keep SplashActivity in the foreground for tens of seconds on
+    # mobile/hotspot networks. Accessibility may expose stale Home nodes behind
+    # the splash, so UI selectors alone are not a safe launch-readiness signal.
+    deadline = time.monotonic() + 90.0
+    last_top = ""
+    stable_main = 0
+    stable_home_ui = 0
+    splash_samples = 0
+    normalized_to_main = False
+    home_probe_attempt = 0
+    next_home_probe = time.monotonic() + 4.0
+    while time.monotonic() < deadline:
+        last_top = _root(
+            "dumpsys activity activities | grep topResumedActivity",
+            timeout=10,
+            check=False,
+        ).stdout.strip()
+        now = time.monotonic()
+        if TIKTOK in last_top and "MainActivity" in last_top:
+            stable_main += 1
+            stable_home_ui = 0
+            if stable_main >= 2:
+                return
+        else:
+            stable_main = 0
+            if TIKTOK in last_top and "SplashActivity" in last_top:
+                splash_samples += 1
+            if not normalized_to_main and (splash_samples >= 3 or not last_top):
+                _root(
+                    f"am start -n {TIKTOK}/com.ss.android.ugc.aweme.main.MainActivity >/dev/null",
+                    timeout=20,
+                    check=False,
+                )
+                normalized_to_main = True
+
+            # ZUI may leave topResumedActivity empty or report SplashActivity
+            # even while TikTok Home is already the real interactive surface.
+            # Two consecutive semantic HOME observations are therefore accepted
+            # as launch-readiness evidence. The following DRY_RUN still verifies
+            # every reversible click and postcondition fail-closed.
+            if now >= next_home_probe:
+                home_probe_attempt += 1
+                try:
+                    state, _, _ = _observe(f"cold-launch-home-probe-{home_probe_attempt}")
+                except TikTokCoreError as exc:
+                    error = exc.result.get("error") or {}
+                    if error.get("code") == "KEYGUARD_BLOCKING":
+                        _ensure_device_unlocked()
+                        next_home_probe = time.monotonic() + 0.5
+                    stable_home_ui = 0
+                else:
+                    if state["state"] == "HOME" and state.get("tiktok_visible"):
+                        stable_home_ui += 1
+                        if stable_home_ui >= 2:
+                            return
+                    else:
+                        stable_home_ui = 0
+                next_home_probe = time.monotonic() + 2.0
+        time.sleep(1.0)
+    raise TikTokCoreError(
+        f"TikTok cold launch did not leave SplashActivity within 90s: {last_top}"
     )
 
 
@@ -538,26 +639,17 @@ def build_commit_actions(caption: str) -> list[dict[str, Any]]:
         {
             "action_id": "commit-assert-caption",
             "action": "assert",
-            "selector": {"resource_id": RID["caption"], "text": caption},
+            "selector": {**caption_selector(), "text": caption},
         },
         {
             "action_id": "commit-assert-public",
             "action": "assert",
-            "selector": {
-                "resource_id": RID["visibility"],
-                "content_desc_contains": "所有人",
-                "clickable": True,
-                "has_ancestor": {"resource_id": RID["visibility_container"]},
-            },
+            "selector": visibility_summary_selector(),
         },
         {
             "action_id": "commit-assert-publish-ready",
             "action": "assert",
-            "selector": {
-                "resource_id": RID["publish"],
-                "text": "发布",
-                "enabled": True,
-            },
+            "selector": publish_button_selector(),
         },
         {
             "action_id": "commit-before-evidence",
@@ -567,12 +659,7 @@ def build_commit_actions(caption: str) -> list[dict[str, Any]]:
         {
             "action_id": "commit-publish",
             "action": "click",
-            "selector": {
-                "resource_id": RID["publish"],
-                "text": "发布",
-                "enabled": True,
-                "clickable": True,
-            },
+            "selector": publish_button_selector(),
             "side_effect": "EXTERNAL_IRREVERSIBLE",
         },
     ]
@@ -637,13 +724,13 @@ def _public_tab_selector(*, selected: bool | None = None) -> dict[str, Any]:
 
 def _public_post_matches(elements: list[dict[str, Any]], caption: str) -> bool:
     exact_caption = any(
-        element.get("resource_id") == RID["post_caption"]
-        and (element.get("text") or "").strip() == caption
+        (element.get("text") or "").strip() == caption
         for element in elements
     )
+    restricted_tokens = {"仅自己", "好友可见", "私密", "仅好友"}
     restricted_label = any(
-        element.get("resource_id") == RID["private_label"]
-        and (element.get("text") or "").strip()
+        (element.get("text") or "").strip() in restricted_tokens
+        or (element.get("content_desc") or "").strip() in restricted_tokens
         for element in elements
     )
     return exact_caption and not restricted_label
@@ -657,14 +744,14 @@ def _open_public_grid_unlocked(prefix: str) -> tuple[list[dict[str, Any]], dict[
             {
                 "action_id": "wait-profile",
                 "action": "waitFor",
-                "selector": {"resource_id": RID["profile"], "clickable": True},
+                "selector": {"content_desc": "主页", "clickable": True},
                 "unique": True,
                 "timeout_ms": 15_000,
             },
             {
                 "action_id": "open-profile",
                 "action": "click",
-                "selector": {"resource_id": RID["profile"], "clickable": True},
+                "selector": {"content_desc": "主页", "clickable": True},
                 "side_effect": "REVERSIBLE_LOCAL",
             },
             {
@@ -776,9 +863,19 @@ def _private_tab_selector(*, selected: bool | None = None) -> dict[str, Any]:
 
 
 def _video_tile_bounds(elements: list[dict[str, Any]]) -> list[list[int]]:
+    """Return semantic profile-video tiles in visual order.
+
+    TikTok obfuscates tile resource ids. Real profile video tiles are clickable
+    FrameLayout children of the profile GridView. The draft card is excluded
+    because its direct GridView child is not clickable; only a nested cover is.
+    """
+    by_id = {element.get("node_id"): element for element in elements}
     bounds: list[list[int]] = []
     for element in elements:
-        if element.get("resource_id") != RID["private_tile"] or not element.get("clickable"):
+        if element.get("class") != "android.widget.FrameLayout" or not element.get("clickable"):
+            continue
+        parent = by_id.get(element.get("parent_id")) or {}
+        if parent.get("class") != "android.widget.GridView":
             continue
         b = element.get("bounds")
         if (

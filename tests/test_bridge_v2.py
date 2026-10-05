@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
@@ -20,9 +21,30 @@ class BridgeV2ClientTests(unittest.TestCase):
         root = Path(self.tmp.name)
         self.paths = bc.BridgePaths(jobs=root / "jobs", runtime=root / "runtime")
         bc.ensure_layout(self.paths)
+        # Unit tests must not inherit the developer/CI host's real disk pressure.
+        # Keep the production guard active, but feed it a deterministic healthy
+        # filesystem view unless a test explicitly exercises the low-disk path.
+        gib = 1024 * 1024 * 1024
+        self.disk_usage_patch = mock.patch.object(
+            bc.shutil,
+            "disk_usage",
+            return_value=SimpleNamespace(total=100 * gib, used=40 * gib, free=60 * gib),
+        )
+        self.disk_usage_patch.start()
 
     def tearDown(self) -> None:
+        self.disk_usage_patch.stop()
         self.tmp.cleanup()
+
+    def test_disk_guard_blocks_low_free_percent(self) -> None:
+        gib = 1024 * 1024 * 1024
+        with mock.patch.object(
+            bc.shutil,
+            "disk_usage",
+            return_value=SimpleNamespace(total=100 * gib, used=97 * gib, free=3 * gib),
+        ):
+            with self.assertRaisesRegex(bc.BridgeError, "DISK_GUARD_BLOCKED"):
+                bc.check_disk_guard(self.paths)
 
     def test_atomic_submission_only_exposes_complete_active_job(self) -> None:
         job = bc.submit_root("echo bridge-v2", timeout_ms=5000, paths=self.paths)

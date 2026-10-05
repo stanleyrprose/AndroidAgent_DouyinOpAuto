@@ -29,6 +29,7 @@ Y700:
 - Never log Douzy bearer tokens or cookies.
 - Never use unauthenticated direct Douyin scraping as production fallback.
 - Never turn a failed/ambiguous TikTok COMMIT into an automatic retry.
+- On Y700, cross the PUBLIC commit boundary only through `scripts/approve-public-commit.sh`; do not manually combine a manifest edit with `publish-async.sh --commit`.
 - Same aweme_id must deduplicate by default.
 - Production default visibility is PUBLIC. A different visibility requires an explicit user request.
 - Runtime jobs and downloaded media do not enter Git.
