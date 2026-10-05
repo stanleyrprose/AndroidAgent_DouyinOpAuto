@@ -274,6 +274,24 @@ def edit_next_selector() -> dict[str, Any]:
     }
 
 
+def caption_selector() -> dict[str, Any]:
+    """Semantic post description editor selector."""
+    return {
+        "class_name": "android.widget.EditText",
+        "clickable": True,
+    }
+
+
+def publish_button_selector() -> dict[str, Any]:
+    """Semantic final Publish button selector."""
+    return {
+        "class_name": "android.widget.Button",
+        "text": "发布",
+        "clickable": True,
+        "enabled": True,
+    }
+
+
 def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, Any]]:
     """One instrumentation session from cold-launch HOME to verified POST_CONFIG."""
     media = media_selector()
@@ -370,36 +388,30 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
                 "selector": edit_next_selector(),
                 "unique": True,
             },
-            "expect": {"selector": {"resource_id": RID["publish"]}, "unique": True},
+            "expect": {"selector": publish_button_selector(), "unique": True},
             "timeout_ms": 25_000,
             "side_effect": "REVERSIBLE_LOCAL",
         },
         {
             "action_id": "wait-caption",
             "action": "waitFor",
-            "selector": {
-                "resource_id": RID["caption"],
-                "class_name": "android.widget.EditText",
-            },
+            "selector": caption_selector(),
             "unique": True,
             "timeout_ms": 15_000,
         },
         {
             "action_id": "caption",
             "action": "inputText",
-            "selector": {
-                "resource_id": RID["caption"],
-                "class_name": "android.widget.EditText",
-            },
+            "selector": caption_selector(),
             "text": caption,
             "clear_first": True,
             "dismiss_ime": True,
             "precondition": {
-                "selector": {"resource_id": RID["publish"], "enabled": True},
+                "selector": publish_button_selector(),
                 "unique": True,
             },
             "expect": {
-                "selector": {"resource_id": RID["caption"], "text": caption},
+                "selector": {**caption_selector(), "text": caption},
                 "unique": True,
             },
             "timeout_ms": 12_000,
@@ -463,7 +475,7 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
         {
             "action_id": "assert-caption",
             "action": "assert",
-            "selector": {"resource_id": RID["caption"], "text": caption},
+            "selector": {**caption_selector(), "text": caption},
         },
         {
             "action_id": "assert-public",
@@ -478,11 +490,7 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
         {
             "action_id": "assert-publish-ready",
             "action": "assert",
-            "selector": {
-                "resource_id": RID["publish"],
-                "text": "发布",
-                "enabled": True,
-            },
+            "selector": publish_button_selector(),
         },
         {"action_id": "observe-ready", "action": "observe"},
         {
@@ -595,12 +603,7 @@ def build_commit_actions(caption: str) -> list[dict[str, Any]]:
         {
             "action_id": "commit-publish",
             "action": "click",
-            "selector": {
-                "resource_id": RID["publish"],
-                "text": "发布",
-                "enabled": True,
-                "clickable": True,
-            },
+            "selector": publish_button_selector(),
             "side_effect": "EXTERNAL_IRREVERSIBLE",
         },
     ]

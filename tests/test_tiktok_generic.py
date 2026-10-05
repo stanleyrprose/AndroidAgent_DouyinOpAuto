@@ -70,15 +70,34 @@ class TikTokGenericCoreTests(unittest.TestCase):
 
     def test_dry_run_actions_never_click_publish_button(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
-        publish = controller.RID["publish"]
+        publish = controller.publish_button_selector()
         for action in actions:
             if action.get("action") != "click":
                 continue
             self.assertNotEqual(
-                (action.get("selector") or {}).get("resource_id"),
+                action.get("selector"),
                 publish,
                 msg=f"DRY_RUN must never click final publish button: {action}",
             )
+
+    def test_post_config_controls_use_semantic_selectors(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        publish = {
+            "class_name": "android.widget.Button",
+            "text": "发布",
+            "clickable": True,
+            "enabled": True,
+        }
+        caption = {
+            "class_name": "android.widget.EditText",
+            "clickable": True,
+        }
+        self.assertEqual(by_id["next-to-post-config"]["expect"]["selector"], publish)
+        self.assertEqual(by_id["wait-caption"]["selector"], caption)
+        self.assertEqual(by_id["caption"]["selector"], caption)
+        self.assertEqual(by_id["caption"]["precondition"]["selector"], publish)
+        self.assertEqual(by_id["assert-publish-ready"]["selector"], publish)
 
     def test_visibility_selection_separates_sheet_close_from_summary(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
@@ -108,11 +127,11 @@ class TikTokGenericCoreTests(unittest.TestCase):
 
     def test_commit_actions_have_exactly_one_irreversible_publish_click(self) -> None:
         actions = controller.build_commit_actions("caption")
-        publish = controller.RID["publish"]
+        publish = controller.publish_button_selector()
         clicks = [
             a for a in actions
             if a.get("action") == "click"
-            and (a.get("selector") or {}).get("resource_id") == publish
+            and a.get("selector") == publish
         ]
         self.assertEqual(len(clicks), 1)
         self.assertEqual(clicks[0]["action_id"], "commit-publish")
