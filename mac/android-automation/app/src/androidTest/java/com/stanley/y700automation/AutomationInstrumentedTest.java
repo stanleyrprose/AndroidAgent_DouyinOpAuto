@@ -3,6 +3,7 @@ package com.stanley.y700automation;
 import android.app.Instrumentation;
 import android.app.KeyguardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Rect;
 import android.os.Bundle;
@@ -137,6 +138,9 @@ public class AutomationInstrumentedTest {
 
             long requestedMax = request.optLong("max_duration_ms", MAX_DURATION_MS);
             long workflowDeadline = Math.min(MAX_DURATION_MS, Math.max(1000L, requestedMax));
+            if (testMode && request.optBoolean("test_prepare_vision_benchmark", false)) {
+                prepareVisionBenchmark(request);
+            }
             result.put("preflight", ensureUiPreflight(request));
 
             boolean failed = false;
@@ -241,7 +245,7 @@ public class AutomationInstrumentedTest {
                 keyguardBlocking &&
                 testMode &&
                 request.optBoolean("test_allow_keyguard_benchmark", false) &&
-                "com.stanley.y700automation".equals(device.getCurrentPackageName());
+                isVisionBenchmarkActivityTop();
         if (keyguardBlocking && !benchmarkKeyguardBypass) {
             if (!request.optBoolean("dismiss_keyguard", true)) {
                 throw new ActionFailure("KEYGUARD_BLOCKING",
@@ -266,6 +270,44 @@ public class AutomationInstrumentedTest {
                 .put("dismiss_keyguard_attempted", dismissAttempted)
                 .put("test_benchmark_keyguard_bypass", benchmarkKeyguardBypass)
                 .put("keyguard_blocking", keyguardBlocking);
+    }
+
+    private void prepareVisionBenchmark(JSONObject request) throws Exception {
+        boolean duplicate = request.optBoolean("test_benchmark_duplicate", false);
+        boolean clicked = request.optBoolean("test_benchmark_clicked", false);
+        Intent intent = new Intent();
+        intent.setClassName("com.stanley.y700automation",
+                "com.stanley.y700automation.VisionBenchmarkActivity");
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
+                Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.putExtra("duplicate", duplicate);
+        intent.putExtra("clicked", clicked);
+        context.startActivity(intent);
+        SystemClock.sleep(500L);
+        if (!"com.stanley.y700automation".equals(device.getCurrentPackageName()) &&
+                !isVisionBenchmarkActivityTop()) {
+            throw new ActionFailure("TEST_BENCHMARK_UNAVAILABLE",
+                    "VisionBenchmarkActivity did not become foreground", false, "BLOCKED");
+        }
+    }
+
+    private boolean isVisionBenchmarkActivityTop() {
+        try {
+            String activities = shell("dumpsys activity activities");
+            String component = "com.stanley.y700automation/.VisionBenchmarkActivity";
+            for (String line : activities.split("\n")) {
+                String trimmed = line.trim();
+                if ((trimmed.startsWith("topResumedActivity=") ||
+                        trimmed.startsWith("ResumedActivity:")) &&
+                        trimmed.contains(component)) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+            // Test-only bypass must fail closed if activity state cannot be proven.
+        }
+        return false;
     }
 
     private JSONObject loadRequest() throws Exception {

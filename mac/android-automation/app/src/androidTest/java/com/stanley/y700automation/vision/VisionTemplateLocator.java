@@ -172,7 +172,7 @@ public final class VisionTemplateLocator {
         this.config = config;
         this.random = new Random(deterministicSeed);
         if (config.enabled && config.templateEnabled && "fallback".equals(config.mode)) {
-            ensureOpenCv();
+            ensureOpenCv(instrumentation);
         }
     }
 
@@ -550,16 +550,34 @@ public final class VisionTemplateLocator {
         }
     }
 
-    private static void ensureOpenCv() throws VisionV0Harness.VisionFailure {
+    private static void ensureOpenCv(Instrumentation instrumentation)
+            throws VisionV0Harness.VisionFailure {
         synchronized (VisionTemplateLocator.class) {
             if (openCvLoaded) return;
+            Throwable firstFailure = null;
             try {
                 System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
                 openCvLoaded = true;
+                return;
             } catch (Throwable t) {
+                firstFailure = t;
+            }
+
+            try {
+                String nativeDir = instrumentation.getTargetContext()
+                        .getApplicationInfo().nativeLibraryDir;
+                String libraryPath = nativeDir + "/" +
+                        System.mapLibraryName(Core.NATIVE_LIBRARY_NAME);
+                System.load(libraryPath);
+                openCvLoaded = true;
+            } catch (Throwable t) {
+                String first = firstFailure == null
+                        ? "none"
+                        : firstFailure.getClass().getSimpleName();
                 throw new VisionV0Harness.VisionFailure(
                         "VISION_MODEL_UNAVAILABLE",
-                        "OpenCV runtime unavailable: " + t.getClass().getSimpleName());
+                        "OpenCV runtime unavailable: loadLibrary=" + first +
+                                ", absoluteLoad=" + t.getClass().getSimpleName());
             }
         }
     }

@@ -515,11 +515,48 @@ fail-closed runtime defaults until separately authorized V1/V2 work.
 Public-safe evidence:
 `docs/VISION-V0-ACCEPTANCE-2026-10-05.md`.
 
-Sprint V1 production Template Vision, Sprint V2 OCR and Sprint V3 hybrid routing
-remain **NOT AUTHORIZED / NOT STARTED** by this V0 closure.
+Sprint V1 production Template Vision was separately authorized on 2026-10-05.
+Sprint V2 OCR and Sprint V3 hybrid routing remain **NOT AUTHORIZED / NOT STARTED**.
 
+## Vision Locator PRD v0.3 Sprint V1 — IN PROGRESS / DEPLOY BLOCKED
 
+Status on 2026-10-05:
 
+- branch: `feat/vision-locator-v1`; V1 implementation is semantic-first with explicit
+  `vision_template` fallback only, shared click/postcondition/evidence paths, and
+  high-risk Vision denied by default;
+- Python Vision policy/evidence regression: 13/13 PASS;
+- Android app + androidTest build on the Mac build plane: PASS;
+- first real-Y700 Gate V1 attempt produced zero wrong-target destructive actions but
+  was invalidated before Vision by `KEYGUARD_BLOCKING`; root cause was acceptance
+  harness lifecycle, not locator matching;
+- harness fixed so the instrumentation session owns the debug-only
+  `VisionBenchmarkActivity` setup; test-only keyguard bypass now requires explicit
+  test flags plus the exact benchmark activity foreground proof;
+- one-device smoke then reached the real Vision path and exposed
+  `VISION_MODEL_UNAVAILABLE: UnsatisfiedLinkError`;
+- root cause: OpenCV native library exists in the target app APK but
+  `System.loadLibrary` from the instrumentation native namespace cannot resolve it;
+- current source fix keeps OpenCV packaged once in the target app and falls back to
+  absolute load from the target app `nativeLibraryDir`; current build PASS;
+- latest local build SHA-256:
+  app `7710c6f3364746df59575227db08a161ef2077c69bf7170417fa33264fd10687`,
+  test `b2815d876ab7e22501e5ed780a719d49dd1a29d9bc1a6cf4cb8dda83f0356796`;
+- deployment of that latest test APK is currently blocked by the Mac -> Y700
+  Cloudflare SSH transport returning `websocket: bad handshake` on two retries;
+- pre-V1 installed app/test APK backups remain on Y700 under
+  `/data/local/y700-agent/runtime/automation-driver/backups/pre-v1-20261005`.
+
+Resume point after transport recovers:
+
+1. deploy the current app/test APK pair;
+2. run one template fallback smoke;
+3. only if smoke PASS, run the full 20-run Gate V1 plus alpha, ambiguity, template
+   SHA, postcondition evidence, high-risk block and feature-flag rollback cases;
+4. rerun directly affected semantic regression;
+5. record acceptance evidence before any V1 production enablement.
+
+Do not mark Sprint V1 PASS and do not enable production Vision until Gate V1 passes.
 
 ## Telegram Y700 Automation Control Plane v0.1 — CODE / LOCAL PROFILE PREP PASS
 

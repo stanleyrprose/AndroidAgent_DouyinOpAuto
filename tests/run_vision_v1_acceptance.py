@@ -55,12 +55,11 @@ def root(command: str, timeout: int = 90) -> str:
 
 
 def launch(*, duplicate: bool = False) -> None:
-    root(
-        f"am force-stop {APP}; "
-        f"am start -n {ACTIVITY} --ez duplicate "
-        f"{'true' if duplicate else 'false'} >/dev/null"
-    )
-    time.sleep(0.7)
+    # Instrumentation owns benchmark Activity setup. Starting the Activity before
+    # am instrument is racy because instrumentation may restart the target app.
+    # Keep this helper as a clean process reset for call-site readability.
+    root(f"am force-stop {APP}")
+    time.sleep(0.15)
 
 
 def force_stop() -> None:
@@ -105,12 +104,17 @@ def workflow(
     side_effect: str = "REVERSIBLE_LOCAL",
     expected_desc: str = "VISION_V1_CLICKED",
     semantic_desc: str = "__VISION_SEMANTIC_MISS__",
+    benchmark_duplicate: bool = False,
+    benchmark_clicked: bool = False,
 ) -> dict:
     return {
         "protocol_version": 1,
         "job_id": job_id,
         "max_duration_ms": 45_000,
         "test_mode": True,
+        "test_prepare_vision_benchmark": True,
+        "test_benchmark_duplicate": benchmark_duplicate,
+        "test_benchmark_clicked": benchmark_clicked,
         "test_allow_keyguard_benchmark": True,
         "vision": {
             "enabled": enabled,
@@ -152,20 +156,15 @@ def error_code(result: dict) -> str | None:
     return (result.get("error") or {}).get("code")
 
 
-def clicked_visible() -> bool:
-    job = "vision-v1-observe-" + secrets.token_hex(4)
-    req = {
-        "protocol_version": 1,
-        "job_id": job,
-        "max_duration_ms": 15_000,
-        "actions": [{
-            "action_id": "find-clicked",
-            "action": "find",
-            "selector": {"content_desc": "VISION_V1_CLICKED"},
-        }],
-    }
-    result = run(req)
-    return result.get("status") == "PASS"
+def no_vision_click(result: dict) -> bool:
+    metrics = result.get("vision_metrics") or {}
+    action = (result.get("actions") or [{}])[0]
+    data = action.get("data") or {}
+    return (
+        int(metrics.get("vision_success_count", 0)) == 0
+        and data.get("locator_source") != "vision_template"
+        and data.get("postcondition_pass") is not True
+    )
 
 
 def main() -> int:
@@ -176,12 +175,11 @@ def main() -> int:
 
     # A1: semantic success wins even when Vision is enabled and fallback exists.
     launch()
-    root("input tap 1371 1398")
-    time.sleep(0.3)
     semantic = run(workflow(
         job_id="vision-v1-semantic-first-" + secrets.token_hex(3),
         spec=template_spec(),
         semantic_desc="VISION_V1_CLICKED",
+        benchmark_clicked=True,
     ))
     semantic_action = (semantic.get("actions") or [{}])[0].get("data") or {}
     semantic_first = (
@@ -233,11 +231,12 @@ def main() -> int:
     ambiguous = run(workflow(
         job_id="vision-v1-ambiguous-" + secrets.token_hex(3),
         spec=template_spec(broad=True),
+        benchmark_duplicate=True,
     ))
     ambiguous_pass = (
         ambiguous.get("status") != "PASS"
         and error_code(ambiguous) == "VISION_TEMPLATE_AMBIGUOUS"
-        and not clicked_visible()
+        and no_vision_click(ambiguous)
     )
 
     # Asset integrity: wrong SHA must fail before action.
@@ -249,7 +248,7 @@ def main() -> int:
     bad_hash_pass = (
         bad_hash.get("status") != "PASS"
         and error_code(bad_hash) == "VISION_TEMPLATE_CONFIG_INVALID"
-        and not clicked_visible()
+        and no_vision_click(bad_hash)
     )
 
     # A7: actual click + wrong postcondition must be visible as a Vision
@@ -281,7 +280,7 @@ def main() -> int:
     high_risk_pass = (
         high_risk.get("status") == "BLOCKED"
         and error_code(high_risk) == "VISION_POLICY_BLOCKED"
-        and not clicked_visible()
+        and no_vision_click(high_risk)
     )
 
     # Feature-flag rollback: disabled Vision preserves semantic miss behavior.
@@ -294,7 +293,7 @@ def main() -> int:
     disabled_pass = (
         disabled.get("status") != "PASS"
         and error_code(disabled) == "ELEMENT_NOT_FOUND"
-        and not clicked_visible()
+        and no_vision_click(disabled)
     )
 
     passes = sum(row["status"] == "PASS" for row in rows)

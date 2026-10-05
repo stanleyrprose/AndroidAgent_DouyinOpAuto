@@ -30,6 +30,7 @@ public class VisionBenchmarkActivity extends Activity {
         BenchmarkView() {
             super(VisionBenchmarkActivity.this);
             duplicate = getIntent().getBooleanExtra("duplicate", false);
+            clicked = getIntent().getBooleanExtra("clicked", false);
             // The visible target itself is drawn on Canvas and has no semantic
             // child. The parent view becomes semantically identifiable only
             // after a successful click so V1 can use the shared semantic
