@@ -39,6 +39,8 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertIn("stable_main >= 2", source)
         self.assertIn("stable_home_ui >= 2", source)
         self.assertIn("cold-launch-home-probe", source)
+        self.assertIn("or not last_top", source)
+        self.assertIn("Two consecutive semantic HOME observations", source)
 
     def test_commit_preflight_uses_semantic_post_config_controls(self) -> None:
         actions = controller.build_commit_actions("caption")

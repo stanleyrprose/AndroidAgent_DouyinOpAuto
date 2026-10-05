@@ -512,16 +512,28 @@ def _cold_launch() -> None:
             check=False,
         ).stdout.strip()
         now = time.monotonic()
-        if TIKTOK in last_top and "SplashActivity" in last_top:
+        if TIKTOK in last_top and "MainActivity" in last_top:
+            stable_main += 1
+            stable_home_ui = 0
+            if stable_main >= 2:
+                return
+        else:
             stable_main = 0
-            splash_samples += 1
-            if splash_samples >= 3 and not normalized_to_main:
+            if TIKTOK in last_top and "SplashActivity" in last_top:
+                splash_samples += 1
+            if not normalized_to_main and (splash_samples >= 3 or not last_top):
                 _root(
                     f"am start -n {TIKTOK}/com.ss.android.ugc.aweme.main.MainActivity >/dev/null",
                     timeout=20,
                     check=False,
                 )
                 normalized_to_main = True
+
+            # ZUI may leave topResumedActivity empty or report SplashActivity
+            # even while TikTok Home is already the real interactive surface.
+            # Two consecutive semantic HOME observations are therefore accepted
+            # as launch-readiness evidence. The following DRY_RUN still verifies
+            # every reversible click and postcondition fail-closed.
             if now >= next_home_probe:
                 home_probe_attempt += 1
                 try:
@@ -536,21 +548,6 @@ def _cold_launch() -> None:
                     else:
                         stable_home_ui = 0
                 next_home_probe = time.monotonic() + 2.0
-        elif TIKTOK in last_top and "MainActivity" in last_top:
-            stable_home_ui = 0
-            stable_main += 1
-            if stable_main >= 2:
-                return
-        else:
-            stable_main = 0
-            stable_home_ui = 0
-            if not normalized_to_main:
-                _root(
-                    f"am start -n {TIKTOK}/com.ss.android.ugc.aweme.main.MainActivity >/dev/null",
-                    timeout=20,
-                    check=False,
-                )
-                normalized_to_main = True
         time.sleep(1.0)
     raise TikTokCoreError(
         f"TikTok cold launch did not leave SplashActivity within 90s: {last_top}"
