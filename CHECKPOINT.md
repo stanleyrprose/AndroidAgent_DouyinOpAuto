@@ -516,7 +516,8 @@ Public-safe evidence:
 `docs/VISION-V0-ACCEPTANCE-2026-10-05.md`.
 
 Sprint V1 production Template Vision was separately authorized on 2026-10-05.
-Sprint V2 OCR and Sprint V3 hybrid routing remain **NOT AUTHORIZED / NOT STARTED**.
+Sprint V2 OCR Benchmark & Integration was separately authorized on 2026-10-05 by the user's instruction to continue the PRD.
+Sprint V3 hybrid routing remains **NOT AUTHORIZED / NOT STARTED**.
 
 ## Vision Locator PRD v0.3 Sprint V1 — PASS
 

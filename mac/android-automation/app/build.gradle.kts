@@ -46,4 +46,6 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.4.0")
     debugImplementation("org.opencv:opencv:4.12.0")
+    debugImplementation("com.google.mlkit:text-recognition:16.0.1")
+    debugImplementation("com.google.mlkit:text-recognition-chinese:16.0.1")
 }
