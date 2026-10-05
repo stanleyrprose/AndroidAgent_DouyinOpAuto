@@ -504,7 +504,7 @@ def _cold_launch() -> None:
         last_top = _root(
             "dumpsys activity activities | grep topResumedActivity",
             timeout=10,
-        ).strip()
+        ).stdout.strip()
         if TIKTOK in last_top and "SplashActivity" not in last_top:
             stable_main += 1
             if stable_main >= 2:
