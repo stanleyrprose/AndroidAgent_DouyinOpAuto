@@ -91,10 +91,10 @@ case "$cmd" in
     "$ROOT_EXEC" 'input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard; sleep 1; dumpsys window policy | grep -A5 -i "KeyguardStateMonitor"'
     ;;
   unlock-secure)
-    exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/secure-unlock.sh"
+    exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/secure-unlock.sh"
     ;;
   unlock-secret-status)
-    exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/secure-unlock.sh" --status
+    exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/secure-unlock.sh" --status
     ;;
   *)
     usage >&2
