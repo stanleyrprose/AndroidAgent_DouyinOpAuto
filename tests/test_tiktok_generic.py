@@ -15,7 +15,7 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertTrue(selector["clickable"])
         self.assertEqual(
             selector["has_parent"],
-            {"resource_id": f"{TIKTOK}:id/jc5"},
+            {"class_name": "android.widget.GridView"},
         )
 
     def test_dry_run_home_create_uses_semantic_selector_not_resource_id(self) -> None:

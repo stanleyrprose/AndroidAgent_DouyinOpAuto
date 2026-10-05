@@ -247,7 +247,7 @@ def media_selector() -> dict[str, Any]:
     return {
         "class_name": "android.widget.FrameLayout",
         "clickable": True,
-        "has_parent": {"resource_id": RID["grid"]},
+        "has_parent": {"class_name": "android.widget.GridView"},
     }
 
 
