@@ -127,8 +127,8 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertEqual(wait["action"], "waitFor")
         self.assertEqual(wait["timeout_ms"], 15_000)
         self.assertEqual(
-            wait["selector"]["content_desc_contains"],
-            "所有人",
+            wait["selector"],
+            controller.visibility_summary_selector(),
         )
 
     def test_commit_api_is_explicit_but_not_legacy_named(self) -> None:
