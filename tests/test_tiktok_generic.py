@@ -239,28 +239,14 @@ class TikTokGenericCoreTests(unittest.TestCase):
         ]
         self.assertFalse(controller._public_post_matches(restricted, caption))
 
-    def test_private_tile_bounds_are_filtered_and_sorted(self) -> None:
+    def test_profile_video_tile_bounds_are_structural_filtered_and_sorted(self) -> None:
         elements = [
-            {
-                "resource_id": controller.RID["private_tile"],
-                "clickable": True,
-                "bounds": [636, 1030, 1268, 1874],
-            },
-            {
-                "resource_id": controller.RID["private_tile"],
-                "clickable": True,
-                "bounds": [0, 1030, 633, 1874],
-            },
-            {
-                "resource_id": controller.RID["private_tile"],
-                "clickable": False,
-                "bounds": [1271, 1030, 1904, 1874],
-            },
-            {
-                "resource_id": "other",
-                "clickable": True,
-                "bounds": [0, 0, 10, 10],
-            },
+            {"node_id":"grid","parent_id":None,"class":"android.widget.GridView","clickable":False,"bounds":[0,1000,1904,2800]},
+            {"node_id":"v2","parent_id":"grid","class":"android.widget.FrameLayout","resource_id":"pkg:id/f1k","clickable":True,"bounds":[636,1030,1268,1874]},
+            {"node_id":"v1","parent_id":"grid","class":"android.widget.FrameLayout","resource_id":"pkg:id/whatever","clickable":True,"bounds":[0,1030,633,1874]},
+            {"node_id":"draft","parent_id":"grid","class":"android.widget.FrameLayout","clickable":False,"bounds":[1271,1030,1904,1874]},
+            {"node_id":"draft-cover","parent_id":"draft","class":"android.widget.ImageView","resource_id":"pkg:id/cover","clickable":True,"bounds":[1271,1030,1904,1874]},
+            {"node_id":"other","parent_id":None,"class":"android.widget.FrameLayout","resource_id":"other","clickable":True,"bounds":[0,0,10,10]},
         ]
         self.assertEqual(
             controller._video_tile_bounds(elements),

@@ -863,9 +863,19 @@ def _private_tab_selector(*, selected: bool | None = None) -> dict[str, Any]:
 
 
 def _video_tile_bounds(elements: list[dict[str, Any]]) -> list[list[int]]:
+    """Return semantic profile-video tiles in visual order.
+
+    TikTok obfuscates tile resource ids. Real profile video tiles are clickable
+    FrameLayout children of the profile GridView. The draft card is excluded
+    because its direct GridView child is not clickable; only a nested cover is.
+    """
+    by_id = {element.get("node_id"): element for element in elements}
     bounds: list[list[int]] = []
     for element in elements:
-        if element.get("resource_id") != RID["private_tile"] or not element.get("clickable"):
+        if element.get("class") != "android.widget.FrameLayout" or not element.get("clickable"):
+            continue
+        parent = by_id.get(element.get("parent_id")) or {}
+        if parent.get("class") != "android.widget.GridView":
             continue
         b = element.get("bounds")
         if (
