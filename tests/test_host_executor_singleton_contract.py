@@ -28,6 +28,12 @@ class HostExecutorSingletonContractTests(unittest.TestCase):
         self.assertIn('cat "$LOCK/pid"', text)
         self.assertNotIn('echo $! > "$PIDFILE"', text)
 
+    def test_health_reports_duplicate_executor_count(self) -> None:
+        text = (ROOT / "scripts" / "health-check.sh").read_text()
+        self.assertIn("count_host_executors", text)
+        self.assertIn('android_bridge_instances', text)
+        self.assertIn('[ "$bridge_instances" -ne 1 ]', text)
+
 
 if __name__ == "__main__":
     unittest.main()

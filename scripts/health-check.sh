@@ -18,9 +18,22 @@ status_pid() {
   echo OFFLINE
 }
 
+count_host_executors() {
+  local count=0 cmdline f
+  for f in /proc/[0-9]*/cmdline; do
+    [ -r "$f" ] || continue
+    cmdline=$(tr '\0' ' ' <"$f" 2>/dev/null || true)
+    case "$cmdline" in
+      *"/bridge/host-executor.sh"*) count=$((count + 1)) ;;
+    esac
+  done
+  echo "$count"
+}
+
 codex=$(status_pid /opt/y700/runtime/codexpro.pid codexpro)
 tunnel=$(status_pid /opt/y700/runtime/cloudflared.pid cloudflared)
 bridge=$(status_pid /opt/y700/runtime/host-executor.pid host-executor.sh)
+bridge_instances=$(count_host_executors)
 
 network=UNKNOWN
 remote_plane=UNKNOWN
@@ -95,12 +108,13 @@ overall=HEALTHY
 if [ "$bridge" = OFFLINE ] || [ "$jobs" = BLOCKED ]; then overall=BLOCKED
 elif [ "$disk_rc" -ne 0 ]; then overall=DEGRADED
 elif [ "$production_sot" = DRIFT ]; then overall=DEGRADED
+elif [ "$bridge_instances" -ne 1 ]; then overall=DEGRADED
 elif [ "$network" = ONLINE ] && { [ "$codex" = OFFLINE ] || [ "$tunnel" = OFFLINE ]; }; then overall=DEGRADED
 fi
 
-python3 - "$TMP" "$overall" "$codex" "$tunnel" "$bridge" "$jobs" "$publisher" "$temp_c" "$disk_json" "$network" "$remote_plane" "$tunnel_connections" "$production_sot" <<'PY'
+python3 - "$TMP" "$overall" "$codex" "$tunnel" "$bridge" "$jobs" "$publisher" "$temp_c" "$disk_json" "$network" "$remote_plane" "$tunnel_connections" "$production_sot" "$bridge_instances" <<'PY'
 import json,sys,datetime
-out,overall,codex,tunnel,bridge,jobs,publisher,temp,disk,network,remote_plane,tunnel_connections,production_sot=sys.argv[1:]
+out,overall,codex,tunnel,bridge,jobs,publisher,temp,disk,network,remote_plane,tunnel_connections,production_sot,bridge_instances=sys.argv[1:]
 obj={
  "updated_at":datetime.datetime.now().astimezone().isoformat(),
  "overall":overall,
@@ -110,6 +124,7 @@ obj={
  "codexpro":codex,
  "tunnel":tunnel,
  "android_bridge":bridge,
+ "android_bridge_instances":int(bridge_instances),
  "job_directory":jobs,
  "production_sot":production_sot,
  "publisher":publisher,
