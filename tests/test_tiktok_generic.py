@@ -33,6 +33,8 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertIn("90.0", source)
         self.assertIn("topResumedActivity", source)
         self.assertIn(".stdout.strip()", source)
+        self.assertIn("MainActivity", source)
+        self.assertIn("am start -n", source)
         self.assertIn("stable_main >= 2", source)
 
     def test_dry_run_waits_for_home_stability_before_create_click(self) -> None:

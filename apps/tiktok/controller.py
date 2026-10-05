@@ -500,17 +500,26 @@ def _cold_launch() -> None:
     deadline = time.monotonic() + 90.0
     last_top = ""
     stable_main = 0
+    normalized_to_main = False
     while time.monotonic() < deadline:
         last_top = _root(
             "dumpsys activity activities | grep topResumedActivity",
             timeout=10,
         ).stdout.strip()
-        if TIKTOK in last_top and "SplashActivity" not in last_top:
+        if TIKTOK in last_top and "SplashActivity" in last_top:
+            stable_main = 0
+        elif TIKTOK in last_top and "MainActivity" in last_top:
             stable_main += 1
             if stable_main >= 2:
                 return
         else:
             stable_main = 0
+            if not normalized_to_main:
+                _root(
+                    f"am start -n {TIKTOK}/com.ss.android.ugc.aweme.main.MainActivity >/dev/null",
+                    timeout=20,
+                )
+                normalized_to_main = True
         time.sleep(1.0)
     raise TikTokCoreError(
         f"TikTok cold launch did not leave SplashActivity within 90s: {last_top}"
