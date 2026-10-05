@@ -22,6 +22,36 @@ codex=$(status_pid /opt/y700/runtime/codexpro.pid codexpro)
 tunnel=$(status_pid /opt/y700/runtime/cloudflared.pid cloudflared)
 bridge=$(status_pid /opt/y700/runtime/host-executor.pid host-executor.sh)
 
+network=UNKNOWN
+remote_plane=UNKNOWN
+if [ -s /opt/y700/runtime/state/connectivity.json ]; then
+  read -r network remote_plane < <(python3 - <<'PY2'
+import json
+try:
+    d=json.load(open('/opt/y700/runtime/state/connectivity.json'))
+    print(d.get('network','UNKNOWN'), d.get('remote_plane','UNKNOWN'))
+except Exception:
+    print('UNKNOWN UNKNOWN')
+PY2
+  )
+fi
+if [ "$network" = UNKNOWN ]; then
+  if /opt/y700/workspaces/y700-agent/scripts/network-status.sh >/dev/null 2>&1; then
+    network=ONLINE
+  else
+    network=OFFLINE
+  fi
+fi
+if [ "$remote_plane" = UNKNOWN ]; then
+  if [ "$network" = OFFLINE ]; then
+    remote_plane=SUSPENDED_NO_NETWORK
+  elif [ "$codex" = HEALTHY ] && [ "$tunnel" = HEALTHY ]; then
+    remote_plane=READY
+  else
+    remote_plane=DEGRADED
+  fi
+fi
+
 if [ -w /opt/y700/jobs ]; then jobs=HEALTHY; else jobs=BLOCKED; fi
 
 set +e
@@ -51,16 +81,19 @@ else
 fi
 
 overall=HEALTHY
-if [ "$codex" = OFFLINE ] || [ "$bridge" = OFFLINE ] || [ "$jobs" = BLOCKED ]; then overall=BLOCKED
-elif [ "$tunnel" = OFFLINE ] || [ "$disk_rc" -ne 0 ]; then overall=DEGRADED
+if [ "$bridge" = OFFLINE ] || [ "$jobs" = BLOCKED ]; then overall=BLOCKED
+elif [ "$disk_rc" -ne 0 ]; then overall=DEGRADED
+elif [ "$network" = ONLINE ] && { [ "$codex" = OFFLINE ] || [ "$tunnel" = OFFLINE ]; }; then overall=DEGRADED
 fi
 
-python3 - "$TMP" "$overall" "$codex" "$tunnel" "$bridge" "$jobs" "$publisher" "$temp_c" "$disk_json" <<'PY'
+python3 - "$TMP" "$overall" "$codex" "$tunnel" "$bridge" "$jobs" "$publisher" "$temp_c" "$disk_json" "$network" "$remote_plane" <<'PY'
 import json,sys,datetime
-out,overall,codex,tunnel,bridge,jobs,publisher,temp,disk=sys.argv[1:]
+out,overall,codex,tunnel,bridge,jobs,publisher,temp,disk,network,remote_plane=sys.argv[1:]
 obj={
  "updated_at":datetime.datetime.now().astimezone().isoformat(),
  "overall":overall,
+ "network":network,
+ "remote_plane":remote_plane,
  "codexpro":codex,
  "tunnel":tunnel,
  "android_bridge":bridge,
