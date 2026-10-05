@@ -18,6 +18,14 @@ class TikTokGenericCoreTests(unittest.TestCase):
             {"resource_id": f"{TIKTOK}:id/jc5"},
         )
 
+    def test_dry_run_home_create_uses_semantic_selector_not_resource_id(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        expected = {"content_desc": "创建", "clickable": True}
+        self.assertEqual(by_id["wait-cold-home"]["selector"], expected)
+        self.assertEqual(by_id["home-create"]["selector"], expected)
+        self.assertNotIn("resource_id", by_id["wait-cold-home"]["selector"])
+
     def test_dry_run_actions_never_click_publish_button(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
         publish = controller.RID["publish"]

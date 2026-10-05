@@ -36,9 +36,15 @@ def main():
     root_exec(f"mkdir -p {ALBUM}; find {ALBUM} -maxdepth 1 -type f -delete; cp '{src}' '{dst}'; chmod 644 '{dst}'")
     root_exec(f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{dst} >/dev/null")
     found=False
-    for _ in range(10):
-        q=root_exec("content query --uri content://media/external/video/media --projection _id:_display_name:relative_path",check=False)
-        if f"{args.job_id}.mp4" in (q.stdout or ""):
+    display_name=f"{args.job_id}.mp4"
+    query=(
+        "content query --uri content://media/external/video/media "
+        "--projection _id:_display_name:relative_path "
+        f"--where \"_display_name='{display_name}' AND relative_path='Movies/Y700Agent/'\""
+    )
+    for _ in range(30):
+        q=root_exec(query,check=False)
+        if display_name in (q.stdout or "") and "Movies/Y700Agent/" in (q.stdout or ""):
             found=True
             break
         time.sleep(1)

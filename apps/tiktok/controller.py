@@ -251,21 +251,27 @@ def media_selector() -> dict[str, Any]:
     }
 
 
+def home_create_selector() -> dict[str, Any]:
+    """Semantic create-tab selector resilient to TikTok resource-id drift."""
+    return {"content_desc": "创建", "clickable": True}
+
+
 def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, Any]]:
     """One instrumentation session from cold-launch HOME to verified POST_CONFIG."""
     media = media_selector()
+    home_create = home_create_selector()
     return [
         {
             "action_id": "wait-cold-home",
             "action": "waitFor",
-            "selector": {"resource_id": RID["home_create"], "clickable": True},
+            "selector": home_create,
             "unique": True,
             "timeout_ms": 45_000,
         },
         {
             "action_id": "home-create",
             "action": "click",
-            "selector": {"resource_id": RID["home_create"], "clickable": True},
+            "selector": home_create,
             "expect": {"selector": {"resource_id": RID["upload"]}, "unique": True},
             "timeout_ms": 12_000,
             "side_effect": "REVERSIBLE_LOCAL",
