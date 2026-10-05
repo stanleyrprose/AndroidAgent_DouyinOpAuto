@@ -207,6 +207,28 @@ def run_bridge_command(command: str, ui_dir: Path, timeout_sec: int = 660) -> tu
             break
         time.sleep(0.20)
 
+    # The host executor may atomically publish terminal state a few milliseconds
+    # before the child's final stdout/stderr buffers are fully visible in the
+    # archived job directory. Large structured result markers are especially
+    # susceptible. Give terminal logs a bounded drain window before parsing.
+    previous_sizes: tuple[int, int] | None = None
+    stable_polls = 0
+    for _ in range(10):
+        out_path = bridge / "stdout.log"
+        err_path = bridge / "stderr.log"
+        sizes = (
+            out_path.stat().st_size if out_path.exists() else 0,
+            err_path.stat().st_size if err_path.exists() else 0,
+        )
+        if sizes == previous_sizes:
+            stable_polls += 1
+            if stable_polls >= 2:
+                break
+        else:
+            previous_sizes = sizes
+            stable_polls = 0
+        time.sleep(0.05)
+
     bridge_result = (snapshot or {}).get("result") or {}
     rc = int(bridge_result.get("exit_code", 1))
     stdout = (bridge / "stdout.log").read_text(encoding="utf-8", errors="replace") if (bridge / "stdout.log").exists() else ""
