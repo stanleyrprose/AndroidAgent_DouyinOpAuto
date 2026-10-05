@@ -312,7 +312,6 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
                 "class_name": "android.widget.RelativeLayout",
                 "clickable": True,
                 "has_descendant": {
-                    "resource_id": RID["album_row_text"],
                     "text": album,
                 },
             },
@@ -326,7 +325,6 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
                 "class_name": "android.widget.RelativeLayout",
                 "clickable": True,
                 "has_descendant": {
-                    "resource_id": RID["album_row_text"],
                     "text": album,
                 },
             },

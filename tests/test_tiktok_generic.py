@@ -43,6 +43,18 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertEqual(selector["has_descendant"], {"text": "最近项目"})
         self.assertNotIn("resource_id", selector)
 
+    def test_album_row_uses_exact_text_without_obfuscated_resource_id(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        expected = {
+            "class_name": "android.widget.RelativeLayout",
+            "clickable": True,
+            "has_descendant": {"text": "Y700Agent"},
+        }
+        self.assertEqual(by_id["wait-album-entry"]["selector"], expected)
+        self.assertEqual(by_id["select-album"]["selector"], expected)
+        self.assertNotIn("resource_id", expected["has_descendant"])
+
     def test_dry_run_actions_never_click_publish_button(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
         publish = controller.RID["publish"]
