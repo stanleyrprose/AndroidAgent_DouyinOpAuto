@@ -9,6 +9,7 @@ OCR does not depend on semantic metadata.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import xml.etree.ElementTree as ET
@@ -34,12 +35,15 @@ BOUNDS_RE = re.compile(r"^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$")
 
 
 def root_shell(command: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env["Y700_BRIDGE_TIMEOUT_MS"] = "60000"
     return subprocess.run(
         [str(ROOT_EXEC), command],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=check,
+        env=env,
     )
 
 
