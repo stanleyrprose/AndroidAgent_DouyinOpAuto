@@ -494,6 +494,28 @@ def _cold_launch() -> None:
         timeout=20,
     )
 
+    # TikTok can keep SplashActivity in the foreground for tens of seconds on
+    # mobile/hotspot networks. Accessibility may expose stale Home nodes behind
+    # the splash, so UI selectors alone are not a safe launch-readiness signal.
+    deadline = time.monotonic() + 90.0
+    last_top = ""
+    stable_main = 0
+    while time.monotonic() < deadline:
+        last_top = _root(
+            "dumpsys activity activities | grep topResumedActivity",
+            timeout=10,
+        ).strip()
+        if TIKTOK in last_top and "SplashActivity" not in last_top:
+            stable_main += 1
+            if stable_main >= 2:
+                return
+        else:
+            stable_main = 0
+        time.sleep(1.0)
+    raise TikTokCoreError(
+        f"TikTok cold launch did not leave SplashActivity within 90s: {last_top}"
+    )
+
 
 def _run_single_session_dry_run(caption: str, album: str) -> dict[str, Any]:
     _cold_launch()

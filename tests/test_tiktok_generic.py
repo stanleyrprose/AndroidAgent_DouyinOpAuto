@@ -26,6 +26,14 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertEqual(by_id["home-create"]["selector"], expected)
         self.assertNotIn("resource_id", by_id["wait-cold-home"]["selector"])
 
+    def test_cold_launch_waits_for_splash_to_exit_before_ui_workflow(self) -> None:
+        import inspect
+        source = inspect.getsource(controller._cold_launch)
+        self.assertIn("SplashActivity", source)
+        self.assertIn("90.0", source)
+        self.assertIn("topResumedActivity", source)
+        self.assertIn("stable_main >= 2", source)
+
     def test_dry_run_waits_for_home_stability_before_create_click(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
         ids = [a["action_id"] for a in actions]
