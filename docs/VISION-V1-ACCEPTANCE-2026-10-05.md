@@ -180,6 +180,23 @@ semantic/publish regression                         PASS
 
 **Gate V1 = PASS.**
 
+## Production release closure
+
+The accepted executable baseline was fast-forwarded to GitHub `main` at
+`330be74` and released on Y700 as immutable worktree
+`/opt/y700/workspaces/y700-agent-release-330be74`. The stable
+`/opt/y700/workspaces/y700-agent` pointer was atomically switched to that
+release; the prior `y700-agent-release-a0dc24d` remains the recorded rollback
+target.
+
+After the switch:
+
+- CodexPro, Cloudflare tunnel, Android bridge and job directory reported HEALTHY;
+- root bridge round-trip returned `uid=0(root)`;
+- semantic-first real-device sanity PASS with `locator_source=semantic`;
+- template fallback real-device sanity PASS with `locator_source=vision_template`,
+  confidence approximately 0.9544 and postcondition PASS.
+
 Accepted capability state:
 
 ```text

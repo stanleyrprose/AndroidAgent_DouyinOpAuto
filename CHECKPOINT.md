@@ -590,6 +590,23 @@ Sprint V3 hybrid routing = NOT STARTED
 Pre-V1 installed app/test APK backups remain on Y700 under
 `/data/local/y700-agent/runtime/automation-driver/backups/pre-v1-20261005`.
 
+Production closure on 2026-10-05:
+
+- accepted feature history was fast-forwarded to GitHub `main` at `330be74`;
+- immutable Y700 release `/opt/y700/workspaces/y700-agent-release-330be74`
+  was created from exact `origin/main`, verified clean, and passed all 36 directly
+  affected Python regressions plus compile/shell checks;
+- stable production pointer `/opt/y700/workspaces/y700-agent` was atomically
+  switched from `y700-agent-release-a0dc24d` to `y700-agent-release-330be74`;
+- previous release `y700-agent-release-a0dc24d` is recorded in
+  `/opt/y700/runtime/deploy-previous-release` for symlink rollback;
+- host executor restarted from the new stable path; health reported CodexPro,
+  Cloudflare tunnel, Android bridge and job directory HEALTHY; root round-trip PASS;
+- post-release real-device semantic sanity: PASS with `locator_source=semantic`;
+- post-release real-device Vision sanity: PASS with
+  `locator_source=vision_template`, confidence approximately 0.9544 and shared
+  postcondition PASS.
+
 ## Telegram Y700 Automation Control Plane v0.1 — CODE / LOCAL PROFILE PREP PASS
 
 Status on 2026-10-04:
