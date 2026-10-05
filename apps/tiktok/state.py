@@ -28,15 +28,18 @@ def detect_state(elements: list[dict[str, Any]]) -> dict[str, Any]:
     elif "谁可以看" in texts and "仅自己" in texts:
         state = "VISIBILITY"
         evidence.append("visibility_sheet")
-    elif "发布" in texts and any(
-        x.get("text") == "发布"
-        and x.get("class") == "android.widget.Button"
-        and x.get("clickable")
-        and x.get("enabled")
-        for x in elements
+    elif "发布" in texts and (
+        f"{TIKTOK}:id/st6" in ids
+        or any(
+            x.get("text") == "发布"
+            and x.get("class") == "android.widget.Button"
+            and x.get("clickable")
+            and x.get("enabled")
+            for x in elements
+        )
     ):
         state = "POST_CONFIG"
-        evidence.append("semantic_publish_button")
+        evidence.append("publish_button")
     elif "下一步" in texts and any(
         x.get("text") == "下一步"
         for x in elements
