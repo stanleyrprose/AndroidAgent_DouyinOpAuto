@@ -55,6 +55,19 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertEqual(by_id["select-album"]["selector"], expected)
         self.assertNotIn("resource_id", expected["has_descendant"])
 
+    def test_edit_next_uses_semantic_selector_not_obfuscated_resource_id(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        expected = {
+            "class_name": "android.widget.LinearLayout",
+            "clickable": True,
+            "has_descendant": {"text": "下一步"},
+        }
+        self.assertEqual(by_id["wait-edit"]["selector"], expected)
+        self.assertEqual(by_id["next-to-post-config"]["selector"], expected)
+        self.assertEqual(by_id["next-to-post-config"]["precondition"]["selector"], expected)
+        self.assertNotIn("resource_id", expected)
+
     def test_dry_run_actions_never_click_publish_button(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
         publish = controller.RID["publish"]

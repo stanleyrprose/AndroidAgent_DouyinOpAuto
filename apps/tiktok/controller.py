@@ -265,6 +265,15 @@ def album_menu_selector() -> dict[str, Any]:
     }
 
 
+def edit_next_selector() -> dict[str, Any]:
+    """Semantic edit-page Next selector resilient to resource-id drift."""
+    return {
+        "class_name": "android.widget.LinearLayout",
+        "clickable": True,
+        "has_descendant": {"text": "下一步"},
+    }
+
+
 def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, Any]]:
     """One instrumentation session from cold-launch HOME to verified POST_CONFIG."""
     media = media_selector()
@@ -349,16 +358,16 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
         {
             "action_id": "wait-edit",
             "action": "waitFor",
-            "selector": {"resource_id": RID["edit_next"], "clickable": True},
+            "selector": edit_next_selector(),
             "unique": True,
             "timeout_ms": 20_000,
         },
         {
             "action_id": "next-to-post-config",
             "action": "click",
-            "selector": {"resource_id": RID["edit_next"], "clickable": True},
+            "selector": edit_next_selector(),
             "precondition": {
-                "selector": {"resource_id": RID["edit_next_text"], "text": "下一步"},
+                "selector": edit_next_selector(),
                 "unique": True,
             },
             "expect": {"selector": {"resource_id": RID["publish"]}, "unique": True},
