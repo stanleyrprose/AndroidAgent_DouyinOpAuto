@@ -22,6 +22,7 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[2]
 AUTOMATION = ROOT / "automation"
 ROOT_EXEC = ROOT / "bridge" / "root-exec.sh"
+SECURE_UNLOCK = ROOT / "bridge" / "secure-unlock.sh"
 REQUEST_RUNTIME = Path(
     os.environ.get("Y700_AUTOMATION_REQUEST_RUNTIME", "/opt/y700/runtime/automation-driver")
 )
@@ -116,6 +117,20 @@ def _root(
 
 def force_stop() -> None:
     _root(f"am force-stop {TIKTOK}", timeout=20, check=False)
+
+
+def _ensure_device_unlocked() -> None:
+    p = subprocess.run(
+        ["bash", str(SECURE_UNLOCK)],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=45,
+    )
+    if p.returncode != 0:
+        detail = (p.stderr or p.stdout).strip()
+        raise TikTokCoreError(f"secure unlock failed rc={p.returncode}: {detail}")
 
 
 def _job_id(label: str) -> str:
@@ -488,6 +503,7 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
 
 
 def _cold_launch() -> None:
+    _ensure_device_unlocked()
     force_stop()
     _root(
         f"monkey -p {TIKTOK} -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1",
@@ -538,7 +554,11 @@ def _cold_launch() -> None:
                 home_probe_attempt += 1
                 try:
                     state, _, _ = _observe(f"cold-launch-home-probe-{home_probe_attempt}")
-                except TikTokCoreError:
+                except TikTokCoreError as exc:
+                    error = exc.result.get("error") or {}
+                    if error.get("code") == "KEYGUARD_BLOCKING":
+                        _ensure_device_unlocked()
+                        next_home_probe = time.monotonic() + 0.5
                     stable_home_ui = 0
                 else:
                     if state["state"] == "HOME" and state.get("tiktok_visible"):
