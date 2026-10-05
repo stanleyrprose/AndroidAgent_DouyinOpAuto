@@ -18,6 +18,25 @@ class VisionEvidenceQuotaTest(unittest.TestCase):
         with self.assertRaisesRegex(ui_job.UiJobError, "unsupported vision keys"):
             ui_job.validate_request(req)
 
+    def test_request_accepts_ocr_enabled_boolean(self):
+        req = {
+            "protocol_version": 1,
+            "job_id": "vision-ocr-test",
+            "actions": [{"action": "health"}],
+            "vision": {"enabled": True, "ocr_enabled": True},
+        }
+        ui_job.validate_request(req)
+
+    def test_request_rejects_non_boolean_ocr_enabled(self):
+        req = {
+            "protocol_version": 1,
+            "job_id": "vision-ocr-test",
+            "actions": [{"action": "health"}],
+            "vision": {"enabled": True, "ocr_enabled": "yes"},
+        }
+        with self.assertRaisesRegex(ui_job.UiJobError, "ocr_enabled"):
+            ui_job.validate_request(req)
+
     def test_request_rejects_too_small_quota(self):
         req = {
             "protocol_version": 1,

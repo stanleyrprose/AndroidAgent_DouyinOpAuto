@@ -117,7 +117,7 @@ def validate_request(req: dict[str, Any]) -> None:
         if not isinstance(vision, dict):
             raise UiJobError("JOB_PAYLOAD_INVALID: vision must be an object")
         allowed = {
-            "enabled", "mode", "template_enabled",
+            "enabled", "mode", "template_enabled", "ocr_enabled",
             "allow_high_risk_vision", "evidence_max_bytes",
         }
         unknown = sorted(set(vision) - allowed)
@@ -132,6 +132,12 @@ def validate_request(req: dict[str, Any]) -> None:
         ):
             raise UiJobError(
                 "JOB_PAYLOAD_INVALID: vision.template_enabled must be boolean"
+            )
+        if "ocr_enabled" in vision and not isinstance(
+            vision["ocr_enabled"], bool
+        ):
+            raise UiJobError(
+                "JOB_PAYLOAD_INVALID: vision.ocr_enabled must be boolean"
             )
         if "allow_high_risk_vision" in vision and not isinstance(
             vision["allow_high_risk_vision"], bool
