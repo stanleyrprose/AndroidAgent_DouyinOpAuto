@@ -22,30 +22,34 @@ codex=$(status_pid /opt/y700/runtime/codexpro.pid codexpro)
 tunnel=$(status_pid /opt/y700/runtime/cloudflared.pid cloudflared)
 bridge=$(status_pid /opt/y700/runtime/host-executor.pid host-executor.sh)
 
-# The health loop is the existing runtime supervisor. If cloudflared exits after
-# a network handoff, restart that same connector here instead of adding another
-# daemon. A cooldown prevents restart thrash while the network is unavailable.
-if [ "$tunnel" = OFFLINE ]; then
-  tunnel_recovery_stamp="$STATE_DIR/cloudflared-recovery.epoch"
-  tunnel_recovery_log="/opt/y700/runtime/logs/cloudflared-recovery.log"
-  tunnel_recovery_cooldown=300
-  now_epoch=$(date +%s)
-  last_epoch=0
-  if [ -s "$tunnel_recovery_stamp" ]; then
-    read -r last_epoch <"$tunnel_recovery_stamp" || last_epoch=0
+network=UNKNOWN
+remote_plane=UNKNOWN
+tunnel_connections=0
+if [ -s /opt/y700/runtime/state/connectivity.json ]; then
+  read -r network remote_plane tunnel_connections < <(python3 - <<'PY2'
+import json
+try:
+    d=json.load(open('/opt/y700/runtime/state/connectivity.json'))
+    print(d.get('network','UNKNOWN'), d.get('remote_plane','UNKNOWN'), d.get('tunnel_connections',0))
+except Exception:
+    print('UNKNOWN UNKNOWN 0')
+PY2
+  )
+fi
+if [ "$network" = UNKNOWN ]; then
+  if /opt/y700/workspaces/y700-agent/scripts/network-status.sh >/dev/null 2>&1; then
+    network=ONLINE
+  else
+    network=OFFLINE
   fi
-  if ! [[ "$last_epoch" =~ ^[0-9]+$ ]]; then last_epoch=0; fi
-  if [ $((now_epoch - last_epoch)) -ge "$tunnel_recovery_cooldown" ]; then
-    printf '%s\n' "$now_epoch" >"$tunnel_recovery_stamp.tmp"
-    mv "$tunnel_recovery_stamp.tmp" "$tunnel_recovery_stamp"
-    mkdir -p /opt/y700/runtime/logs
-    set +e
-    /opt/y700/workspaces/y700-agent/bootstrap/restart-cloudflared-y700.sh >>"$tunnel_recovery_log" 2>&1
-    tunnel_recovery_rc=$?
-    set -e
-    if [ "$tunnel_recovery_rc" -eq 0 ]; then
-      tunnel=$(status_pid /opt/y700/runtime/cloudflared.pid cloudflared)
-    fi
+fi
+if [ "$remote_plane" = UNKNOWN ]; then
+  if [ "$network" = OFFLINE ]; then
+    remote_plane=SUSPENDED_NO_NETWORK
+  elif [ "$codex" = HEALTHY ] && [ "$tunnel" = HEALTHY ]; then
+    remote_plane=READY
+  else
+    remote_plane=DEGRADED
   fi
 fi
 
@@ -78,16 +82,20 @@ else
 fi
 
 overall=HEALTHY
-if [ "$codex" = OFFLINE ] || [ "$bridge" = OFFLINE ] || [ "$jobs" = BLOCKED ]; then overall=BLOCKED
-elif [ "$tunnel" = OFFLINE ] || [ "$disk_rc" -ne 0 ]; then overall=DEGRADED
+if [ "$bridge" = OFFLINE ] || [ "$jobs" = BLOCKED ]; then overall=BLOCKED
+elif [ "$disk_rc" -ne 0 ]; then overall=DEGRADED
+elif [ "$network" = ONLINE ] && { [ "$codex" = OFFLINE ] || [ "$tunnel" = OFFLINE ]; }; then overall=DEGRADED
 fi
 
-python3 - "$TMP" "$overall" "$codex" "$tunnel" "$bridge" "$jobs" "$publisher" "$temp_c" "$disk_json" <<'PY'
+python3 - "$TMP" "$overall" "$codex" "$tunnel" "$bridge" "$jobs" "$publisher" "$temp_c" "$disk_json" "$network" "$remote_plane" "$tunnel_connections" <<'PY'
 import json,sys,datetime
-out,overall,codex,tunnel,bridge,jobs,publisher,temp,disk=sys.argv[1:]
+out,overall,codex,tunnel,bridge,jobs,publisher,temp,disk,network,remote_plane,tunnel_connections=sys.argv[1:]
 obj={
  "updated_at":datetime.datetime.now().astimezone().isoformat(),
  "overall":overall,
+ "network":network,
+ "remote_plane":remote_plane,
+ "tunnel_connections":int(tunnel_connections),
  "codexpro":codex,
  "tunnel":tunnel,
  "android_bridge":bridge,

@@ -41,6 +41,7 @@ The worker does not invent language:
   `speech | visual_text | mixed | visual_only`.
 
 All Burmese localization is stored in a durable `localization.json`.
+New localization artifacts require `caption_basis`, recording a concise editorial rationale plus the observable frame/transcript evidence used to create `caption_my`.
 
 ## Telegram control plane
 

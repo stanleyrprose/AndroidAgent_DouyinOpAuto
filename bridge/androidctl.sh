@@ -20,6 +20,8 @@ usage:
   androidctl screen-state
   androidctl keyguard-state
   androidctl unlock
+  androidctl unlock-secure
+  androidctl unlock-secret-status
 USAGE
 }
 
@@ -87,6 +89,12 @@ case "$cmd" in
     ;;
   unlock)
     "$ROOT_EXEC" 'input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard; sleep 1; dumpsys window policy | grep -A5 -i "KeyguardStateMonitor"'
+    ;;
+  unlock-secure)
+    exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/secure-unlock.sh"
+    ;;
+  unlock-secret-status)
+    exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/secure-unlock.sh" --status
     ;;
   *)
     usage >&2

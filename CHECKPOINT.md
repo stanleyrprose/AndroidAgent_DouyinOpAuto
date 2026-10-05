@@ -631,3 +631,34 @@ Pending live gate:
 5. verify one-shot PUBLIC publication/reconciliation and no secret/capability leakage.
 
 Do not mark Telegram E2E PASS until the dedicated bot live gate completes.
+
+## TG → TikTok zero-touch E2E — PASS / FROZEN (2026-10-05)
+
+Frozen runtime/code baseline: `0dc50cf`.
+
+Acceptance job: `dy-7692795483655254393` / aweme `7692795483655254393`.
+
+Accepted path:
+
+`Telegram Douyin URL -> Mac production -> Burmese localization schema v2 + caption_basis -> Y700 handoff -> TikTok DRY_RUN -> exactly-one PUBLIC COMMIT -> exact-caption public verification -> Mac VERIFIED -> Telegram terminal receipt`.
+
+Acceptance evidence:
+
+- Mac production runtime pinned to `0dc50cf` and accepted job reached `VERIFIED`;
+- Y700 canonical runtime pinned to `0dc50cf` and durable publisher state reached `PUBLISHED`;
+- visibility was `PUBLIC`;
+- `submission.accepted=true` with `generic_commit_dispatched`;
+- publication verification passed with `generic_profile_public_exact_caption`;
+- published job directory exists;
+- the accepted localization artifact used schema v2 and included `caption_basis`;
+- the run completed zero-touch from Telegram ingress through publication/final state without ChatGPT/manual command handoff.
+
+Frozen contracts and evidence are documented in
+`docs/TG-TIKTOK-ZERO-TOUCH-E2E-ACCEPTANCE-2026-10-05.md`.
+
+Freeze refs:
+
+- annotated tag: `tg-tiktok-zero-touch-e2e-v1.0.0` -> `0dc50cf`;
+- freeze branch: `frozen/tg-tiktok-zero-touch-e2e-v1` -> `0dc50cf`.
+
+Future changes must preserve this accepted path or establish a new acceptance baseline.

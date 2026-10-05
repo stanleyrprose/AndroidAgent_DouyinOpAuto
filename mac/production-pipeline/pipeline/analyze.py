@@ -114,7 +114,9 @@ def analyze(video: Path, analysis_dir: Path) -> dict:
         "route": route,
         "instructions": (
             "Use transcript and contact sheet as evidence. "
-            "Do not invent speech. Produce Burmese title/caption and timed cues."
+            "Do not invent speech. Produce Burmese title/caption and timed cues. "
+            "Every caption must include caption_basis explaining why it fits, "
+            "with concrete source frame timestamps and/or transcript snippets."
         ),
         "expected_output": {
             "content_type": "speech|visual_text|mixed|visual_only",
