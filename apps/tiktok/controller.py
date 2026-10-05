@@ -278,6 +278,12 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
             "timeout_ms": 45_000,
         },
         {
+            "action_id": "wait-home-stable",
+            "action": "waitStable",
+            "timeout_ms": 5_000,
+            "stable_interval_ms": 800,
+        },
+        {
             "action_id": "home-create",
             "action": "click",
             "selector": home_create,

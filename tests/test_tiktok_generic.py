@@ -26,6 +26,14 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertEqual(by_id["home-create"]["selector"], expected)
         self.assertNotIn("resource_id", by_id["wait-cold-home"]["selector"])
 
+    def test_dry_run_waits_for_home_stability_before_create_click(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        ids = [a["action_id"] for a in actions]
+        self.assertLess(ids.index("wait-home-stable"), ids.index("home-create"))
+        by_id = {a["action_id"]: a for a in actions}
+        self.assertEqual(by_id["wait-home-stable"]["action"], "waitStable")
+        self.assertEqual(by_id["wait-home-stable"]["stable_interval_ms"], 800)
+
     def test_album_menu_uses_semantic_selector_not_obfuscated_resource_id(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
         by_id = {a["action_id"]: a for a in actions}
