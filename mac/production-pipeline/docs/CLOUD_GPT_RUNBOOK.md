@@ -54,6 +54,12 @@ Cloud GPT writes evidence-grounded Burmese localization:
   "source_summary": "...",
   "title_my": "...",
   "caption_my": "...",
+  "caption_basis": {
+    "type": "speech|visual_text|mixed|visual_only",
+    "reason": "why this caption fits the source evidence",
+    "source_frames": [1.8, 4.6],
+    "source_transcript": ["exact source-language transcript snippet"]
+  },
   "visibility": "PUBLIC",
   "cues": [
     {"start": 0.2, "end": 5.1, "text_my": "..."}
@@ -62,6 +68,12 @@ Cloud GPT writes evidence-grounded Burmese localization:
 ```
 
 Default visibility is PUBLIC.
+
+`caption_basis` is mandatory for new localization artifacts. It stores concise
+editorial provenance, not hidden reasoning: why the caption fits the video and
+which observable frame timestamps and/or source transcript snippets support it.
+`caption_basis.type` must match `content_type`; visual-only captions need frame
+evidence, and speech captions need transcript evidence.
 
 ## 4. Render + export on Mac
 
