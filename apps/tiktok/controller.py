@@ -441,23 +441,17 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
             "action_id": "choose-public",
             "action": "click",
             "selector": {
-                "resource_id": RID["visibility"],
+                "class_name": "android.view.ViewGroup",
                 "content_desc": "所有人",
                 "clickable": True,
                 "checkable": True,
             },
             "precondition": {
-                "selector": {
-                    "resource_id": RID["visibility_heading"],
-                    "text": "谁可以看",
-                },
+                "selector": {"text": "谁可以看"},
                 "unique": True,
             },
             "expect": {
-                "absent_selector": {
-                    "resource_id": RID["visibility_heading"],
-                    "text": "谁可以看",
-                }
+                "absent_selector": {"text": "谁可以看"}
             },
             "timeout_ms": 8_000,
             "side_effect": "IDEMPOTENT",
@@ -571,12 +565,7 @@ def build_commit_actions(caption: str) -> list[dict[str, Any]]:
         {
             "action_id": "commit-assert-public",
             "action": "assert",
-            "selector": {
-                "resource_id": RID["visibility"],
-                "content_desc_contains": "所有人",
-                "clickable": True,
-                "has_ancestor": {"resource_id": RID["visibility_container"]},
-            },
+            "selector": visibility_summary_selector(),
         },
         {
             "action_id": "commit-assert-publish-ready",

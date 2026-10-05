@@ -117,12 +117,16 @@ class TikTokGenericCoreTests(unittest.TestCase):
         by_id = {a["action_id"]: a for a in actions}
         choose = by_id["choose-public"]
         self.assertEqual(
-            choose["expect"]["absent_selector"],
+            choose["selector"],
             {
-                "resource_id": controller.RID["visibility_heading"],
-                "text": "谁可以看",
+                "class_name": "android.view.ViewGroup",
+                "content_desc": "所有人",
+                "clickable": True,
+                "checkable": True,
             },
         )
+        self.assertEqual(choose["precondition"]["selector"], {"text": "谁可以看"})
+        self.assertEqual(choose["expect"]["absent_selector"], {"text": "谁可以看"})
         wait = by_id["wait-public-summary"]
         self.assertEqual(wait["action"], "waitFor")
         self.assertEqual(wait["timeout_ms"], 15_000)
