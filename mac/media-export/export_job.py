@@ -17,7 +17,8 @@ def sha256(path):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--video",required=True)
+    ap.add_argument("--video")
+    ap.add_argument("--artifact",action="append",help="generic artifact as NAME=PATH; repeatable")
     ap.add_argument("--caption-file")
     ap.add_argument("--caption")
     ap.add_argument("--title",default="")
@@ -33,16 +34,39 @@ def main():
     if not args.base_url:
         raise SystemExit("set --base-url or Y700_MEDIA_BASE_URL")
 
-    video=Path(args.video).expanduser().resolve()
-    if not video.is_file():
-        raise SystemExit(f"video not found: {video}")
+    generic=bool(args.artifact)
+    if generic and args.video:
+        raise SystemExit("use either --artifact or --video, not both")
+    if not generic and not args.video:
+        raise SystemExit("--video is required for media export")
 
-    if args.caption_file:
-        caption=Path(args.caption_file).expanduser().read_text(encoding="utf-8")
-    elif args.caption is not None:
-        caption=args.caption
-    else:
+    artifacts=[]
+    if generic:
+        seen=set()
+        for spec in args.artifact:
+            if "=" not in spec:
+                raise SystemExit(f"invalid --artifact {spec!r}; expected NAME=PATH")
+            name,raw=spec.split("=",1)
+            if not name or name in {".",".."} or not all(c.isalnum() or c in "._-" for c in name):
+                raise SystemExit(f"invalid artifact name: {name!r}")
+            if name in seen:
+                raise SystemExit(f"duplicate artifact name: {name}")
+            source=Path(raw).expanduser().resolve()
+            if not source.is_file():
+                raise SystemExit(f"artifact not found: {source}")
+            seen.add(name)
+            artifacts.append((name,source))
         caption=""
+    else:
+        video=Path(args.video).expanduser().resolve()
+        if not video.is_file():
+            raise SystemExit(f"video not found: {video}")
+        if args.caption_file:
+            caption=Path(args.caption_file).expanduser().read_text(encoding="utf-8")
+        elif args.caption is not None:
+            caption=args.caption
+        else:
+            caption=""
 
     job_id=args.job_id or time.strftime("job-%Y%m%d-%H%M%S")
     if not all(c.isalnum() or c in "._-" for c in job_id):
@@ -54,18 +78,21 @@ def main():
         raise SystemExit(f"job already exists: {job}")
     job.mkdir(parents=True)
 
-    video_name="video.mp4"
-    caption_name="caption.txt"
-    metadata_name="metadata.json"
-
-    shutil.copy2(video,job/video_name)
-    (job/caption_name).write_text(caption,encoding="utf-8")
-    (job/metadata_name).write_text(json.dumps({
-        "title":args.title,
-        "source":args.source,
-        "language":args.language,
-        "visibility":args.visibility,
-    },ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+    if generic:
+        for name,source in artifacts:
+            shutil.copy2(source,job/name)
+    else:
+        video_name="video.mp4"
+        caption_name="caption.txt"
+        metadata_name="metadata.json"
+        shutil.copy2(video,job/video_name)
+        (job/caption_name).write_text(caption,encoding="utf-8")
+        (job/metadata_name).write_text(json.dumps({
+            "title":args.title,
+            "source":args.source,
+            "language":args.language,
+            "visibility":args.visibility,
+        },ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
 
     cap=secrets.token_urlsafe(32)
     expires_at=int(time.time())+max(60,args.ttl_seconds)
@@ -76,24 +103,38 @@ def main():
     })+"\n",encoding="utf-8")
     os.chmod(cap_path,0o600)
 
-    files=[video_name,caption_name,metadata_name]
-    sha={name:sha256(job/name) for name in files}
     base=args.base_url.rstrip("/") + f"/cap/{cap}/{job_id}/"
-    manifest={
-        "schema_version":1,
-        "job_id":job_id,
-        "source":args.source,
-        "target":"tiktok",
-        "language":args.language,
-        "status":"READY",
-        "video_file":video_name,
-        "caption_file":caption_name,
-        "metadata_file":metadata_name,
-        "sha256":sha,
-        "publish_mode":args.publish_mode,
-        "visibility":args.visibility,
-        "artifact_base_url":base,
-    }
+    if generic:
+        manifest={
+            "schema_version":1,
+            "job_id":job_id,
+            "kind":"generic-artifact",
+            "expires_at":expires_at,
+            "artifacts":[{
+                "name":name,
+                "size":(job/name).stat().st_size,
+                "sha256":sha256(job/name),
+                "url":base+name,
+            } for name,_ in artifacts],
+        }
+    else:
+        files=[video_name,caption_name,metadata_name]
+        sha={name:sha256(job/name) for name in files}
+        manifest={
+            "schema_version":1,
+            "job_id":job_id,
+            "source":args.source,
+            "target":"tiktok",
+            "language":args.language,
+            "status":"READY",
+            "video_file":video_name,
+            "caption_file":caption_name,
+            "metadata_file":metadata_name,
+            "sha256":sha,
+            "publish_mode":args.publish_mode,
+            "visibility":args.visibility,
+            "artifact_base_url":base,
+        }
     (job/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     print(json.dumps({
         "job_id":job_id,
