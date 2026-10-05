@@ -22,6 +22,33 @@ codex=$(status_pid /opt/y700/runtime/codexpro.pid codexpro)
 tunnel=$(status_pid /opt/y700/runtime/cloudflared.pid cloudflared)
 bridge=$(status_pid /opt/y700/runtime/host-executor.pid host-executor.sh)
 
+# The health loop is the existing runtime supervisor. If cloudflared exits after
+# a network handoff, restart that same connector here instead of adding another
+# daemon. A cooldown prevents restart thrash while the network is unavailable.
+if [ "$tunnel" = OFFLINE ]; then
+  tunnel_recovery_stamp="$STATE_DIR/cloudflared-recovery.epoch"
+  tunnel_recovery_log="/opt/y700/runtime/logs/cloudflared-recovery.log"
+  tunnel_recovery_cooldown=300
+  now_epoch=$(date +%s)
+  last_epoch=0
+  if [ -s "$tunnel_recovery_stamp" ]; then
+    read -r last_epoch <"$tunnel_recovery_stamp" || last_epoch=0
+  fi
+  if ! [[ "$last_epoch" =~ ^[0-9]+$ ]]; then last_epoch=0; fi
+  if [ $((now_epoch - last_epoch)) -ge "$tunnel_recovery_cooldown" ]; then
+    printf '%s\n' "$now_epoch" >"$tunnel_recovery_stamp.tmp"
+    mv "$tunnel_recovery_stamp.tmp" "$tunnel_recovery_stamp"
+    mkdir -p /opt/y700/runtime/logs
+    set +e
+    /opt/y700/workspaces/y700-agent/bootstrap/restart-cloudflared-y700.sh >>"$tunnel_recovery_log" 2>&1
+    tunnel_recovery_rc=$?
+    set -e
+    if [ "$tunnel_recovery_rc" -eq 0 ]; then
+      tunnel=$(status_pid /opt/y700/runtime/cloudflared.pid cloudflared)
+    fi
+  fi
+fi
+
 if [ -w /opt/y700/jobs ]; then jobs=HEALTHY; else jobs=BLOCKED; fi
 
 set +e
