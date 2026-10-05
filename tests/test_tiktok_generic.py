@@ -99,6 +99,19 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertEqual(by_id["caption"]["precondition"]["selector"], publish)
         self.assertEqual(by_id["assert-publish-ready"]["selector"], publish)
 
+    def test_visibility_summary_uses_semantic_selector(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        expected = {
+            "class_name": "android.widget.Button",
+            "content_desc": "所有人可见",
+            "clickable": True,
+        }
+        self.assertEqual(by_id["open-visibility"]["selector"], expected)
+        self.assertEqual(by_id["wait-public-summary"]["selector"], expected)
+        self.assertEqual(by_id["assert-public"]["selector"], expected)
+        self.assertEqual(by_id["open-visibility"]["expect"]["selector"], {"text": "谁可以看"})
+
     def test_visibility_selection_separates_sheet_close_from_summary(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
         by_id = {a["action_id"]: a for a in actions}

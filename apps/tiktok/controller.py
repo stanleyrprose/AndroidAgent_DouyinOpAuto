@@ -292,6 +292,15 @@ def publish_button_selector() -> dict[str, Any]:
     }
 
 
+def visibility_summary_selector() -> dict[str, Any]:
+    """Semantic public visibility summary button on post-config."""
+    return {
+        "class_name": "android.widget.Button",
+        "content_desc": "所有人可见",
+        "clickable": True,
+    }
+
+
 def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, Any]]:
     """One instrumentation session from cold-launch HOME to verified POST_CONFIG."""
     media = media_selector()
@@ -420,16 +429,9 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
         {
             "action_id": "open-visibility",
             "action": "click",
-            "selector": {
-                "resource_id": RID["visibility"],
-                "clickable": True,
-                "has_ancestor": {"resource_id": RID["visibility_container"]},
-            },
+            "selector": visibility_summary_selector(),
             "expect": {
-                "selector": {
-                    "resource_id": RID["visibility_heading"],
-                    "text": "谁可以看",
-                },
+                "selector": {"text": "谁可以看"},
                 "unique": True,
             },
             "timeout_ms": 8_000,
@@ -463,12 +465,7 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
         {
             "action_id": "wait-public-summary",
             "action": "waitFor",
-            "selector": {
-                "resource_id": RID["visibility"],
-                "content_desc_contains": "所有人",
-                "clickable": True,
-                "has_ancestor": {"resource_id": RID["visibility_container"]},
-            },
+            "selector": visibility_summary_selector(),
             "unique": True,
             "timeout_ms": 15_000,
         },
@@ -480,12 +477,7 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
         {
             "action_id": "assert-public",
             "action": "assert",
-            "selector": {
-                "resource_id": RID["visibility"],
-                "content_desc_contains": "所有人",
-                "clickable": True,
-                "has_ancestor": {"resource_id": RID["visibility_container"]},
-            },
+            "selector": visibility_summary_selector(),
         },
         {
             "action_id": "assert-publish-ready",
