@@ -95,7 +95,14 @@ last_network=""
 
 while true; do
   now="$(date +%s)"
-  if network="$($NETWORK_STATUS 2>/dev/null)"; then network=ONLINE; else network=OFFLINE; fi
+  if network="$($NETWORK_STATUS 2>/dev/null)"; then
+    case "$network" in
+      ONLINE|ONLINE_ROUTE_ONLY) ;;
+      *) network=ONLINE_ROUTE_ONLY ;;
+    esac
+  else
+    network=OFFLINE
+  fi
 
   if [ "$network" = OFFLINE ]; then
     if [ "$last_network" != OFFLINE ]; then
@@ -114,7 +121,7 @@ while true; do
     write_connectivity_state OFFLINE "$tunnel_process" "$connections" SUSPENDED_NO_NETWORK 0 0
   else
     if [ "$last_network" = OFFLINE ]; then
-      echo "$(date -Is) NETWORK_ONLINE remote-plane-resume" >>"$LOG"
+      echo "$(date -Is) NETWORK_PATH_AVAILABLE mode=$network remote-plane-resume" >>"$LOG"
     fi
 
     if pid_matches "$CF_PID" cloudflared; then

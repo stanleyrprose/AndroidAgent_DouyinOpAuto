@@ -14,7 +14,7 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         text = HEALTH_LOOP.read_text()
         self.assertIn('write_connectivity_state OFFLINE "$tunnel_process" "$connections" SUSPENDED_NO_NETWORK 0 0', text)
         offline_pos = text.index('if [ "$network" = OFFLINE ]; then')
-        resume_pos = text.index('NETWORK_ONLINE remote-plane-resume')
+        resume_pos = text.index('NETWORK_PATH_AVAILABLE mode=$network remote-plane-resume')
         offline = text[offline_pos:resume_pos]
         self.assertNotIn('restart_cloudflared', offline)
         self.assertIn('disconnected_cycles=0', offline)
@@ -42,11 +42,18 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         text = HEALTH_CHECK.read_text()
         self.assertIn('"tunnel_connections":int(tunnel_connections)', text)
 
-    def test_network_probe_checks_cloudflare_reachability(self) -> None:
+    def test_network_status_prefers_default_route_and_treats_http_as_advisory(self) -> None:
         text = NETWORK.read_text()
+        self.assertIn("ip route show default", text)
+        self.assertIn("ONLINE_ROUTE_ONLY", text)
         self.assertIn('https://www.cloudflare.com/cdn-cgi/trace', text)
         self.assertIn('--connect-timeout', text)
         self.assertIn('--max-time', text)
+
+    def test_route_only_state_is_treated_as_recoverable_network(self) -> None:
+        text = HEALTH_LOOP.read_text()
+        self.assertIn('ONLINE|ONLINE_ROUTE_ONLY', text)
+        self.assertIn('NETWORK_PATH_AVAILABLE mode=$network', text)
 
     def test_restart_fails_if_spawned_cloudflared_dies(self) -> None:
         text = RESTART.read_text()
