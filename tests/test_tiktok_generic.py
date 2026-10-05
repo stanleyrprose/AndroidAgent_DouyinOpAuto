@@ -26,6 +26,15 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertEqual(by_id["home-create"]["selector"], expected)
         self.assertNotIn("resource_id", by_id["wait-cold-home"]["selector"])
 
+    def test_album_menu_uses_semantic_selector_not_obfuscated_resource_id(self) -> None:
+        actions = controller.build_dry_run_actions("caption", "Y700Agent")
+        by_id = {a["action_id"]: a for a in actions}
+        selector = by_id["album-menu"]["selector"]
+        self.assertEqual(selector["class_name"], "android.widget.LinearLayout")
+        self.assertTrue(selector["clickable"])
+        self.assertEqual(selector["has_descendant"], {"text": "最近项目"})
+        self.assertNotIn("resource_id", selector)
+
     def test_dry_run_actions_never_click_publish_button(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
         publish = controller.RID["publish"]

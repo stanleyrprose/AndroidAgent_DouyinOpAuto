@@ -256,6 +256,15 @@ def home_create_selector() -> dict[str, Any]:
     return {"content_desc": "创建", "clickable": True}
 
 
+def album_menu_selector() -> dict[str, Any]:
+    """Semantic album picker selector; TikTok obfuscates this container id."""
+    return {
+        "class_name": "android.widget.LinearLayout",
+        "clickable": True,
+        "has_descendant": {"text": "最近项目"},
+    }
+
+
 def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, Any]]:
     """One instrumentation session from cold-launch HOME to verified POST_CONFIG."""
     media = media_selector()
@@ -287,7 +296,7 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
         {
             "action_id": "album-menu",
             "action": "click",
-            "selector": {"resource_id": RID["album_menu"], "clickable": True},
+            "selector": album_menu_selector(),
             "side_effect": "REVERSIBLE_LOCAL",
         },
         {
