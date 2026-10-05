@@ -38,8 +38,19 @@ def update(status,job_id,**extra):
     write_json_atomic(STATE,data)
     return data
 
-def run(cmd,check=True):
-    p=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+def run(cmd,check=True,timeout=None):
+    try:
+        p=subprocess.run(
+            cmd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise PublishError(
+            f"command timed out after {timeout}s: {' '.join(map(str,cmd))}"
+        ) from exc
     if check and p.returncode!=0:
         raise PublishError(f"command failed rc={p.returncode}: {' '.join(map(str,cmd))}\n{p.stderr}")
     return p
@@ -47,19 +58,9 @@ def run(cmd,check=True):
 def ensure_device_unlocked(job_id):
     update("UNLOCKING", job_id)
     try:
-        p=subprocess.run(
-            ["bash", str(SECURE_UNLOCK)],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=45,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise PublishError("secure unlock timed out before preflight/staging") from exc
-    if p.returncode!=0:
-        detail=(p.stderr or p.stdout).strip()
-        raise PublishError(f"secure unlock failed before preflight/staging rc={p.returncode}: {detail}")
-    return p
+        return run(["bash", str(SECURE_UNLOCK)], timeout=45)
+    except PublishError as exc:
+        raise PublishError(f"secure unlock failed before preflight/staging: {exc}") from exc
 
 
 def read_text(path):
