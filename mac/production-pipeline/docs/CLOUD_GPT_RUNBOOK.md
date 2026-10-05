@@ -141,18 +141,13 @@ On approval, record Mac state:
 
 ## 8. COMMIT on Y700
 
-Before COMMIT:
-
-- confirm job id;
-- confirm PUBLIC unless the user explicitly requested another visibility;
-- confirm source_aweme_id is not already published;
-- change manifest `publish_mode` from `DRY_RUN` to `COMMIT` atomically.
-
-Start locally:
+Before COMMIT, use the single atomic Y700 entrypoint. It verifies the current job is `READY_TO_COMMIT`, confirms `PUBLIC`, refuses concurrent/already-armed retries, atomically changes manifest `publish_mode` from `DRY_RUN` to `COMMIT`, records one-attempt approval evidence, and then starts the publisher:
 
 ```bash
-./scripts/publish-async.sh <job> --commit
+./scripts/approve-public-commit.sh <job> 'explicit user/standing workflow authorization'
 ```
+
+Do not manually split the manifest transition from `publish-async.sh --commit`; the atomic wrapper exists specifically to prevent a false COMMIT that only reruns DRY_RUN.
 
 Poll with `publish-status.sh`.
 

@@ -41,6 +41,8 @@ For the canonical Skill, one supplied Douyin URL is explicit authorization for o
 
 No blind second COMMIT is allowed after timeout, UI uncertainty, disconnect, or ambiguous durable state.
 
+The Telegram executor must use Y700 `scripts/approve-public-commit.sh` for the one-shot boundary. That entrypoint owns the READY_TO_COMMIT/PUBLIC checks, atomic `DRY_RUN -> COMMIT` manifest transition, one-attempt audit record, and publisher start; `publish-async.sh --commit` is not a substitute because it deliberately does not mutate the manifest.
+
 ## Notifications
 
 For Telegram-originated jobs the orchestrator emits public-safe transition receipts:
