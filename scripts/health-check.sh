@@ -55,6 +55,16 @@ fi
 
 if [ -w /opt/y700/jobs ]; then jobs=HEALTHY; else jobs=BLOCKED; fi
 
+production_sot=UNKNOWN
+set +e
+production_sot=$(/opt/y700/workspaces/y700-agent/scripts/production-sot-status.sh 2>/dev/null)
+production_sot_rc=$?
+set -e
+case "$production_sot" in
+  HEALTHY|DRIFT|UNKNOWN) ;;
+  *) production_sot=UNKNOWN ;;
+esac
+
 set +e
 disk_json=$(/opt/y700/workspaces/y700-agent/scripts/disk-guard.sh 2>/dev/null)
 disk_rc=$?
@@ -84,12 +94,13 @@ fi
 overall=HEALTHY
 if [ "$bridge" = OFFLINE ] || [ "$jobs" = BLOCKED ]; then overall=BLOCKED
 elif [ "$disk_rc" -ne 0 ]; then overall=DEGRADED
+elif [ "$production_sot" = DRIFT ]; then overall=DEGRADED
 elif [ "$network" = ONLINE ] && { [ "$codex" = OFFLINE ] || [ "$tunnel" = OFFLINE ]; }; then overall=DEGRADED
 fi
 
-python3 - "$TMP" "$overall" "$codex" "$tunnel" "$bridge" "$jobs" "$publisher" "$temp_c" "$disk_json" "$network" "$remote_plane" "$tunnel_connections" <<'PY'
+python3 - "$TMP" "$overall" "$codex" "$tunnel" "$bridge" "$jobs" "$publisher" "$temp_c" "$disk_json" "$network" "$remote_plane" "$tunnel_connections" "$production_sot" <<'PY'
 import json,sys,datetime
-out,overall,codex,tunnel,bridge,jobs,publisher,temp,disk,network,remote_plane,tunnel_connections=sys.argv[1:]
+out,overall,codex,tunnel,bridge,jobs,publisher,temp,disk,network,remote_plane,tunnel_connections,production_sot=sys.argv[1:]
 obj={
  "updated_at":datetime.datetime.now().astimezone().isoformat(),
  "overall":overall,
@@ -100,6 +111,7 @@ obj={
  "tunnel":tunnel,
  "android_bridge":bridge,
  "job_directory":jobs,
+ "production_sot":production_sot,
  "publisher":publisher,
  "battery_temperature_c":None if temp=="null" else float(temp),
  "disk":json.loads(disk),
