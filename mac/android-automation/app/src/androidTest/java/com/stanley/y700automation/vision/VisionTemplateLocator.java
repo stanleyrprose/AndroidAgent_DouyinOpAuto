@@ -554,32 +554,75 @@ public final class VisionTemplateLocator {
             throws VisionV0Harness.VisionFailure {
         synchronized (VisionTemplateLocator.class) {
             if (openCvLoaded) return;
-            Throwable firstFailure = null;
+
+            Throwable bootstrapFailure = null;
             try {
-                System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+                ClassLoader targetLoader = instrumentation.getTargetContext().getClassLoader();
+                Class<?> bootstrap = Class.forName(
+                        "com.stanley.y700automation.OpenCvBootstrap",
+                        true,
+                        targetLoader);
+                Object version = bootstrap.getMethod("ensureLoaded").invoke(null);
+                if (version == null || String.valueOf(version).isEmpty()) {
+                    throw new IllegalStateException("OpenCV target bootstrap returned no version");
+                }
                 openCvLoaded = true;
                 return;
             } catch (Throwable t) {
-                firstFailure = t;
+                bootstrapFailure = t;
+            }
+
+            Throwable loadLibraryFailure = null;
+            try {
+                System.loadLibrary("opencv_java4");
+                Core.getVersionString();
+                openCvLoaded = true;
+                return;
+            } catch (Throwable t) {
+                loadLibraryFailure = t;
             }
 
             try {
                 String nativeDir = instrumentation.getTargetContext()
                         .getApplicationInfo().nativeLibraryDir;
+                String cxxPath = nativeDir + "/" + System.mapLibraryName("c++_shared");
                 String libraryPath = nativeDir + "/" +
-                        System.mapLibraryName(Core.NATIVE_LIBRARY_NAME);
+                        System.mapLibraryName("opencv_java4");
+                try {
+                    System.load(cxxPath);
+                } catch (Throwable ignored) {
+                    // OpenCV may not require an explicit preload when the target
+                    // native namespace already exposes libc++_shared.
+                }
                 System.load(libraryPath);
+                Core.getVersionString();
                 openCvLoaded = true;
             } catch (Throwable t) {
-                String first = firstFailure == null
-                        ? "none"
-                        : firstFailure.getClass().getSimpleName();
                 throw new VisionV0Harness.VisionFailure(
                         "VISION_MODEL_UNAVAILABLE",
-                        "OpenCV runtime unavailable: loadLibrary=" + first +
-                                ", absoluteLoad=" + t.getClass().getSimpleName());
+                        "OpenCV runtime unavailable: targetBootstrap=" +
+                                failureSummary(bootstrapFailure) +
+                                ", loadLibrary=" + failureSummary(loadLibraryFailure) +
+                                ", absoluteLoad=" + failureSummary(t));
             }
         }
+    }
+
+    private static String failureSummary(Throwable t) {
+        if (t == null) return "none";
+        Throwable root = t;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String message = root.getMessage();
+        if (message == null || message.trim().isEmpty()) {
+            return root.getClass().getSimpleName();
+        }
+        message = message.replace('\n', ' ').replace('\r', ' ').trim();
+        if (message.length() > 240) {
+            message = message.substring(0, 240);
+        }
+        return root.getClass().getSimpleName() + ":" + message;
     }
 
     private static int[] intArray(JSONArray arr) throws VisionV0Harness.VisionFailure {

@@ -36,7 +36,7 @@ public class VisionBenchmarkActivity extends Activity {
             // after a successful click so V1 can use the shared semantic
             // postcondition path.
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
-            setContentDescription(null);
+            setContentDescription(clicked ? "VISION_V1_CLICKED" : null);
             setBackgroundColor(VisionBenchmarkPattern.BG_COLOR);
         }
 

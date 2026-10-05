@@ -284,12 +284,17 @@ public class AutomationInstrumentedTest {
         intent.putExtra("duplicate", duplicate);
         intent.putExtra("clicked", clicked);
         context.startActivity(intent);
-        SystemClock.sleep(500L);
-        if (!"com.stanley.y700automation".equals(device.getCurrentPackageName()) &&
-                !isVisionBenchmarkActivityTop()) {
-            throw new ActionFailure("TEST_BENCHMARK_UNAVAILABLE",
-                    "VisionBenchmarkActivity did not become foreground", false, "BLOCKED");
+        long deadline = SystemClock.elapsedRealtime() + 2500L;
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if ("com.stanley.y700automation".equals(device.getCurrentPackageName()) ||
+                    isVisionBenchmarkActivityTop()) {
+                return;
+            }
+            SystemClock.sleep(100L);
         }
+        throw new ActionFailure("TEST_BENCHMARK_UNAVAILABLE",
+                "VisionBenchmarkActivity did not become foreground within 2500ms",
+                false, "BLOCKED");
     }
 
     private boolean isVisionBenchmarkActivityTop() {
