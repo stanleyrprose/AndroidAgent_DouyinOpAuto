@@ -27,6 +27,7 @@ FAILED=Path("/opt/y700/media/failed")
 STATE=Path("/opt/y700/runtime/state/publisher.json")
 PREFLIGHT=ROOT/"scripts"/"publish-preflight.sh"
 STAGER=ROOT/"publisher"/"stage_job.py"
+SECURE_UNLOCK=ROOT/"bridge"/"secure-unlock.sh"
 
 class PublishError(RuntimeError):
     pass
@@ -42,6 +43,24 @@ def run(cmd,check=True):
     if check and p.returncode!=0:
         raise PublishError(f"command failed rc={p.returncode}: {' '.join(map(str,cmd))}\n{p.stderr}")
     return p
+
+def ensure_device_unlocked(job_id):
+    update("UNLOCKING", job_id)
+    try:
+        p=subprocess.run(
+            ["bash", str(SECURE_UNLOCK)],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=45,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise PublishError("secure unlock timed out before preflight/staging") from exc
+    if p.returncode!=0:
+        detail=(p.stderr or p.stdout).strip()
+        raise PublishError(f"secure unlock failed before preflight/staging rc={p.returncode}: {detail}")
+    return p
+
 
 def read_text(path):
     return path.read_text(encoding="utf-8").strip()
@@ -275,6 +294,11 @@ def main():
             f"as {duplicate['job_id']}"
         )
 
+    # Locked/sleeping Android can stall package/content-provider operations
+    # before TikTok is launched. Wake/unlock before *any* Android-side
+    # preflight or MediaStore staging; the TikTok controller still re-checks
+    # keyguard state again at cold launch and after KEYGUARD_BLOCKING.
+    ensure_device_unlocked(args.job_id)
     update("PREFLIGHT",args.job_id,publish_mode=mode,visibility=visibility)
     run([str(PREFLIGHT)])
 
