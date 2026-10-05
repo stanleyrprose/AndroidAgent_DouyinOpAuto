@@ -101,74 +101,48 @@ while true; do
       *) network=ONLINE_ROUTE_ONLY ;;
     esac
   else
-    network=OFFLINE
+    network=UNKNOWN
   fi
 
-  if [ "$network" = OFFLINE ]; then
-    if [ "$last_network" != OFFLINE ]; then
-      echo "$(date -Is) NETWORK_OFFLINE remote-plane-suspended" >>"$LOG"
-    fi
+  # The chroot may not expose Android's default route. Tunnel health is therefore
+  # authoritative when edge connections exist. When they do not, UNKNOWN network
+  # must not suppress recovery; bounded restart/backoff is safer for a mobile node.
+  if pid_matches "$CF_PID" cloudflared; then
+    tunnel_process=HEALTHY
+    connections="$(tunnel_connection_count)"
+  else
+    tunnel_process=OFFLINE
+    connections=0
+  fi
+
+  if [ "$connections" -gt 0 ]; then
     failures=0
     next_retry_epoch=0
     disconnected_cycles=0
-    if pid_matches "$CF_PID" cloudflared; then
-      tunnel_process=HEALTHY
-      connections="$(tunnel_connection_count)"
-    else
-      tunnel_process=OFFLINE
-      connections=0
-    fi
-    write_connectivity_state OFFLINE "$tunnel_process" "$connections" SUSPENDED_NO_NETWORK 0 0
+    write_connectivity_state "$network" "$tunnel_process" "$connections" READY 0 0
   else
-    if [ "$last_network" = OFFLINE ]; then
+    disconnected_cycles=$((disconnected_cycles + 1))
+    if [ "$last_network" = OFFLINE ] && [ "$network" != OFFLINE ]; then
       echo "$(date -Is) NETWORK_PATH_AVAILABLE mode=$network remote-plane-resume" >>"$LOG"
     fi
-
-    if pid_matches "$CF_PID" cloudflared; then
-      tunnel_process=HEALTHY
-      connections="$(tunnel_connection_count)"
-      if [ "$connections" -gt 0 ]; then
-        failures=0
-        next_retry_epoch=0
-        disconnected_cycles=0
-        write_connectivity_state ONLINE HEALTHY "$connections" READY 0 0
-      else
-        disconnected_cycles=$((disconnected_cycles + 1))
-        if [ "$disconnected_cycles" -lt "$DISCONNECTED_GRACE_CYCLES" ]; then
-          write_connectivity_state ONLINE HEALTHY 0 RECOVERING "$failures" "$next_retry_epoch"
-        elif [ "$now" -ge "$next_retry_epoch" ]; then
-          if restart_cloudflared; then
-            connections="$(tunnel_connection_count)"
-            if [ "$connections" -gt 0 ]; then
-              write_connectivity_state ONLINE HEALTHY "$connections" READY 0 0
-              echo "$(date -Is) CLOUDFLARED_SELF_HEAL_OK connections=$connections" >>"$LOG"
-            else
-              disconnected_cycles=1
-              write_connectivity_state ONLINE HEALTHY 0 RECOVERING 0 0
-            fi
-          else
-            write_connectivity_state ONLINE OFFLINE 0 DEGRADED "$failures" "$next_retry_epoch"
-          fi
-        else
-          write_connectivity_state ONLINE HEALTHY 0 BACKOFF "$failures" "$next_retry_epoch"
-        fi
-      fi
+    if [ "$disconnected_cycles" -lt "$DISCONNECTED_GRACE_CYCLES" ]; then
+      write_connectivity_state "$network" "$tunnel_process" 0 RECOVERING "$failures" "$next_retry_epoch"
     elif [ "$now" -ge "$next_retry_epoch" ]; then
-      tunnel_process=OFFLINE
-      connections=0
       if restart_cloudflared; then
+        tunnel_process=HEALTHY
         connections="$(tunnel_connection_count)"
         if [ "$connections" -gt 0 ]; then
-          write_connectivity_state ONLINE HEALTHY "$connections" READY 0 0
+          write_connectivity_state "$network" HEALTHY "$connections" READY 0 0
+          echo "$(date -Is) CLOUDFLARED_SELF_HEAL_OK connections=$connections" >>"$LOG"
         else
           disconnected_cycles=1
-          write_connectivity_state ONLINE HEALTHY 0 RECOVERING 0 0
+          write_connectivity_state "$network" HEALTHY 0 RECOVERING 0 0
         fi
       else
-        write_connectivity_state ONLINE OFFLINE 0 DEGRADED "$failures" "$next_retry_epoch"
+        write_connectivity_state "$network" OFFLINE 0 DEGRADED "$failures" "$next_retry_epoch"
       fi
     else
-      write_connectivity_state ONLINE OFFLINE 0 BACKOFF "$failures" "$next_retry_epoch"
+      write_connectivity_state "$network" "$tunnel_process" 0 BACKOFF "$failures" "$next_retry_epoch"
     fi
   fi
 

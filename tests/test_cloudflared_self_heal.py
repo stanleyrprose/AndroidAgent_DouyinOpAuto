@@ -10,14 +10,17 @@ START_RUNTIME = ROOT / "scripts" / "start-prod-runtime.sh"
 
 
 class CloudflaredSelfHealContractTests(unittest.TestCase):
-    def test_offline_network_suspends_remote_plane_without_restart(self) -> None:
+    def test_tunnel_connections_are_authoritative_even_when_network_probe_is_unknown(self) -> None:
         text = HEALTH_LOOP.read_text()
-        self.assertIn('write_connectivity_state OFFLINE "$tunnel_process" "$connections" SUSPENDED_NO_NETWORK 0 0', text)
-        offline_pos = text.index('if [ "$network" = OFFLINE ]; then')
-        resume_pos = text.index('NETWORK_PATH_AVAILABLE mode=$network remote-plane-resume')
-        offline = text[offline_pos:resume_pos]
-        self.assertNotIn('restart_cloudflared', offline)
-        self.assertIn('disconnected_cycles=0', offline)
+        self.assertIn('network=UNKNOWN', text)
+        self.assertIn('if [ "$connections" -gt 0 ]; then', text)
+        self.assertIn('write_connectivity_state "$network" "$tunnel_process" "$connections" READY 0 0', text)
+
+    def test_no_connections_trigger_bounded_recovery_even_when_network_probe_is_unknown(self) -> None:
+        text = HEALTH_LOOP.read_text()
+        self.assertIn('disconnected_cycles=$((disconnected_cycles + 1))', text)
+        self.assertIn('restart_cloudflared', text)
+        self.assertNotIn('SUSPENDED_NO_NETWORK', text)
 
     def test_metrics_detect_process_alive_but_no_edge_connections(self) -> None:
         text = HEALTH_LOOP.read_text()
