@@ -42,6 +42,8 @@ ACTIVE="$JOBS/active"
 ARCHIVE="$JOBS/archive"
 CONTROL="$JOBS/control"
 LOG="$RUNTIME/host-executor.log"
+LOCK_DIR="$RUNTIME/host-executor.lock"
+PIDFILE="$RUNTIME/host-executor.pid"
 
 SELF_PID=$$
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || printf unknown)"
@@ -91,6 +93,45 @@ atomic_text() {
 append_log() {
   printf '%s %s\n' "$(now_iso)" "$*" >>"$LOG"
   "$TOYBOX" chmod 600 "$LOG" 2>/dev/null || true
+}
+
+executor_pid_matches() {
+  pid="$1"
+  [ -n "$pid" ] || return 1
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  "$TOYBOX" tr '\000' ' ' <"/proc/$pid/cmdline" 2>/dev/null | \
+    "$TOYBOX" grep -q '/bridge/host-executor.sh'
+}
+
+release_singleton() {
+  owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+  if [ "$owner" = "$SELF_PID" ]; then
+    "$TOYBOX" rm -rf "$LOCK_DIR" 2>/dev/null || true
+  fi
+}
+
+acquire_singleton() {
+  while true; do
+    if "$TOYBOX" mkdir "$LOCK_DIR" 2>/dev/null; then
+      "$TOYBOX" chmod 700 "$LOCK_DIR" 2>/dev/null || true
+      printf '%s\n' "$SELF_PID" >"$LOCK_DIR/pid"
+      "$TOYBOX" chmod 600 "$LOCK_DIR/pid" 2>/dev/null || true
+      printf '%s\n' "$SELF_PID" >"$PIDFILE.tmp.$$"
+      "$TOYBOX" chmod 600 "$PIDFILE.tmp.$$" 2>/dev/null || true
+      "$TOYBOX" mv "$PIDFILE.tmp.$$" "$PIDFILE"
+      trap release_singleton EXIT HUP INT TERM
+      return 0
+    fi
+
+    owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+    if executor_pid_matches "$owner"; then
+      append_log "duplicate_executor_exit existing_pid=$owner self_pid=$SELF_PID"
+      exit 0
+    fi
+
+    # Stale lock: owner vanished or no longer matches the executor identity.
+    "$TOYBOX" rm -rf "$LOCK_DIR" 2>/dev/null || true
+  done
 }
 
 journal() {
@@ -849,6 +890,7 @@ init_layout() {
 }
 
 init_layout
+acquire_singleton
 STARTED_AT="$(now_iso)"
 load_restart_count
 write_protocol
