@@ -500,25 +500,55 @@ def _cold_launch() -> None:
     deadline = time.monotonic() + 90.0
     last_top = ""
     stable_main = 0
+    stable_home_ui = 0
+    splash_samples = 0
     normalized_to_main = False
+    home_probe_attempt = 0
+    next_home_probe = time.monotonic() + 4.0
     while time.monotonic() < deadline:
         last_top = _root(
             "dumpsys activity activities | grep topResumedActivity",
             timeout=10,
             check=False,
         ).stdout.strip()
+        now = time.monotonic()
         if TIKTOK in last_top and "SplashActivity" in last_top:
             stable_main = 0
+            splash_samples += 1
+            if splash_samples >= 3 and not normalized_to_main:
+                _root(
+                    f"am start -n {TIKTOK}/com.ss.android.ugc.aweme.main.MainActivity >/dev/null",
+                    timeout=20,
+                    check=False,
+                )
+                normalized_to_main = True
+            if now >= next_home_probe:
+                home_probe_attempt += 1
+                try:
+                    state, _, _ = _observe(f"cold-launch-home-probe-{home_probe_attempt}")
+                except TikTokCoreError:
+                    stable_home_ui = 0
+                else:
+                    if state["state"] == "HOME" and state.get("tiktok_visible"):
+                        stable_home_ui += 1
+                        if stable_home_ui >= 2:
+                            return
+                    else:
+                        stable_home_ui = 0
+                next_home_probe = time.monotonic() + 2.0
         elif TIKTOK in last_top and "MainActivity" in last_top:
+            stable_home_ui = 0
             stable_main += 1
             if stable_main >= 2:
                 return
         else:
             stable_main = 0
+            stable_home_ui = 0
             if not normalized_to_main:
                 _root(
                     f"am start -n {TIKTOK}/com.ss.android.ugc.aweme.main.MainActivity >/dev/null",
                     timeout=20,
+                    check=False,
                 )
                 normalized_to_main = True
         time.sleep(1.0)
@@ -592,7 +622,7 @@ def build_commit_actions(caption: str) -> list[dict[str, Any]]:
         {
             "action_id": "commit-assert-caption",
             "action": "assert",
-            "selector": {"resource_id": RID["caption"], "text": caption},
+            "selector": {**caption_selector(), "text": caption},
         },
         {
             "action_id": "commit-assert-public",
@@ -602,11 +632,7 @@ def build_commit_actions(caption: str) -> list[dict[str, Any]]:
         {
             "action_id": "commit-assert-publish-ready",
             "action": "assert",
-            "selector": {
-                "resource_id": RID["publish"],
-                "text": "发布",
-                "enabled": True,
-            },
+            "selector": publish_button_selector(),
         },
         {
             "action_id": "commit-before-evidence",
@@ -681,13 +707,13 @@ def _public_tab_selector(*, selected: bool | None = None) -> dict[str, Any]:
 
 def _public_post_matches(elements: list[dict[str, Any]], caption: str) -> bool:
     exact_caption = any(
-        element.get("resource_id") == RID["post_caption"]
-        and (element.get("text") or "").strip() == caption
+        (element.get("text") or "").strip() == caption
         for element in elements
     )
+    restricted_tokens = {"仅自己", "好友可见", "私密", "仅好友"}
     restricted_label = any(
-        element.get("resource_id") == RID["private_label"]
-        and (element.get("text") or "").strip()
+        (element.get("text") or "").strip() in restricted_tokens
+        or (element.get("content_desc") or "").strip() in restricted_tokens
         for element in elements
     )
     return exact_caption and not restricted_label
@@ -701,14 +727,14 @@ def _open_public_grid_unlocked(prefix: str) -> tuple[list[dict[str, Any]], dict[
             {
                 "action_id": "wait-profile",
                 "action": "waitFor",
-                "selector": {"resource_id": RID["profile"], "clickable": True},
+                "selector": {"content_desc": "主页", "clickable": True},
                 "unique": True,
                 "timeout_ms": 15_000,
             },
             {
                 "action_id": "open-profile",
                 "action": "click",
-                "selector": {"resource_id": RID["profile"], "clickable": True},
+                "selector": {"content_desc": "主页", "clickable": True},
                 "side_effect": "REVERSIBLE_LOCAL",
             },
             {

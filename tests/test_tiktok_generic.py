@@ -37,6 +37,35 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertIn("MainActivity", source)
         self.assertIn("am start -n", source)
         self.assertIn("stable_main >= 2", source)
+        self.assertIn("stable_home_ui >= 2", source)
+        self.assertIn("cold-launch-home-probe", source)
+
+    def test_commit_preflight_uses_semantic_post_config_controls(self) -> None:
+        actions = controller.build_commit_actions("caption")
+        by_id = {a["action_id"]: a for a in actions}
+        self.assertEqual(
+            by_id["commit-assert-caption"]["selector"],
+            {**controller.caption_selector(), "text": "caption"},
+        )
+        self.assertEqual(
+            by_id["commit-assert-publish-ready"]["selector"],
+            controller.publish_button_selector(),
+        )
+        self.assertEqual(
+            by_id["commit-publish"]["selector"],
+            controller.publish_button_selector(),
+        )
+        self.assertEqual(by_id["commit-publish"]["side_effect"], "EXTERNAL_IRREVERSIBLE")
+
+    def test_public_profile_entry_is_semantic(self) -> None:
+        import inspect
+        source = inspect.getsource(controller._open_public_grid_unlocked)
+        self.assertIn('"content_desc": "主页"', source)
+        self.assertNotIn('RID["profile"]', source)
+
+    def test_public_post_match_uses_exact_caption_and_restricted_tokens(self) -> None:
+        self.assertTrue(controller._public_post_matches([{"text": "caption"}], "caption"))
+        self.assertFalse(controller._public_post_matches([{"text": "caption"}, {"text": "仅自己"}], "caption"))
 
     def test_dry_run_waits_for_home_stability_before_create_click(self) -> None:
         actions = controller.build_dry_run_actions("caption", "Y700Agent")
