@@ -151,22 +151,55 @@ def stage_into_target(files):
         root_shell(cmd)
 
 
+def capture_screen(screen_id: str, launch: str, retries: int = 3):
+    xml_host = f"{HOST_DIR}/{screen_id}.xml"
+    png_host = f"{HOST_DIR}/{screen_id}.png"
+    launch_wait = launch.replace("am start ", "am start -W ", 1)
+
+    for attempt in range(1, retries + 1):
+        command = (
+            "set -e; "
+            f"mkdir -p '{HOST_DIR}'; "
+            f"rm -f '{xml_host}' '{png_host}' '{xml_host}.tmp' '{png_host}.tmp'; "
+            f"{launch_wait} >/dev/null 2>&1; "
+            "I=0; TOP=''; "
+            "while [ \"$I\" -lt 8 ]; do "
+            "TOP=$(dumpsys activity activities | "
+            "sed -n 's/.* \\(com\\.android\\.settings\\/[^ }]*\\).*/\\1/p' | head -n 1); "
+            "case \"$TOP\" in com.android.settings/*) break ;; esac; "
+            "I=$((I+1)); sleep 1; "
+            "done; "
+            "case \"$TOP\" in com.android.settings/*) ;; *) exit 70 ;; esac; "
+            "sleep 1; "
+            f"screencap -p '{png_host}.tmp'; "
+            f"uiautomator dump --compressed '{xml_host}.tmp' >/dev/null 2>&1; "
+            "TOP2=$(dumpsys activity activities | "
+            "sed -n 's/.* \\(com\\.android\\.settings\\/[^ }]*\\).*/\\1/p' | head -n 1); "
+            "[ \"$TOP\" = \"$TOP2\" ] || exit 71; "
+            f"test -s '{png_host}.tmp'; test -s '{xml_host}.tmp'; "
+            f"mv '{png_host}.tmp' '{png_host}'; "
+            f"mv '{xml_host}.tmp' '{xml_host}'; "
+            "printf '%s\\n' \"$TOP\""
+        )
+        result = root_shell(command, check=False)
+        if result.returncode == 0:
+            top = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+            return xml_host, png_host, top
+        print(
+            f"{screen_id}: capture retry {attempt}/{retries} "
+            f"rc={result.returncode}"
+        )
+
+    raise RuntimeError(f"{screen_id}: unable to capture stable Settings foreground")
+
+
 def main():
     CHROOT_DIR.mkdir(parents=True, exist_ok=True)
     width, height = get_display_size()
     screens = []
 
     for screen_id, launch in SCREENS:
-        xml_host = f"{HOST_DIR}/{screen_id}.xml"
-        png_host = f"{HOST_DIR}/{screen_id}.png"
-        command = (
-            f"mkdir -p '{HOST_DIR}'; "
-            f"{launch} >/dev/null 2>&1; "
-            "sleep 2; "
-            f"uiautomator dump --compressed '{xml_host}' >/dev/null 2>&1; "
-            f"screencap -p '{png_host}'"
-        )
-        root_shell(command)
+        _, _, component = capture_screen(screen_id, launch)
         xml_path = CHROOT_DIR / f"{screen_id}.xml"
         png_path = CHROOT_DIR / f"{screen_id}.png"
         targets = choose_targets(xml_path, width, height)
@@ -176,6 +209,7 @@ def main():
                 "image": png_path.name,
                 "width": width,
                 "height": height,
+                "foreground_component": component,
                 "targets": targets,
             }
         )
