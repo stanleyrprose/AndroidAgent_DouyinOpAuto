@@ -23,12 +23,12 @@ TARGET_PACKAGE = "com.stanley.y700automation"
 MAX_TARGETS_PER_SCREEN = 18
 
 SCREENS = [
-    ("settings_wifi", "am start -a android.settings.WIFI_SETTINGS"),
-    ("settings_display", "am start -a android.settings.DISPLAY_SETTINGS"),
-    ("settings_sound", "am start -a android.settings.SOUND_SETTINGS"),
-    ("settings_apps", "am start -a android.settings.APPLICATION_SETTINGS"),
-    ("settings_battery", "am start -a android.settings.BATTERY_SAVER_SETTINGS"),
-    ("settings_security", "am start -a android.settings.SECURITY_SETTINGS"),
+    ("settings_wifi", "am start -a android.settings.WIFI_SETTINGS", "WLAN"),
+    ("settings_display", "am start -a android.settings.DISPLAY_SETTINGS", "显示和亮度"),
+    ("settings_sound", "am start -a android.settings.SOUND_SETTINGS", "声音和振动"),
+    ("settings_apps", "am start -a android.settings.APPLICATION_SETTINGS", "所有应用"),
+    ("settings_battery", "am start -a android.settings.BATTERY_SAVER_SETTINGS", "省电模式"),
+    ("settings_security", "am start -a android.settings.SECURITY_SETTINGS", "安全"),
 ]
 
 BOUNDS_RE = re.compile(r"^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$")
@@ -151,46 +151,80 @@ def stage_into_target(files):
         root_shell(cmd)
 
 
-def capture_screen(screen_id: str, launch: str, retries: int = 3):
+def xml_texts(path: Path):
+    root = ET.parse(path).getroot()
+    return {
+        (node.attrib.get("text") or "").strip()
+        for node in root.iter("node")
+        if (node.attrib.get("text") or "").strip()
+    }
+
+
+def capture_screen(screen_id: str, launch: str, anchor: str, retries: int = 3):
     xml_host = f"{HOST_DIR}/{screen_id}.xml"
     png_host = f"{HOST_DIR}/{screen_id}.png"
+    before_host = f"{HOST_DIR}/{screen_id}.before.xml"
+    after_host = f"{HOST_DIR}/{screen_id}.after.xml"
+    png_tmp_host = f"{HOST_DIR}/{screen_id}.png.tmp"
     launch_wait = launch.replace("am start ", "am start -W ", 1)
+
+    final_xml = CHROOT_DIR / f"{screen_id}.xml"
+    final_png = CHROOT_DIR / f"{screen_id}.png"
+    before_xml = CHROOT_DIR / f"{screen_id}.before.xml"
+    after_xml = CHROOT_DIR / f"{screen_id}.after.xml"
+    png_tmp = CHROOT_DIR / f"{screen_id}.png.tmp"
 
     for attempt in range(1, retries + 1):
         command = (
             "set -e; "
             f"mkdir -p '{HOST_DIR}'; "
-            f"rm -f '{xml_host}' '{png_host}' '{xml_host}.tmp' '{png_host}.tmp'; "
+            f"rm -f '{xml_host}' '{png_host}' '{before_host}' '{after_host}' '{png_tmp_host}'; "
+            "input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true; "
+            "wm dismiss-keyguard >/dev/null 2>&1 || true; "
             f"{launch_wait} >/dev/null 2>&1; "
-            "I=0; TOP=''; "
-            "while [ \"$I\" -lt 8 ]; do "
-            "TOP=$(dumpsys activity activities | "
-            "sed -n '/mResumedActivity/s/.* \\(com\\.android\\.settings\\/[^ }]*\\).*/\\1/p' | head -n 1); "
-            "case \"$TOP\" in com.android.settings/*) break ;; esac; "
-            "I=$((I+1)); sleep 1; "
-            "done; "
-            "case \"$TOP\" in com.android.settings/*) ;; *) exit 70 ;; esac; "
-            "sleep 1; "
-            f"screencap -p '{png_host}.tmp'; "
-            f"uiautomator dump --compressed '{xml_host}.tmp' >/dev/null 2>&1; "
-            "TOP2=$(dumpsys activity activities | "
-            "sed -n '/mResumedActivity/s/.* \\(com\\.android\\.settings\\/[^ }]*\\).*/\\1/p' | head -n 1); "
-            "[ \"$TOP\" = \"$TOP2\" ] || exit 71; "
-            f"test -s '{png_host}.tmp'; test -s '{xml_host}.tmp'; "
-            f"mv '{png_host}.tmp' '{png_host}'; "
-            f"mv '{xml_host}.tmp' '{xml_host}'; "
-            "printf '%s\\n' \"$TOP\""
+            "sleep 2; "
+            f"uiautomator dump --compressed '{before_host}' >/dev/null 2>&1; "
+            f"test -s '{before_host}'; "
+            f"screencap -p '{png_tmp_host}'; "
+            f"test -s '{png_tmp_host}'; "
+            f"uiautomator dump --compressed '{after_host}' >/dev/null 2>&1; "
+            f"test -s '{after_host}'"
         )
         result = root_shell(command, check=False)
-        if result.returncode == 0:
-            top = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
-            return xml_host, png_host, top
-        print(
-            f"{screen_id}: capture retry {attempt}/{retries} "
-            f"rc={result.returncode}"
-        )
+        if result.returncode != 0:
+            print(
+                f"{screen_id}: capture retry {attempt}/{retries} "
+                f"rc={result.returncode}"
+            )
+            continue
 
-    raise RuntimeError(f"{screen_id}: unable to capture stable Settings foreground")
+        try:
+            before = {normalized(text) for text in xml_texts(before_xml)}
+            after = {normalized(text) for text in xml_texts(after_xml)}
+        except Exception as exc:
+            print(f"{screen_id}: capture retry {attempt}/{retries} xml={exc}")
+            continue
+
+        anchor_norm = normalized(anchor)
+        before_anchor = any(anchor_norm in text for text in before)
+        after_anchor = any(anchor_norm in text for text in after)
+        denominator = max(1, min(len(before), len(after)))
+        overlap = len(before & after) / denominator
+
+        if not before_anchor or not after_anchor or overlap < 0.70:
+            print(
+                f"{screen_id}: capture retry {attempt}/{retries} "
+                f"anchor_before={before_anchor} anchor_after={after_anchor} "
+                f"overlap={overlap:.3f}"
+            )
+            continue
+
+        after_xml.replace(final_xml)
+        png_tmp.replace(final_png)
+        before_xml.unlink(missing_ok=True)
+        return xml_host, png_host, overlap
+
+    raise RuntimeError(f"{screen_id}: unable to capture stable anchored screen")
 
 
 def main():
@@ -198,8 +232,8 @@ def main():
     width, height = get_display_size()
     screens = []
 
-    for screen_id, launch in SCREENS:
-        _, _, component = capture_screen(screen_id, launch)
+    for screen_id, launch, anchor in SCREENS:
+        _, _, stability_overlap = capture_screen(screen_id, launch, anchor)
         xml_path = CHROOT_DIR / f"{screen_id}.xml"
         png_path = CHROOT_DIR / f"{screen_id}.png"
         targets = choose_targets(xml_path, width, height)
@@ -209,7 +243,8 @@ def main():
                 "image": png_path.name,
                 "width": width,
                 "height": height,
-                "foreground_component": component,
+                "capture_anchor": anchor,
+                "stability_overlap": stability_overlap,
                 "targets": targets,
             }
         )
