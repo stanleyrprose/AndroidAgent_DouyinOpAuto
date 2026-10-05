@@ -64,6 +64,7 @@ while [ "$attempt" -le 12 ]; do
   echo "=== cloudflared attempt=$attempt $(date -Is) ===" >> "$CF_LOG"
   nohup /root/.codexpro/bin/cloudflared \
     --config /root/.cloudflared/config.yml \
+    --metrics 127.0.0.1:20241 \
     tunnel run y700-codexpro \
     >>"$CF_LOG" 2>&1 </dev/null &
   cf_pid=$!

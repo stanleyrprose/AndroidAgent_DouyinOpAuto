@@ -6,7 +6,7 @@ if [ -f "$PID" ]; then
   old="$(cat "$PID" 2>/dev/null || true)"
   if [ -n "$old" ] && kill -0 "$old" 2>/dev/null; then kill "$old" || true; sleep 1; fi
 fi
-nohup /root/.codexpro/bin/cloudflared --config /root/.cloudflared/config.yml tunnel run y700-codexpro >"$LOG" 2>&1 </dev/null &
+nohup /root/.codexpro/bin/cloudflared --config /root/.cloudflared/config.yml --metrics 127.0.0.1:20241 tunnel run y700-codexpro >"$LOG" 2>&1 </dev/null &
 new_pid=$!
 echo "$new_pid" > "$PID"
 sleep 5

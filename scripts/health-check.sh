@@ -24,14 +24,15 @@ bridge=$(status_pid /opt/y700/runtime/host-executor.pid host-executor.sh)
 
 network=UNKNOWN
 remote_plane=UNKNOWN
+tunnel_connections=0
 if [ -s /opt/y700/runtime/state/connectivity.json ]; then
-  read -r network remote_plane < <(python3 - <<'PY2'
+  read -r network remote_plane tunnel_connections < <(python3 - <<'PY2'
 import json
 try:
     d=json.load(open('/opt/y700/runtime/state/connectivity.json'))
-    print(d.get('network','UNKNOWN'), d.get('remote_plane','UNKNOWN'))
+    print(d.get('network','UNKNOWN'), d.get('remote_plane','UNKNOWN'), d.get('tunnel_connections',0))
 except Exception:
-    print('UNKNOWN UNKNOWN')
+    print('UNKNOWN UNKNOWN 0')
 PY2
   )
 fi
@@ -86,14 +87,15 @@ elif [ "$disk_rc" -ne 0 ]; then overall=DEGRADED
 elif [ "$network" = ONLINE ] && { [ "$codex" = OFFLINE ] || [ "$tunnel" = OFFLINE ]; }; then overall=DEGRADED
 fi
 
-python3 - "$TMP" "$overall" "$codex" "$tunnel" "$bridge" "$jobs" "$publisher" "$temp_c" "$disk_json" "$network" "$remote_plane" <<'PY'
+python3 - "$TMP" "$overall" "$codex" "$tunnel" "$bridge" "$jobs" "$publisher" "$temp_c" "$disk_json" "$network" "$remote_plane" "$tunnel_connections" <<'PY'
 import json,sys,datetime
-out,overall,codex,tunnel,bridge,jobs,publisher,temp,disk,network,remote_plane=sys.argv[1:]
+out,overall,codex,tunnel,bridge,jobs,publisher,temp,disk,network,remote_plane,tunnel_connections=sys.argv[1:]
 obj={
  "updated_at":datetime.datetime.now().astimezone().isoformat(),
  "overall":overall,
  "network":network,
  "remote_plane":remote_plane,
+ "tunnel_connections":int(tunnel_connections),
  "codexpro":codex,
  "tunnel":tunnel,
  "android_bridge":bridge,
