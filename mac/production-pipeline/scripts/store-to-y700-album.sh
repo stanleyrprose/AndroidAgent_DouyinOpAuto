@@ -59,21 +59,21 @@ bash "$TG_NOTIFY" TRANSFERRING "$JOB_ID" --detail "正在传输到 Y700 相册 $
 remote "cd /opt/y700/workspaces/y700-agent && python3 publisher/pull_job.py '$manifest_url'" >/dev/null
 store_json="$(remote "cd /opt/y700/workspaces/y700-agent && ./scripts/store-to-album.sh '$JOB_ID' '$ALBUM'")"
 
-read -r status device_path < <(python3 - "$store_json" <<'PY'
+read -r status device_path note_saved < <(python3 - "$store_json" <<'PY'
 import json,sys
 try: d=json.loads(sys.argv[1])
-except Exception: print('INVALID -')
-else: print(d.get('status',''), d.get('device_path','-'))
+except Exception: print('INVALID - false')
+else: print(d.get('status',''), d.get('device_path','-'), 'true' if d.get('note_saved') is True else 'false')
 PY
 )
-if [ "$status" != "STORED_IN_ALBUM" ]; then
-  bash "$TG_NOTIFY" FAILED_SAFE "$JOB_ID" --detail "相册存储失败；未启动 TikTok，也没有发布动作" >/dev/null || true
+if [ "$status" != "STORED_IN_ALBUM" ] || [ "$note_saved" != "true" ]; then
+  bash "$TG_NOTIFY" FAILED_SAFE "$JOB_ID" --detail "相册/便签存储未完整成功；未启动 TikTok，也没有发布动作" >/dev/null || true
   printf '%s\n' "$store_json" >&2
   exit 4
 fi
 
 bash "$PIPELINE_CMD" mark-album-stored "$JOB_ID" --album "$ALBUM" --device-path "$device_path" >/dev/null
-notify_json="$(bash "$TG_NOTIFY" ALBUM_STORED "$JOB_ID" --detail "已保存到 Y700 / Movies/$ALBUM；未启动 TikTok" || true)"
+notify_json="$(bash "$TG_NOTIFY" ALBUM_STORED "$JOB_ID" --detail "视频已保存到 Y700 / Movies/$ALBUM；缅语 Caption 已存入 ZUI 便签；未启动 TikTok" || true)"
 python3 - "$RECEIPT" "$JOB_ID" "$ALBUM" "$device_path" "$notify_json" <<'PY'
 import json,os,sys,time
 path,job,album,device,raw=sys.argv[1:]
@@ -84,6 +84,8 @@ out={
   "status":"STORED_IN_ALBUM",
   "album":album,
   "device_path":device,
+  "note_saved":True,
+  "note_app":"com.zui.notes",
   "closed_at":time.strftime("%Y-%m-%dT%H:%M:%S%z"),
   "notification":notify,
 }

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -95,6 +96,58 @@ def restore_power_state(initial: str) -> dict:
     }
 
 
+def save_caption_note(job: Path, manifest: dict, run_dir: Path) -> dict:
+    caption_name = str(manifest["caption_file"])
+    caption_path = job / caption_name
+    if not caption_path.is_file():
+        raise AlbumStoreError(f"missing caption file: {caption_name}")
+    caption = caption_path.read_text(encoding="utf-8").strip()
+    if not caption:
+        raise AlbumStoreError("caption is empty")
+
+    caption_sha256 = hashlib.sha256(caption.encode("utf-8")).hexdigest()
+    marker = run_dir / "note-result.json"
+    if marker.is_file():
+        try:
+            previous = json.load(open(marker, encoding="utf-8"))
+        except Exception:
+            previous = {}
+        if (
+            previous.get("note_saved") is True
+            and previous.get("caption_sha256") == caption_sha256
+            and previous.get("note_app") == "com.zui.notes"
+        ):
+            return {**previous, "idempotent": True}
+
+    q_caption = shlex.quote(caption)
+    command = (
+        "am start -W "
+        "-n com.zui.notes/.home.ShareReceiverIntentActivity "
+        "-a android.intent.action.SEND -t text/plain "
+        f"--es android.intent.extra.TEXT {q_caption}"
+    )
+    started = root_exec(command, timeout_ms=15000)
+    output = (started.stdout or "") + "\n" + (started.stderr or "")
+    if "Status: ok" not in output or "com.zui.notes/.home.MainActivity" not in output:
+        raise AlbumStoreError("ZUI Notes share receiver did not open MainActivity")
+
+    # ZUI Notes persists shared text when the editor lifecycle is completed.
+    # This behavior was verified on the target Y700 against notes_v2.
+    time.sleep(0.8)
+    root_exec("input keyevent KEYCODE_BACK", timeout_ms=10000)
+    time.sleep(0.8)
+
+    result = {
+        "note_saved": True,
+        "note_app": "com.zui.notes",
+        "note_method": "ACTION_SEND_TEXT_PLAIN",
+        "caption_sha256": caption_sha256,
+        "saved_at": now_iso(),
+    }
+    write_json_atomic(marker, result)
+    return result
+
+
 def existing_result(job_id: str) -> dict | None:
     path = RUN_ROOT / job_id / "result.json"
     if not path.is_file():
@@ -103,7 +156,11 @@ def existing_result(job_id: str) -> dict | None:
         data = json.load(open(path, encoding="utf-8"))
     except Exception:
         return None
-    if data.get("job_id") == job_id and data.get("status") == "STORED_IN_ALBUM":
+    if (
+        data.get("job_id") == job_id
+        and data.get("status") == "STORED_IN_ALBUM"
+        and data.get("note_saved") is True
+    ):
         return data
     return None
 
@@ -178,17 +235,32 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         else:
             raise AlbumStoreError("MediaStore scan timeout")
 
+        write_state("SAVING_CAPTION_NOTE", job_id, album=album, device_path=dst, media_store_verified=True)
+        note = save_caption_note(job, manifest, run_dir)
+
         result = {
             "status": "STORED_IN_ALBUM",
             "job_id": job_id,
             "album": album,
             "device_path": dst,
             "media_store_verified": True,
+            "note_saved": True,
+            "note_app": note["note_app"],
+            "note_method": note["note_method"],
+            "caption_sha256": note["caption_sha256"],
             "stored_at": now_iso(),
             "initial_power_state": initial,
         }
         write_json_atomic(run_dir / "result.json", result)
-        write_state("STORED_IN_ALBUM", job_id, album=album, device_path=dst, media_store_verified=True)
+        write_state(
+            "STORED_IN_ALBUM",
+            job_id,
+            album=album,
+            device_path=dst,
+            media_store_verified=True,
+            note_saved=True,
+            note_app=note["note_app"],
+        )
         return result
     except Exception as exc:
         error = str(exc)
