@@ -830,3 +830,42 @@ Next gate after Y700 connectivity is restored:
 3. collect controlled suspend/wake and overlay scenario evidence;
 4. close any failed pre-implementation checks;
 5. only then review whether Production Runtime Implementation may be authorized.
+
+## Android Automation Core v0.6 Rev3.6 — PHASE 0 AUTHORIZATION GATE PASS (2026-10-06)
+
+Decision: **PASS for the Rev3.6 Phase 0A/0B pre-implementation gate only.**
+
+Accepted Git baseline:
+
+- Rev3.6 Frozen implementation-input SOT is in `docs/PRD-Y700-AAC-v0.6-Rev3.6-Frozen.md`;
+- Phase 0B validation tooling is merged to `main`;
+- final validation-tooling baseline: `abc5333864a9b928ce16bfcecf157a7081e623e0`;
+- GitHub Actions `validate` after PR #21 merge: PASS;
+- real-device validation ran from a clean immutable Y700 worktree at the exact accepted baseline.
+
+Real-Y700 pre-implementation evidence:
+
+- preflight: PASS with clean Git, boot completed, Android root round-trip PASS, installed automation APK SHA evidence captured, `active_bridge_jobs=0`, and no current durable `android_ui` claim;
+- runtime permission baseline: PASS after one explicitly audited ADMIN repair changed `/opt/y700/runtime/state` from `0777` to `0700`; the repair was re-preflighted and no silent permission repair is accepted as policy;
+- `/proc` evidence: PASS for real Android `system_server` visibility plus executable MATCHING / DEAD / PID_REUSED / STOPPED / ZOMBIE / UNREADABLE classifier fixtures;
+- host/chroot clock source: PASS; same-boot evidence and accepted uptime deltas remained below 1 second;
+- controlled suspend/wake: PASS; the kernel suspend-success counter increased during a bounded RTC-wake-backed screen-off test;
+- P0-G2 representative admission/UFS pressure: PASS under concurrent TikTok cold starts, representative video decode/media reads, fsync-heavy journal writes, and same/different-submission flock contention;
+- accepted P0-G2 sample: 48 admission samples, P95 31.490 ms, P99 35.216 ms, 24 same-submission samples, 24 different-submission samples, 3 media-decode passes, >7 MB representative media reads, and 2 TikTok cold starts;
+- initial admission timeout candidate: **5000 ms**, satisfying `representative p99 < candidate * 0.5`;
+- installed app/UI evidence collector: PASS for Android Settings and TikTok package/version/signing identity evidence;
+- ZUI/Android overlay inventory: PASS; only the measured exact Gboard InputMethod identity is proposed as benign allowlist evidence;
+- expanded NotificationShade is blocking and not allowlisted; ZUI freeform sidebar APPLICATION_OVERLAY is not statically allowlisted; inactive game/PiP/Accessibility cases are not blanket-allowed;
+- suspend/wake-lock policy: current runtime has no dedicated ownership-scoped wake-lock / keep-screen-awake mechanism; accepted policy is suspend may occur, stale tokens fail closed, and resume requires fresh AUTO observe/preflight;
+- semantic-v1 fixed vectors and fingerprint-profile reference checks: PASS;
+- UI mutation inventory and fault-injection harness self-test: PASS;
+- all Sprint-gated checks have executable fixture/inventory/skeleton coverage; production behavior for those checks is intentionally not claimed PASS before the corresponding Sprint.
+
+Local-only empirical evidence remains outside Git under the Y700 runtime evidence area. Device-specific runtime identifiers and raw evidence are intentionally not committed.
+
+Authorization boundary after this gate:
+
+- **Production Runtime Implementation Authorization remains NO.**
+- Phase 0 PASS only makes the project eligible for a separate Production Runtime Implementation Authorization review.
+- Sprint 1+ production Gateway/Core/Bridge mutation-path implementation must not begin until that separate authorization is explicitly granted.
+- Existing Sprint-gated findings remain expected implementation work, including `pressHome` / `pressBack` mutation reclassification, legacy/direct mutation bypass migration, subordinate provenance enforcement, Catalog/runtime overlay enforcement, and recovery semantics.
