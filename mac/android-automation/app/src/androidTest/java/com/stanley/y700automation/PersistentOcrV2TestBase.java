@@ -20,7 +20,8 @@ import java.nio.charset.StandardCharsets;
  *
  * Lenovo/ZUI's am wrapper does not propagate AndroidJUnitRunner result text in
  * this execution environment, so acceptance reads these artifacts directly
- * from the test package private files directory.
+ * from the target app private files directory. Instrumentation executes with the
+ * target app UID, so the test package private directory is intentionally avoided.
  */
 public abstract class PersistentOcrV2TestBase {
     private long testStartedAtMs;
@@ -50,7 +51,7 @@ public abstract class PersistentOcrV2TestBase {
 
     protected static void writePersistentArtifact(String fileName, JSONObject payload) {
         try {
-            Context context = InstrumentationRegistry.getInstrumentation().getContext();
+            Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
             File dir = new File(context.getFilesDir(), "ocr-v2-evidence");
             if (!dir.mkdirs() && !dir.isDirectory()) {
                 throw new IllegalStateException("cannot create evidence dir: " + dir);

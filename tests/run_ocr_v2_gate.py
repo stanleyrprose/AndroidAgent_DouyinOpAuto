@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT_EXEC = Path("/opt/y700/workspaces/y700-agent/bridge/root-exec.sh")
 EVIDENCE_DIR = Path(
     "/proc/1/root/data/user/0/"
-    "com.stanley.y700automation.test/files/ocr-v2-evidence"
+    "com.stanley.y700automation/files/ocr-v2-evidence"
 )
 RUNTIME_DIR = Path("/opt/y700/runtime/ocr-v2")
 COMPONENT = (
@@ -81,7 +81,9 @@ def evidence_path(class_name: str, method: str) -> Path:
 
 def run_instrumentation(class_name: str, timeout_sec: int) -> subprocess.CompletedProcess[str]:
     command = (
-        f"toybox timeout {timeout_sec} /system/bin/su 2000 -c "
+        f"toybox timeout {timeout_sec} "
+        f"/data/local/y700-agent/workspaces/y700-agent/bridge/android-runtime-env.sh "
+        f"/system/bin/su 2000 -c "
         f"'/system/bin/am instrument -w -r -e class {class_name} {COMPONENT}'"
     )
     return subprocess.run(
