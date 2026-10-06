@@ -60,24 +60,53 @@ remote() {
 write_closure() {
   local terminal="$1"
   local receipt_json="$2"
-  python3 - "$CLOSURE" "$JOB_ID" "$terminal" "$receipt_json" <<'PY'
+  local power_json="{}"
+  if [ "$#" -ge 3 ]; then
+    power_json="$3"
+  fi
+  python3 - "$CLOSURE" "$JOB_ID" "$terminal" "$receipt_json" "$power_json" <<'PY'
 import json,os,sys,time
-path,job,status,raw=sys.argv[1:]
+path,job,status,raw,power_raw=sys.argv[1:]
 try:
     receipt=json.loads(raw)
 except Exception:
     receipt={"sent":False,"reason":"INVALID_NOTIFICATION_RECEIPT"}
+try:
+    power=json.loads(power_raw)
+except Exception:
+    power={"status":"POWER_RESTORE_RECEIPT_INVALID"}
 out={
     "job_id":job,
     "status":status,
     "closed_at":time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     "notification":receipt,
+    "power_restore":power,
 }
 tmp=path+".tmp"
 with open(tmp,"w",encoding="utf-8") as f:
     json.dump(out,f,ensure_ascii=False,indent=2); f.write("\n"); f.flush(); os.fsync(f.fileno())
 os.replace(tmp,path)
 PY
+}
+
+restore_power_state() {
+  local output="" rc=0 attempt
+  for attempt in 1 2 3 4 5; do
+    if output="$(remote "cd /opt/y700/workspaces/y700-agent && ./scripts/restore-initial-power-state.sh '$JOB_ID'" 2>/dev/null)"; then
+      [ -n "$output" ] || output="{\"status\":\"POWER_RESTORE_EMPTY_RECEIPT\",\"job_id\":\"$JOB_ID\"}"
+      printf '%s\n' "$output"
+      return 0
+    else
+      rc=$?
+      if [ "$rc" -eq 5 ]; then
+        sleep 2
+        continue
+      fi
+      break
+    fi
+  done
+  printf '{"status":"POWER_RESTORE_DEFERRED_OR_FAILED","job_id":"%s","exit_code":%s}\n' "$JOB_ID" "$rc"
+  return 0
 }
 
 notify() {
@@ -105,8 +134,9 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
     PUBLISHED)
       bash "$PIPELINE_CMD" finalize "$JOB_ID" --verified --evidence generic_profile_public_exact_caption >/dev/null
       receipt="$(notify PUBLISHED_VERIFIED 'PUBLIC；TikTok profile exact caption 已验证')"
-      write_closure PUBLISHED_VERIFIED "$receipt"
-      printf '{"status":"PUBLISHED_VERIFIED","job_id":"%s"}\n' "$JOB_ID"
+      power_restore="$(restore_power_state)"
+      write_closure PUBLISHED_VERIFIED "$receipt" "$power_restore"
+      printf '{"status":"PUBLISHED_VERIFIED","job_id":"%s","power_restore":%s}\n' "$JOB_ID" "$power_restore"
       exit 0
       ;;
     AMBIGUOUS_COMMIT_NEEDS_RECONCILE)
@@ -117,8 +147,9 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
       ;;
     FAILED)
       receipt="$(notify FAILED_SAFE 'Y700 publisher 明确失败，未形成可验证发布')"
-      write_closure FAILED_SAFE "$receipt"
-      printf '{"status":"FAILED_SAFE","job_id":"%s"}\n' "$JOB_ID"
+      power_restore="$(restore_power_state)"
+      write_closure FAILED_SAFE "$receipt" "$power_restore"
+      printf '{"status":"FAILED_SAFE","job_id":"%s","power_restore":%s}\n' "$JOB_ID" "$power_restore"
       exit 1
       ;;
   esac
@@ -126,6 +157,6 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 done
 
 receipt="$(notify RECONCILE_REQUIRED "Y700 状态仍需核对；last_status=${last_status:-unknown}；禁止重复 COMMIT")"
-write_closure RECONCILE_REQUIRED "$receipt"
+write_closure RECONCILE_REQUIRED "$receipt" '{"status":"NOT_RESTORED_RECONCILE_REQUIRED"}'
 printf '{"status":"RECONCILE_REQUIRED","job_id":"%s","last_status":"%s"}\n' "$JOB_ID" "${last_status:-unknown}"
 exit 6
