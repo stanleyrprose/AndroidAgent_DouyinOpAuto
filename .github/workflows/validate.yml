@@ -17,7 +17,7 @@ jobs:
 
       - name: Compile Python
         run: |
-          python -m compileall -q bridge automation apps publisher mac/production-pipeline/pipeline mac/media-export
+          python -m compileall -q bridge automation apps publisher mac/production-pipeline/pipeline mac/media-export scripts/v06 tests/fault_injection
 
       - name: Run production-pipeline unit tests
         working-directory: mac/production-pipeline
@@ -28,6 +28,18 @@ jobs:
 
       - name: Run Android automation safety tests
         run: python -m unittest tests.test_tiktok_generic tests.test_publish_routing tests.test_ui_failure_evidence -v
+
+      - name: Run Rev3.6 Phase 0B frozen-contract checks
+        run: |
+          python scripts/v06/semantic-vectors.py
+          python scripts/v06/fingerprint-profiles.py
+          python scripts/v06/catalog-overlay-policy.py
+          python scripts/v06/capability-readiness.py
+          python scripts/v06/claim-session-reconcile.py
+          python scripts/v06/ui-mutation-inventory.py
+          python scripts/v06/presshome-back-migration.py
+          python scripts/v06/subjob-provenance.py
+          python -m unittest discover -s tests/fault_injection -v
 
       - name: Check shell syntax
         shell: bash
