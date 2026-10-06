@@ -63,6 +63,14 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         self.assertIn('kill -0 "$new_pid"', text)
         self.assertIn('CLOUDFLARED_START_FAILED', text)
 
+    def test_health_loop_self_updates_after_stable_release_change(self) -> None:
+        text = HEALTH_LOOP.read_text()
+        self.assertIn('SCRIPT_SHA="$(sha256sum "$SCRIPT_PATH"', text)
+        self.assertIn('maybe_self_update', text)
+        self.assertIn('HEALTH_LOOP_SELF_UPDATE', text)
+        self.assertIn('exec "$SCRIPT_PATH"', text)
+        self.assertLess(text.index('maybe_self_update\n  now='), text.index('if network='))
+
 
 if __name__ == "__main__":
     unittest.main()
