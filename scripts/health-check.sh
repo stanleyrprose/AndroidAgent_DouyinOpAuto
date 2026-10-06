@@ -19,13 +19,17 @@ status_pid() {
 }
 
 count_host_executors() {
-  local count=0 cmdline f
+  local count=0 f arg
   for f in /proc/[0-9]*/cmdline; do
     [ -r "$f" ] || continue
-    cmdline=$(tr '\0' ' ' <"$f" 2>/dev/null || true)
-    case "$cmdline" in
-      *"/bridge/host-executor.sh"*) count=$((count + 1)) ;;
-    esac
+    while IFS= read -r arg; do
+      case "$arg" in
+        */bridge/host-executor.sh)
+          count=$((count + 1))
+          break
+          ;;
+      esac
+    done < <(tr '\0' '\n' <"$f" 2>/dev/null || true)
   done
   echo "$count"
 }

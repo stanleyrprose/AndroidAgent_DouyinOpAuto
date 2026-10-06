@@ -100,6 +100,42 @@ append_log() {
   "$TOYBOX" chmod 600 "$LOG" 2>/dev/null || true
 }
 
+load_android_runtime_environment() {
+  # The executor is launched from the Debian/chroot control plane, so it does
+  # not automatically inherit Android init's Java runtime environment. Native
+  # Binder tools still work without it, but app_process/am instrument does not.
+  export ANDROID_BOOTLOGO=1
+  export ANDROID_ROOT=/system
+  export ANDROID_ASSETS=/system/app
+  export ANDROID_DATA=/data
+  export ANDROID_STORAGE=/storage
+  export ANDROID_ART_ROOT=/apex/com.android.art
+  export ANDROID_I18N_ROOT=/apex/com.android.i18n
+  export ANDROID_TZDATA_ROOT=/apex/com.android.tzdata
+  export EXTERNAL_STORAGE=/sdcard
+  export ASEC_MOUNTPOINT=/mnt/asec
+
+  zygote_pid="$("$TOYBOX" pidof zygote64 2>/dev/null | "$AWK" '{print $1}')"
+  if [ -z "$zygote_pid" ] || [ ! -r "/proc/$zygote_pid/environ" ]; then
+    append_log "android runtime env unavailable zygote64_pid=${zygote_pid:-none}"
+    return 0
+  fi
+
+  for key in BOOTCLASSPATH DEX2OATBOOTCLASSPATH SYSTEMSERVERCLASSPATH STANDALONE_SYSTEMSERVER_JARS; do
+    value="$("$TOYBOX" tr '\000' '\n' <"/proc/$zygote_pid/environ" 2>/dev/null |
+      "$TOYBOX" sed -n "s/^$key=//p" | "$TOYBOX" head -n 1)"
+    if [ -n "$value" ]; then
+      export "$key=$value"
+    else
+      append_log "android runtime env missing key=$key zygote_pid=$zygote_pid"
+    fi
+  done
+
+  if [ -n "${BOOTCLASSPATH:-}" ] && [ -n "${DEX2OATBOOTCLASSPATH:-}" ]; then
+    append_log "android runtime env ready zygote_pid=$zygote_pid"
+  fi
+}
+
 executor_pid_matches() {
   pid="$1"
   [ -n "$pid" ] || return 1
@@ -942,6 +978,7 @@ init_layout() {
 
 init_layout
 acquire_singleton
+load_android_runtime_environment
 STARTED_AT="$(now_iso)"
 load_restart_count
 write_protocol
