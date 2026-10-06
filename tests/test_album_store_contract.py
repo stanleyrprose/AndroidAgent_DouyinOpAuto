@@ -38,8 +38,10 @@ class AlbumStoreContractTests(unittest.TestCase):
 
     def test_telegram_requires_explicit_intent_prefix(self) -> None:
         text = SOUL.read_text()
-        self.assertIn("自动发布+", text)
-        self.assertIn("存到相册+", text)
+        self.assertIn("AUTO_PUBLISH", text)
+        self.assertIn("STORE_ALBUM", text)
+        self.assertIn("ASCII `:`", text)
+        self.assertIn("Chinese `：`", text)
         self.assertIn("bare Douyin URL", text)
         self.assertIn("must not start", text)
 

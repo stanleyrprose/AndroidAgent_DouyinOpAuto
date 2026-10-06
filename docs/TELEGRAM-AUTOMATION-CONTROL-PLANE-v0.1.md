@@ -112,7 +112,9 @@ Current Telegram execution intents are:
 
 ```text
 自动发布+<Douyin share text or URL>
+自动发布：<Douyin share text or URL>
 存到相册+<Douyin share text or URL>
+存到相册：<Douyin share text or URL>
 ```
 
 A bare Douyin URL no longer authorizes or starts work.

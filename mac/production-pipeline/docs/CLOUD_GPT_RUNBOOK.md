@@ -202,7 +202,9 @@ Use exactly one of these prefixes:
 
 ```text
 自动发布+<Douyin share text or URL>
+自动发布：<Douyin share text or URL>
 存到相册+<Douyin share text or URL>
+存到相册：<Douyin share text or URL>
 ```
 
 `自动发布+` follows the established full PUBLIC workflow and carries standing authorization for exactly one PUBLIC COMMIT attempt after mandatory DRY_RUN.
