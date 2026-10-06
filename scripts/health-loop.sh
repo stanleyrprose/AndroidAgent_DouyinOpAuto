@@ -15,6 +15,8 @@ MAX_BACKOFF_SEC="${Y700_CLOUDFLARED_BACKOFF_MAX_SEC:-900}"
 DISCONNECTED_GRACE_CYCLES="${Y700_CLOUDFLARED_DISCONNECTED_GRACE_CYCLES:-2}"
 REMOTE_VERIFY_ATTEMPTS="${Y700_CLOUDFLARED_REMOTE_VERIFY_ATTEMPTS:-4}"
 REMOTE_VERIFY_DELAY_SEC="${Y700_CLOUDFLARED_REMOTE_VERIFY_DELAY_SEC:-3}"
+LOOP_INTERVAL_SEC="${Y700_HEALTH_LOOP_INTERVAL_SEC:-15}"
+HEALTH_CHECK_INTERVAL_SEC="${Y700_HEALTH_CHECK_INTERVAL_SEC:-60}"
 
 mkdir -p "$(dirname "$LOG")" "$STATE_DIR"
 echo $$ > "$PID"
@@ -147,18 +149,16 @@ failures=0
 next_retry_epoch=0
 disconnected_cycles=0
 last_network=""
+last_health_check_epoch=0
 
 while true; do
   maybe_self_update
   now="$(date +%s)"
-  if network="$($NETWORK_STATUS 2>/dev/null)"; then
-    case "$network" in
-      ONLINE|ONLINE_ROUTE_ONLY) ;;
-      *) network=ONLINE_ROUTE_ONLY ;;
-    esac
-  else
-    network=UNKNOWN
-  fi
+  network="$("$NETWORK_STATUS" 2>/dev/null || true)"
+  case "$network" in
+    ONLINE|ONLINE_ROUTE_ONLY|OFFLINE) ;;
+    *) network=UNKNOWN ;;
+  esac
 
   # The chroot may not expose Android's default route. Tunnel health is therefore
   # authoritative when edge connections exist. When they do not, UNKNOWN network
@@ -171,19 +171,42 @@ while true; do
     connections=0
   fi
   probe_http="$(remote_probe_http_status)"
+  remote_ready=0
+  path_recovered=0
+
+  if [ -n "$last_network" ]; then
+    if [ "$network" = ONLINE ] && [ "$last_network" != ONLINE ]; then
+      path_recovered=1
+    elif [ "$last_network" = OFFLINE ] && [ "$network" != OFFLINE ]; then
+      path_recovered=1
+    fi
+  fi
 
   # The external Cloudflare path is authoritative. Local HA connection metrics can
   # stay non-zero after the edge has already dropped the connector (observed on Y700
   # as local connections=4 while the control plane returned 1033/HTTP 530).
   if remote_probe_ready "$probe_http"; then
+    remote_ready=1
     failures=0
     next_retry_epoch=0
     disconnected_cycles=0
     write_connectivity_state "$network" "$tunnel_process" "$connections" READY 0 0 "$probe_http"
+  elif [ "$network" = OFFLINE ]; then
+    # No usable path exists yet. Restarting cloudflared here only burns retry
+    # budget and can leave the node in a long exponential backoff after the
+    # Android network path returns.
+    failures=0
+    next_retry_epoch=0
+    disconnected_cycles=0
+    write_connectivity_state "$network" "$tunnel_process" "$connections" SUSPENDED_NO_NETWORK 0 0 "$probe_http"
   else
-    disconnected_cycles=$((disconnected_cycles + 1))
-    if [ "$last_network" = OFFLINE ] && [ "$network" != OFFLINE ]; then
+    if [ "$path_recovered" -eq 1 ]; then
       echo "$(date -Is) NETWORK_PATH_AVAILABLE mode=$network remote-plane-resume" >>"$LOG"
+      failures=0
+      next_retry_epoch=0
+      disconnected_cycles="$DISCONNECTED_GRACE_CYCLES"
+    else
+      disconnected_cycles=$((disconnected_cycles + 1))
     fi
     if [ "$disconnected_cycles" -lt "$DISCONNECTED_GRACE_CYCLES" ]; then
       write_connectivity_state "$network" "$tunnel_process" "$connections" RECOVERING "$failures" "$next_retry_epoch" "$probe_http"
@@ -198,6 +221,7 @@ while true; do
           connections="$(tunnel_connection_count)"
           write_connectivity_state "$network" HEALTHY "$connections" READY 0 0 "$probe_http"
           echo "$(date -Is) CLOUDFLARED_SELF_HEAL_OK connections=$connections probe_http=$probe_http" >>"$LOG"
+          remote_ready=1
         else
           disconnected_cycles=1
           schedule_backoff
@@ -212,6 +236,12 @@ while true; do
   fi
 
   last_network="$network"
-  /opt/y700/workspaces/y700-agent/scripts/health-check.sh >>"$LOG" 2>&1 || true
-  sleep 60
+  # Full health-check includes Android Bridge work and is intentionally kept
+  # off the degraded-path hot loop. Connectivity recovery must not wait behind
+  # a slow root_exec while the remote control plane is unavailable.
+  if [ "$remote_ready" -eq 1 ] && [ $((now - last_health_check_epoch)) -ge "$HEALTH_CHECK_INTERVAL_SEC" ]; then
+    /opt/y700/workspaces/y700-agent/scripts/health-check.sh >>"$LOG" 2>&1 || true
+    last_health_check_epoch="$(date +%s)"
+  fi
+  sleep "$LOOP_INTERVAL_SEC"
 done
