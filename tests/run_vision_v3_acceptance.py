@@ -201,6 +201,24 @@ def main() -> int:
         and int(semantic_metrics.get("ocr_request_count", 0)) == 0
     )
 
+    # 1b) Recovery config is validated before any click side effect.
+    cold_reset()
+    bad_recovery_job = "vision-v3-bad-recovery-" + secrets.token_hex(3)
+    bad_recovery_req = base_request(bad_recovery_job, clicked=True)
+    bad_recovery_req["actions"] = [{
+        "action_id": "bad-recovery",
+        "action": "click",
+        "selector": {"content_desc": "VISION_V1_CLICKED"},
+        "vision_recovery": {"unexpected": []},
+        "side_effect": "REVERSIBLE_LOCAL",
+        "timeout_ms": 5_000,
+    }]
+    bad_recovery = run(bad_recovery_req)
+    bad_recovery_ok = (
+        bad_recovery.get("status") != "PASS"
+        and error_code(bad_recovery) == "JOB_PAYLOAD_INVALID"
+    )
+
     # 2) One representative mixed template -> OCR route.
     cold_reset()
     mixed_job = "vision-v3-mixed-" + secrets.token_hex(3)
@@ -314,6 +332,7 @@ def main() -> int:
     passes = sum(row["status"] == "PASS" for row in rows)
     gate = {
         "semantic_only_no_regression": semantic_ok,
+        "invalid_recovery_fail_closed": bad_recovery_ok,
         "mixed_template_to_ocr": mixed_ok,
         "known_popup_recovery": popup_ok,
         "stale_target_reresolve": stale_ok,
@@ -327,6 +346,7 @@ def main() -> int:
     }
     gate["status"] = "PASS" if all([
         semantic_ok,
+        bad_recovery_ok,
         mixed_ok,
         popup_ok,
         stale_ok,
@@ -345,6 +365,7 @@ def main() -> int:
         },
         "representative": {
             "semantic": semantic,
+            "bad_recovery": bad_recovery,
             "mixed": mixed,
             "popup": popup_result,
             "stale": stale,

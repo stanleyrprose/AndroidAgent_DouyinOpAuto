@@ -1113,6 +1113,7 @@ public class AutomationInstrumentedTest {
             throw new ActionFailure("JOB_PAYLOAD_INVALID", "click requires selector", false);
         }
         validateSelectorKeys(selector);
+        validateVisionRecovery(action);
         currentVisionRecoveryEvents = new JSONArray();
 
         List<JSONObject> candidates = orderedVisionCandidates(selector);
@@ -1425,6 +1426,108 @@ public class AutomationInstrumentedTest {
                     .put("match", spec.optString("match", "substring"));
         }
         return out;
+    }
+
+    private void validateVisionRecovery(JSONObject action) throws Exception {
+        if (!action.has("vision_recovery")) return;
+        JSONObject recovery = action.optJSONObject("vision_recovery");
+        if (recovery == null) {
+            throw new ActionFailure(
+                    "JOB_PAYLOAD_INVALID",
+                    "vision_recovery must be an object",
+                    false);
+        }
+        Iterator<String> recoveryKeys = recovery.keys();
+        while (recoveryKeys.hasNext()) {
+            String key = recoveryKeys.next();
+            if (!"known_popups".equals(key)) {
+                throw new ActionFailure(
+                        "JOB_PAYLOAD_INVALID",
+                        "unsupported vision_recovery key: " + key,
+                        false);
+            }
+        }
+        JSONArray popups = recovery.optJSONArray("known_popups");
+        if (popups == null) {
+            throw new ActionFailure(
+                    "JOB_PAYLOAD_INVALID",
+                    "vision_recovery.known_popups must be an array",
+                    false);
+        }
+        if (popups.length() > 4) {
+            throw new ActionFailure(
+                    "JOB_PAYLOAD_INVALID",
+                    "vision_recovery.known_popups supports at most 4 entries",
+                    false);
+        }
+        for (int i = 0; i < popups.length(); i++) {
+            JSONObject popup = popups.optJSONObject(i);
+            if (popup == null) {
+                throw new ActionFailure(
+                        "JOB_PAYLOAD_INVALID",
+                        "known popup recovery entry must be an object",
+                        false);
+            }
+            Iterator<String> keys = popup.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                if (!"expected_package".equals(key) &&
+                        !"semantic".equals(key) &&
+                        !"template".equals(key) &&
+                        !"expect".equals(key) &&
+                        !"timeout_ms".equals(key)) {
+                    throw new ActionFailure(
+                            "JOB_PAYLOAD_INVALID",
+                            "unsupported known popup key: " + key,
+                            false);
+                }
+            }
+            String expectedPackage = popup.optString("expected_package", "");
+            if (expectedPackage.isEmpty()) {
+                throw new ActionFailure(
+                        "JOB_PAYLOAD_INVALID",
+                        "known popup recovery requires expected_package",
+                        false);
+            }
+            JSONObject semantic = popup.optJSONObject("semantic");
+            JSONObject template = popup.optJSONObject("template");
+            if (semantic == null && template == null) {
+                throw new ActionFailure(
+                        "JOB_PAYLOAD_INVALID",
+                        "known popup recovery requires semantic or template dismiss",
+                        false);
+            }
+            if (semantic != null) {
+                if (semantic.has("fallback") || semantic.has("type") ||
+                        !hasSemanticCriteria(semantic)) {
+                    throw new ActionFailure(
+                            "JOB_PAYLOAD_INVALID",
+                            "popup semantic dismiss must be semantic-only",
+                            false);
+                }
+                validateSelectorKeys(semantic);
+            }
+            if (template != null) {
+                try {
+                    VisionTemplateLocator.validateTemplateSpec(template);
+                } catch (VisionV0Harness.VisionFailure e) {
+                    throw visionActionFailure(e);
+                }
+                if (!template.has("roi") && !template.has("roi_ratio")) {
+                    throw new ActionFailure(
+                            "JOB_PAYLOAD_INVALID",
+                            "popup template recovery requires bounded roi or roi_ratio",
+                            false);
+                }
+            }
+            long timeoutMs = popup.optLong("timeout_ms", 2000L);
+            if (timeoutMs < 250L || timeoutMs > 10_000L) {
+                throw new ActionFailure(
+                        "JOB_PAYLOAD_INVALID",
+                        "popup recovery timeout_ms must be 250..10000",
+                        false);
+            }
+        }
     }
 
     private boolean attemptKnownPopupRecovery(JSONObject action) throws Exception {

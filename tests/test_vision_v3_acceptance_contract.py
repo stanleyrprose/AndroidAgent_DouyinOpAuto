@@ -10,6 +10,7 @@ class VisionV3AcceptanceContractTest(unittest.TestCase):
         text = RUNNER.read_text(encoding="utf-8")
         for expected in (
             "semantic_only_no_regression",
+            "invalid_recovery_fail_closed",
             "mixed_template_to_ocr",
             "known_popup_recovery",
             "stale_target_reresolve",
