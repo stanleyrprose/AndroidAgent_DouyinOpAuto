@@ -30,6 +30,10 @@ class VisionV3AcceptanceContractTest(unittest.TestCase):
         self.assertIn("test_benchmark_popup_template", text)
         self.assertIn("fcntl.LOCK_EX | fcntl.LOCK_NB", text)
         self.assertIn("VISION_V3_ACCEPTANCE_ALREADY_RUNNING", text)
+        self.assertIn("mixed_route_proved_by_cold = passes > 0", text)
+        self.assertIn("metadata_only_evidence_ok(candidate)", text)
+        self.assertIn('"mixed_route_proof_source"', text)
+        self.assertIn('"evidence_source_job_id"', text)
 
 
 if __name__ == "__main__":
