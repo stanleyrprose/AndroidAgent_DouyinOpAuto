@@ -147,6 +147,17 @@ class ResumeScriptTests(unittest.TestCase):
             self.assertIn("RESUME_BLOCKED", p.stdout)
             self.assertNotIn("pipeline export", log.read_text())
 
+
+    def test_y700_control_avoids_hermes_slash_namespace(self) -> None:
+        soul = (ROOT.parent.parent / "config" / "hermes-y700automation-SOUL.md").read_text(encoding="utf-8")
+        self.assertIn("继续任务<sep><job_id>", soul)
+        self.assertIn("任务状态<sep><job_id>", soul)
+        self.assertIn("取消任务<sep><job_id>", soul)
+        self.assertIn("Slash commands belong to Hermes itself", soul)
+        self.assertNotIn("`/resume <job_id>`", soul)
+        self.assertNotIn("`/status [job_id]`", soul)
+        self.assertNotIn("`/cancel <job_id>`", soul)
+
     def test_starter_is_detached_and_pid_idempotent(self) -> None:
         text = START.read_text()
         self.assertIn("nohup bash", text)
