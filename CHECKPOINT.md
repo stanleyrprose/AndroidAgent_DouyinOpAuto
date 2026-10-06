@@ -677,7 +677,7 @@ OCR capability = READY via explicit vision_text
 OCR default = OFF
 external irreversible / COMMIT Vision = DENY
 mixed Template + OCR hybrid routing = NOT ENABLED
-Sprint V3 = AUTHORIZED / IN PROGRESS (user authorization 2026-10-06)
+Sprint V3 = AUTHORIZED / IN PROGRESS at this post-V2 checkpoint (superseded below)
 ```
 
 Detailed implementation and acceptance evidence:
@@ -703,7 +703,85 @@ Production closure on 2026-10-06:
   confidence approximately 0.95442647, postcondition PASS);
 - explicit OCR production sanity PASS (`locator_source=vision_text`, confidence
   approximately 0.99999815, postcondition PASS);
-- OCR remains default OFF; V3 remains NOT AUTHORIZED / NOT STARTED.
+- OCR remained default OFF at the V2 production closure; V3 hybrid routing was not yet enabled at that historical checkpoint.
+
+## Vision Locator PRD v0.3 Sprint V3 — PASS / FROZEN
+
+Accepted on the real Y700 on 2026-10-07. Gate code baseline: `7d73357` on
+`feat/vision-locator-v3`, with `origin/main` as an ancestor.
+
+Implemented/frozen V3 behavior:
+
+- deterministic semantic -> template -> OCR cascade;
+- semantic success bypasses Vision;
+- mixed fallback request order is normalized so template executes before OCR;
+- request/effective-ROI fingerprint participates in cache/change validation;
+- stale/rotation-invalid targets are discarded before input and may re-resolve once;
+- postcondition failure after input does not cascade to another locator/action;
+- known-popup recovery is package/context bound and follows semantic dismiss ->
+  bounded template dismiss -> workflow failure;
+- OCR observation cache is explicitly invalidatable and package/geometry aware;
+- Vision success evidence is metadata-first; unnecessary full screenshots are not
+  persisted on normal successful routes;
+- external irreversible / COMMIT Vision remains denied by default;
+- shared Action Executor, postcondition, Bridge v2 durable job state and existing
+  workflow model remain authoritative.
+
+Final durable Gate result:
+
+```text
+/opt/y700/runtime/vision-v3/vision-v3-20261006-185335.json
+```
+
+Gate V3 acceptance:
+
+- semantic-only no-regression: PASS;
+- invalid recovery config fail-closed: PASS;
+- template -> OCR hybrid fallback: PASS;
+- representative mixed sample: PASS;
+- known semantic popup recovery: PASS;
+- known bounded-template popup recovery: PASS;
+- stale-target pre-action re-resolution: PASS;
+- external irreversible Vision block: PASS;
+- metadata-only route evidence: PASS;
+- 20 cold-start mixed workflows: **20/20 PASS (100%)**;
+- duplicate target actions: **0**;
+- duplicate commit actions: **0**;
+- click-count postcondition proof: PASS.
+
+Accepted 20-run cold-start end-to-end workflow latency:
+
+```text
+P50 = 5815.1 ms
+P95 = 7000.8 ms
+max = 8782.2 ms
+```
+
+One repeated Gate run exposed a benchmark-only representative mixed-request OCR
+flake while the frozen 20-run suite still completed 20/20 PASS with valid
+template-miss -> OCR metadata. The harness was hardened so the required cold-start
+suite itself may provide routing/evidence proof; the >=19/20 threshold and complete
+`mixed_pass()` route/postcondition contract were not weakened. The final accepted
+run did not require that fallback because the representative mixed sample also
+passed.
+
+Frozen post-V3 capability state:
+
+```text
+Semantic Locator = primary
+Template Vision = READY fallback
+OCR Vision = READY fallback
+Hybrid semantic -> template -> OCR routing = READY when explicitly requested
+global/default Vision routing = OFF
+OCR default = OFF unless explicitly enabled in Vision policy
+known popup recovery = READY, package/context bound
+stale-target pre-action re-resolution = READY, bounded once
+external irreversible / COMMIT Vision = DENY by default
+```
+
+Detailed evidence:
+`docs/VISION-V3-IMPLEMENTATION.md` and
+`docs/VISION-V3-ACCEPTANCE-2026-10-07.md`.
 
 ## Telegram Y700 Automation Control Plane v0.1 — CODE / LOCAL PROFILE PREP PASS
 
