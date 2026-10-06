@@ -115,3 +115,27 @@ def mark_published(aweme_id: str, job_id: str, *, verified: bool = False) -> Non
         "updated_at": now_iso(),
     }
     save_index(idx)
+
+
+def set_workflow_intent(job: Job, intent: str) -> dict[str, Any]:
+    if intent not in {"AUTO_PUBLISH", "STORE_ALBUM"}:
+        raise RuntimeError(f"unsupported workflow intent: {intent}")
+    current = job.state()
+    existing = current.get("workflow_intent")
+    if existing and existing != intent:
+        raise RuntimeError(f"workflow intent is immutable: existing={existing} requested={intent}")
+    terminal = {"PUBLISHED", "VERIFIED", "STORED_IN_ALBUM"}
+    if not existing and current.get("state") in terminal:
+        raise RuntimeError(f"cannot backfill workflow intent after terminal state: {current.get('state')}")
+    if existing:
+        return current
+    state_name = current.get("state")
+    if not state_name:
+        raise RuntimeError("job state missing")
+    out = job.write_state(
+        state_name,
+        workflow_intent=intent,
+        workflow_intent_set_at=now_iso(),
+    )
+    job.event("WORKFLOW_INTENT_SET", workflow_intent=intent)
+    return out

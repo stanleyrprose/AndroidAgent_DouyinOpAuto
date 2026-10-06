@@ -21,6 +21,9 @@ STATUS_TEXT = {
     "FAILED_SAFE": ("🔴", "失败（确认未发布）"),
     "DUPLICATE": ("⚪", "已存在，跳过重复发布"),
     "WAITING_EXECUTOR": ("🟡", "等待执行器"),
+    "RESUMING": ("🔵", "正在恢复任务"),
+    "RESUME_WAITING": ("🟡", "恢复暂停，等待设备/网络"),
+    "RESUME_BLOCKED": ("🔴", "恢复被安全规则阻止"),
 }
 
 MAX_DETAIL = 300

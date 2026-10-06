@@ -17,7 +17,8 @@ Orchestrator (Cloud GPT or dedicated Hermes `y700automation` profile):
 - Reviews transcript/keyframes.
 - Produces localization.json from evidence.
 - Sends exported manifest URL to Y700.
-- Requires an explicit Telegram intent prefix. `自动发布+` authorizes exactly one PUBLIC COMMIT after mandatory DRY_RUN; `存到相册+` authorizes only production + Y700 album storage and never publication. Bare Douyin URLs are not execution intents.
+- Requires an explicit Telegram intent prefix. Persist the normalized intent (`AUTO_PUBLISH` or `STORE_ALBUM`) on the canonical job as soon as its job id is known. `自动发布` authorizes exactly one PUBLIC COMMIT after mandatory DRY_RUN; `存到相册` authorizes only production + Y700 album storage and never publication. Bare Douyin URLs are not execution intents.
+- Telegram `/resume <job>` / `继续任务：<job>` must invoke only `scripts/start-resume-job.sh`; the deterministic resume controller refuses missing/mismatched intent markers and never replays an uncertain COMMIT.
 - For Telegram ingress, emits public-safe status transitions through `scripts/tg-notify.sh`.
 
 Y700:
@@ -32,5 +33,5 @@ Y700:
 - Same aweme_id must deduplicate by default.
 - Production default visibility is PUBLIC. A different visibility requires an explicit user request.
 - Runtime jobs and downloaded media do not enter Git.
-- Telegram is not a general-purpose shell. Only `自动发布+<Douyin>`, `存到相册+<Douyin>`, `/status`, `/cancel`, and `/help` are accepted by the dedicated profile; bare Douyin links do not execute.
+- Telegram is not a general-purpose shell. Only the explicit AUTO_PUBLISH / STORE_ALBUM forms, `/resume` or `继续任务`, `/status`, `/cancel`, and `/help` are accepted by the dedicated profile; bare Douyin links do not execute.
 - Telegram notification failure never changes job truth and never authorizes a retry.

@@ -202,7 +202,9 @@ Use exactly one of these prefixes:
 
 ```text
 自动发布+<Douyin share text or URL>
+自动发布：<Douyin share text or URL>
 存到相册+<Douyin share text or URL>
+存到相册：<Douyin share text or URL>
 ```
 
 `自动发布+` follows the established full PUBLIC workflow and carries standing authorization for exactly one PUBLIC COMMIT attempt after mandatory DRY_RUN.
@@ -215,3 +217,14 @@ bash mac/production-pipeline/scripts/store-to-y700-album.sh <job> Y700Agent
 
 The album-only path stores the rendered video non-destructively at
 `/sdcard/Movies/Y700Agent/<job>.mp4`, verifies it through MediaStore, saves the final `caption.my.txt` text into ZUI Notes via its exported `ACTION_SEND text/plain` receiver, updates the Mac job to `STORED_IN_ALBUM`, sends `ALBUM_STORED`, restores the original Y700 screen power state, and never launches TikTok or crosses a publish boundary.
+
+
+## Resume a retry-safe Telegram job
+
+Use the deterministic controller only:
+
+```bash
+bash mac/production-pipeline/scripts/start-resume-job.sh <job_id>
+```
+
+The starter is detached and idempotent by PID. The controller reads the job's write-once `workflow_intent`. `STORE_ALBUM` reuses existing Mac production artifacts and regenerates only an expired export capability before retrying Y700 album + Notes storage. `AUTO_PUBLISH` may repeat DRY_RUN but never blindly repeats COMMIT. Observed COMMIT/ambiguous/published state is handed to publication closure/reconciliation. Jobs without an intent marker are blocked rather than inferred from chat history.
