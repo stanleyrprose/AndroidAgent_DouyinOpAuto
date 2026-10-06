@@ -553,8 +553,8 @@ def run_workflow(path: Path) -> dict[str, Any]:
     payload = base64.b64encode(json.dumps(req, separators=(",", ":")).encode()).decode()
     timeout_sec = min(620, max(30, int(req["max_duration_ms"] / 1000) + 20))
     command = (
-        f"toybox timeout {timeout_sec} su 2000 -c "
-        f"'am instrument -w -r -e request_b64 {payload} "
+        f"toybox timeout {timeout_sec} /system/bin/su 2000 -c "
+        f"'/system/bin/am instrument -w -r -e request_b64 {payload} "
         f"-e class {DRIVER_CLASS} {DRIVER_COMPONENT}'"
     )
 
