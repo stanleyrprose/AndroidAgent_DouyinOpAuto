@@ -15,8 +15,8 @@ class HealthLoopSupervisionContractTest(unittest.TestCase):
         self.assertIn('DEBIAN_EXEC="${Y700_DEBIAN_EXEC:-/data/local/y700-linux/exec.sh}"', text)
         self.assertIn('DEBIAN_START_HEALTH="${Y700_DEBIAN_START_HEALTH:-/opt/y700/workspaces/y700-agent/scripts/start-health-loop.sh}"', text)
         self.assertIn('\"$DEBIAN_EXEC\" /bin/bash \"$DEBIAN_START_HEALTH\"', text)
-        self.assertIn('health-loop supervisor recovery_start', text)
-        self.assertIn('health-loop supervisor recovery_ok', text)
+        self.assertIn('health-loop supervisor action=', text)
+        self.assertIn('*ALREADY_RUNNING*) return 0', text)
 
     def test_start_health_loop_repairs_stale_pidfile_from_proc(self):
         text = START.read_text(encoding="utf-8")
@@ -28,6 +28,22 @@ class HealthLoopSupervisionContractTest(unittest.TestCase):
             text.index('RECOVERED_RUNNING pid=$found'),
             text.index('nohup "$SCRIPT"'),
         )
+
+    def test_start_health_loop_replaces_live_stale_version(self):
+        text = START.read_text(encoding="utf-8")
+        self.assertIn('VERSION=/opt/y700/runtime/state/health-loop.version', text)
+        self.assertIn('CURRENT_SHA="$(sha256sum "$SCRIPT"', text)
+        self.assertIn('version_matches()', text)
+        self.assertIn('STALE_HEALTH_LOOP pid=$p', text)
+        self.assertIn('stop_stale "$p"', text)
+        self.assertIn('HEALTH_LOOP_START_UNVERIFIED', text)
+
+    def test_health_loop_publishes_pid_and_script_sha(self):
+        text = (ROOT / "scripts" / "health-loop.sh").read_text(encoding="utf-8")
+        self.assertIn('VERSION_STATE="$STATE_DIR/health-loop.version"', text)
+        self.assertIn("printf '%s %s\\n'", text)
+        self.assertIn('"$$" "$SCRIPT_SHA"', text)
+        self.assertIn('publish_version', text)
 
 
 if __name__ == "__main__":
