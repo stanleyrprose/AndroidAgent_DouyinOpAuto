@@ -662,3 +662,24 @@ Freeze refs:
 - freeze branch: `frozen/tg-tiktok-zero-touch-e2e-v1` -> `0dc50cf`.
 
 Future changes must preserve this accepted path or establish a new acceptance baseline.
+
+## Y700 locked-screen PUBLIC publish — PASS (2026-10-06)
+
+Acceptance job: `dy-7686483339214313198` / aweme `7686483339214313198`.
+
+Result: Y700 was explicitly put to sleep before the accepted run. Durable Bridge
+history then recorded production secure-unlock / wake activity, followed by a
+successful exactly-once PUBLIC TikTok COMMIT and
+`generic_profile_public_exact_caption` verification. Mac final state is
+`VERIFIED` and the Telegram terminal notification was sent.
+
+The first attempt exposed that preflight/MediaStore staging ran before secure
+unlock. PR #10 fixed the ordering to
+`UNLOCKING -> PREFLIGHT -> STAGING -> TikTok cold-launch`, retained the existing
+cold-launch keyguard recheck, and bounded staging root-exec/provider waits.
+
+Acceptance evidence and boundary are documented in
+`docs/Y700-LOCKSCREEN-PUBLIC-PUBLISH-ACCEPTANCE-2026-10-06.md`.
+
+This acceptance covers normal sleep/lock. Post-reboot Direct Boot remains a
+separate, unaccepted scenario.
