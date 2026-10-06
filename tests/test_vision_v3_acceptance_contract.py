@@ -13,6 +13,7 @@ class VisionV3AcceptanceContractTest(unittest.TestCase):
             "invalid_recovery_fail_closed",
             "mixed_template_to_ocr",
             "known_popup_recovery",
+            "known_popup_template_fallback",
             "stale_target_reresolve",
             "vision_commit_blocked",
             "metadata_only_route_evidence",

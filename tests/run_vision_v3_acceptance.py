@@ -77,9 +77,16 @@ def ocr_spec() -> dict:
         "pattern": OCR_TEXT,
         "match": "substring",
         "min_confidence": 0.85,
-        "roi_ratio": [0.55, 0.37, 0.88, 0.56],
+        "roi_ratio": [0.60, 0.38, 0.84, 0.55],
         "expected_package": APP,
     }
+
+
+def popup_template_spec() -> dict:
+    spec = template_spec()
+    spec["confidence"] = 0.80
+    spec["roi_ratio"] = [0.34, 0.40, 0.66, 0.60]
+    return spec
 
 
 def base_request(
@@ -271,6 +278,34 @@ def main() -> int:
         )) >= 1
     )
 
+    # 3b) If semantic popup dismiss misses, bounded template dismiss is next.
+    cold_reset()
+    popup_template_job = "vision-v3-popup-template-" + secrets.token_hex(3)
+    popup_template_req = base_request(
+        popup_template_job, popup=True, popup_template=True
+    )
+    popup_template_action = mixed_action()
+    popup_template_action["vision_recovery"] = {
+        "known_popups": [{
+            "expected_package": APP,
+            "semantic": {"content_desc": "__VISION_V3_POPUP_SEMANTIC_MISS__"},
+            "template": popup_template_spec(),
+        }]
+    }
+    popup_template_req["actions"] = [popup_template_action]
+    popup_template_result = run(popup_template_req)
+    popup_template_data = first_data(popup_template_result)
+    popup_template_ok = (
+        popup_template_result.get("status") == "PASS"
+        and popup_template_data.get("locator_source") == "vision_text"
+        and any(
+            row.get("source") == "vision_template"
+            and row.get("status") == "DISMISSED"
+            for row in popup_template_data.get("vision_recovery") or []
+            if isinstance(row, dict)
+        )
+    )
+
     # 4) Stale target: mutate the benchmark after resolve but before action.
     # Pre-action fingerprint validation must reject the stale observation,
     # re-resolve once, then click only the fresh target.
@@ -346,6 +381,7 @@ def main() -> int:
         "invalid_recovery_fail_closed": bad_recovery_ok,
         "mixed_template_to_ocr": mixed_ok,
         "known_popup_recovery": popup_ok,
+        "known_popup_template_fallback": popup_template_ok,
         "stale_target_reresolve": stale_ok,
         "vision_commit_blocked": blocked_ok,
         "metadata_only_route_evidence": evidence_ok,
@@ -362,6 +398,7 @@ def main() -> int:
         bad_recovery_ok,
         mixed_ok,
         popup_ok,
+        popup_template_ok,
         stale_ok,
         blocked_ok,
         evidence_ok,
@@ -381,6 +418,7 @@ def main() -> int:
             "bad_recovery": bad_recovery,
             "mixed": mixed,
             "popup": popup_result,
+            "popup_template": popup_template_result,
             "stale": stale,
             "commit_blocked": blocked,
             "mixed_evidence": marker,

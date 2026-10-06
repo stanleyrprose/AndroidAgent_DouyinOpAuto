@@ -291,6 +291,7 @@ public class AutomationInstrumentedTest {
         boolean clicked = request.optBoolean("test_benchmark_clicked", false);
         String ocrText = request.optString("test_benchmark_ocr_text", "");
         boolean popup = request.optBoolean("test_benchmark_popup", false);
+        boolean popupTemplate = request.optBoolean("test_benchmark_popup_template", false);
         boolean staleVariant = request.optBoolean("test_benchmark_stale_variant", false);
         boolean trackClickCount = request.optBoolean("test_benchmark_track_click_count", false);
         Intent intent = new Intent();
@@ -305,6 +306,7 @@ public class AutomationInstrumentedTest {
             intent.putExtra("ocr_text", ocrText);
         }
         intent.putExtra("popup", popup);
+        intent.putExtra("popup_template", popupTemplate);
         intent.putExtra("stale_variant", staleVariant);
         intent.putExtra("track_click_count", trackClickCount);
         context.startActivity(intent);

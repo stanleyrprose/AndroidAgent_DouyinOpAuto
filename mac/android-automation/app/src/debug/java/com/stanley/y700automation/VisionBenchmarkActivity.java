@@ -40,24 +40,76 @@ public class VisionBenchmarkActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
         if (intent != null && intent.getBooleanExtra("popup", false)) {
-            FrameLayout overlay = new FrameLayout(this);
-            overlay.setBackgroundColor(Color.rgb(12, 14, 18));
-            overlay.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+            if (intent.getBooleanExtra("popup_template", false)) {
+                final TemplatePopupView[] holder = new TemplatePopupView[1];
+                holder[0] = new TemplatePopupView(() -> root.removeView(holder[0]));
+                root.addView(holder[0], new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+            } else {
+                FrameLayout overlay = new FrameLayout(this);
+                overlay.setBackgroundColor(Color.rgb(12, 14, 18));
+                overlay.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
 
-            Button dismiss = new Button(this);
-            dismiss.setText("Dismiss");
-            dismiss.setContentDescription("VISION_V3_POPUP_DISMISS");
-            dismiss.setOnClickListener(v -> root.removeView(overlay));
-            FrameLayout.LayoutParams button = new FrameLayout.LayoutParams(
-                    Math.round(220f * getResources().getDisplayMetrics().density),
-                    Math.round(72f * getResources().getDisplayMetrics().density));
-            button.gravity = Gravity.CENTER;
-            overlay.addView(dismiss, button);
-            root.addView(overlay, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT));
+                Button dismiss = new Button(this);
+                dismiss.setText("Dismiss");
+                dismiss.setContentDescription("VISION_V3_POPUP_DISMISS");
+                dismiss.setOnClickListener(v -> root.removeView(overlay));
+                FrameLayout.LayoutParams button = new FrameLayout.LayoutParams(
+                        Math.round(220f * getResources().getDisplayMetrics().density),
+                        Math.round(72f * getResources().getDisplayMetrics().density));
+                button.gravity = Gravity.CENTER;
+                overlay.addView(dismiss, button);
+                root.addView(overlay, new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+            }
         }
         setContentView(root);
+    }
+
+    final class TemplatePopupView extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF target = new RectF();
+        private final Runnable onDismiss;
+
+        TemplatePopupView(Runnable onDismiss) {
+            super(VisionBenchmarkActivity.this);
+            this.onDismiss = onDismiss;
+            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+            setBackgroundColor(Color.rgb(12, 14, 18));
+        }
+
+        private void updateTarget() {
+            float d = getResources().getDisplayMetrics().density;
+            float w = VisionBenchmarkPattern.TARGET_WIDTH_DP * d;
+            float h = VisionBenchmarkPattern.TARGET_HEIGHT_DP * d;
+            float cx = getWidth() * 0.50f;
+            float cy = getHeight() * 0.50f;
+            target.set(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            updateTarget();
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(Color.rgb(12, 14, 18));
+            canvas.drawRect(0f, 0f, getWidth(), getHeight(), paint);
+            VisionBenchmarkPattern.drawTarget(canvas, target, false);
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            if (event.getAction() == MotionEvent.ACTION_UP) {
+                updateTarget();
+                if (target.contains(event.getX(), event.getY())) {
+                    onDismiss.run();
+                    return true;
+                }
+            }
+            return true;
+        }
     }
 
     final class BenchmarkView extends View {
