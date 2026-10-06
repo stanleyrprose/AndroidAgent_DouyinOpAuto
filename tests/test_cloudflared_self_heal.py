@@ -10,11 +10,19 @@ START_RUNTIME = ROOT / "scripts" / "start-prod-runtime.sh"
 
 
 class CloudflaredSelfHealContractTests(unittest.TestCase):
-    def test_tunnel_connections_are_authoritative_even_when_network_probe_is_unknown(self) -> None:
+    def test_remote_probe_is_authoritative_even_when_local_connections_are_stale(self) -> None:
         text = HEALTH_LOOP.read_text()
         self.assertIn('network=UNKNOWN', text)
-        self.assertIn('if [ "$connections" -gt 0 ]; then', text)
-        self.assertIn('write_connectivity_state "$network" "$tunnel_process" "$connections" READY 0 0', text)
+        self.assertIn('remote_probe_ready "$probe_http"', text)
+        self.assertIn('000|530) return 1', text)
+        self.assertIn('write_connectivity_state "$network" "$tunnel_process" "$connections" READY 0 0 "$probe_http"', text)
+        self.assertNotIn('if [ "$connections" -gt 0 ]; then', text)
+
+    def test_restart_is_not_accepted_until_remote_plane_is_ready(self) -> None:
+        text = HEALTH_LOOP.read_text()
+        self.assertIn('wait_remote_ready', text)
+        self.assertIn('CLOUDFLARED_SELF_HEAL_OK connections=$connections probe_http=$probe_http', text)
+        self.assertIn('schedule_backoff', text)
 
     def test_no_connections_trigger_bounded_recovery_even_when_network_probe_is_unknown(self) -> None:
         text = HEALTH_LOOP.read_text()
