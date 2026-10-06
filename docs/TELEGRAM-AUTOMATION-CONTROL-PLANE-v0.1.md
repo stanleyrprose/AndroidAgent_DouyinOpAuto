@@ -129,7 +129,6 @@ A bare Douyin URL no longer authorizes or starts work.
 Telegram supports:
 
 ```text
-/resume <job_id>
 继续任务：<job_id>
 继续任务:<job_id>
 继续任务+<job_id>
