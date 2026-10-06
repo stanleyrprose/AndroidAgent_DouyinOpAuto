@@ -4,6 +4,7 @@ PID=/opt/y700/runtime/health-loop.pid
 LOG=/opt/y700/runtime/logs/health-loop.log
 STATE_DIR=/opt/y700/runtime/state
 CONNECTIVITY_STATE="$STATE_DIR/connectivity.json"
+VERSION_STATE="$STATE_DIR/health-loop.version"
 CF_PID=/opt/y700/runtime/cloudflared.pid
 CF_RESTART=/opt/y700/workspaces/y700-agent/bootstrap/restart-cloudflared-y700.sh
 CF_METRICS_URL="${Y700_CLOUDFLARED_METRICS_URL:-http://127.0.0.1:20241/metrics}"
@@ -21,6 +22,15 @@ trap 'rm -f "$PID"' EXIT
 
 SCRIPT_PATH="$0"
 SCRIPT_SHA="$(sha256sum "$SCRIPT_PATH" 2>/dev/null | awk '{print $1}')"
+
+publish_version() {
+  local tmp="$VERSION_STATE.tmp.$$"
+  printf '%s %s\n' "$$" "$SCRIPT_SHA" >"$tmp"
+  chmod 600 "$tmp" 2>/dev/null || true
+  mv "$tmp" "$VERSION_STATE"
+}
+
+publish_version
 
 maybe_self_update() {
   local current_sha

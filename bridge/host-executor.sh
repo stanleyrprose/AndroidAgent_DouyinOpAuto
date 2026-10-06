@@ -126,23 +126,27 @@ ensure_health_loop() {
   fi
   LAST_HEALTH_LOOP_SUPERVISE_MS="$now_ms"
 
-  health_loop_pid_matches && return 0
-
   if [ ! -x "$DEBIAN_EXEC" ]; then
     append_log "health-loop supervisor unavailable debian_exec=$DEBIAN_EXEC"
     return 0
   fi
 
-  append_log "health-loop supervisor recovery_start"
-  if "$DEBIAN_EXEC" /bin/bash "$DEBIAN_START_HEALTH" \
-      >>"$RUNTIME/health-loop-supervisor.log" 2>&1; then
+  # Always delegate the periodic check to start-health-loop.sh. That script is
+  # version-aware: a live PID with a stale/missing PID+SHA marker is replaced,
+  # while an exact-current process returns ALREADY_RUNNING without churn.
+  if result="$("$DEBIAN_EXEC" /bin/bash "$DEBIAN_START_HEALTH" 2>&1)"; then
+    printf '%s\n' "$result" >>"$RUNTIME/health-loop-supervisor.log"
+    case "$result" in
+      *ALREADY_RUNNING*) return 0 ;;
+    esac
     if health_loop_pid_matches; then
-      append_log "health-loop supervisor recovery_ok pid=$(cat "$HEALTH_LOOP_PIDFILE" 2>/dev/null || true)"
+      append_log "health-loop supervisor action=$result pid=$(cat "$HEALTH_LOOP_PIDFILE" 2>/dev/null || true)"
     else
-      append_log "health-loop supervisor recovery_unverified"
+      append_log "health-loop supervisor recovery_unverified action=$result"
     fi
   else
     rc=$?
+    printf '%s\n' "$result" >>"$RUNTIME/health-loop-supervisor.log"
     append_log "health-loop supervisor recovery_failed rc=$rc"
   fi
 }
