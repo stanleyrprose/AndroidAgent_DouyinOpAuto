@@ -1,0 +1,6 @@
+{
+  "description": "Public Rev3.6 semantic-v1 fixed regression vector, not a credential",
+  "vector": "settings-switch-element-base-v1",
+  "canonical_json": "{\"cardinality\":1,\"element\":{\"checked\":true,\"clickable\":true,\"enabled\":true,\"selected\":false},\"fingerprint_version\":\"semantic-v1\",\"foreground\":{\"activity\":\"com.android.settings.Settings\",\"package\":\"com.android.settings\"},\"scope\":\"ELEMENT\",\"screen\":{\"blocking_overlay_class\":null,\"blocking_overlay_owner_package\":null,\"blocking_overlay_present\":false,\"interactive\":true,\"keyguard_locked\":false},\"selector\":{\"resource_id\":\"android:id/switch_widget\"}}",
+  "expected_sha256": "6bab7e2cd22bb7e2804f75638edfda2546f73802003c57fde3ecbdd322f32fd4"
+}

@@ -1,0 +1,6 @@
+{
+  "description": "Public Rev3.6 semantic-v1 fixed regression vector, not a credential",
+  "vector": "foreground-base-v1",
+  "canonical_json": "{\"fingerprint_version\":\"semantic-v1\",\"foreground\":{\"activity\":\"com.android.settings.Settings\",\"package\":\"com.android.settings\"},\"scope\":\"FOREGROUND\",\"screen\":{\"blocking_overlay_class\":null,\"blocking_overlay_owner_package\":null,\"blocking_overlay_present\":false,\"interactive\":true,\"keyguard_locked\":false}}",
+  "expected_sha256": "074e74b0f725954b789fea7d905715c7e096c4ab159029a1c6c8ef8a6b610b66"
+}
