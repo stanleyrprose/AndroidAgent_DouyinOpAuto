@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import secrets
@@ -196,6 +197,16 @@ def main() -> int:
     RUNTIME.mkdir(parents=True, exist_ok=True)
     UI_JOBS.mkdir(parents=True, exist_ok=True)
     REQUESTS.mkdir(parents=True, exist_ok=True)
+
+    lock_file = (RUNTIME / ".acceptance.lock").open("a+")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print(json.dumps({
+            "status": "BLOCKED",
+            "error": "VISION_V3_ACCEPTANCE_ALREADY_RUNNING",
+        }, ensure_ascii=False, indent=2))
+        return 2
 
     # 1) Semantic-only path: no Vision request when semantic resolves.
     cold_reset()

@@ -28,6 +28,8 @@ class VisionV3AcceptanceContractTest(unittest.TestCase):
         self.assertIn("test_mutate_vision_before_action", text)
         self.assertIn("VISION_V3_POPUP_DISMISS", text)
         self.assertIn("test_benchmark_popup_template", text)
+        self.assertIn("fcntl.LOCK_EX | fcntl.LOCK_NB", text)
+        self.assertIn("VISION_V3_ACCEPTANCE_ALREADY_RUNNING", text)
 
 
 if __name__ == "__main__":
