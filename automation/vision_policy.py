@@ -54,15 +54,25 @@ _VISION_TYPES = {"vision_template", "vision_text"}
 
 
 def _vision_candidates(selector: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    out: list[Mapping[str, Any]] = []
-    if selector.get("type") in _VISION_TYPES:
-        out.append(selector)
+    direct = selector.get("type")
+    if direct in _VISION_TYPES:
+        return [selector]
+
+    templates: list[Mapping[str, Any]] = []
+    ocr: list[Mapping[str, Any]] = []
     fallback = selector.get("fallback")
     if isinstance(fallback, Iterable) and not isinstance(fallback, (str, bytes, Mapping)):
         for item in fallback:
-            if isinstance(item, Mapping) and item.get("type") in _VISION_TYPES:
-                out.append(item)
-    return out
+            if not isinstance(item, Mapping):
+                continue
+            kind = item.get("type")
+            if kind == "vision_template":
+                templates.append(item)
+            elif kind == "vision_text":
+                ocr.append(item)
+    # Sprint V3 freezes the runtime order independently of caller ordering:
+    # semantic -> template -> OCR.
+    return [*templates, *ocr]
 
 
 def decide_route(

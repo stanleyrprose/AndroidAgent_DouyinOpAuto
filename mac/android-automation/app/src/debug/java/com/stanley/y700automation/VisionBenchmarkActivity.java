@@ -1,14 +1,19 @@
 package com.stanley.y700automation;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
+import android.widget.Button;
+import android.widget.FrameLayout;
 
 public class VisionBenchmarkActivity extends Activity {
     @Override
@@ -17,7 +22,42 @@ public class VisionBenchmarkActivity extends Activity {
         setShowWhenLocked(true);
         setTurnScreenOn(true);
         setTitle("Vision Benchmark");
-        setContentView(new BenchmarkView());
+        render(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        render(intent);
+    }
+
+    private void render(Intent intent) {
+        FrameLayout root = new FrameLayout(this);
+        BenchmarkView benchmark = new BenchmarkView(intent);
+        root.addView(benchmark, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
+        if (intent != null && intent.getBooleanExtra("popup", false)) {
+            FrameLayout overlay = new FrameLayout(this);
+            overlay.setBackgroundColor(Color.rgb(12, 14, 18));
+            overlay.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+
+            Button dismiss = new Button(this);
+            dismiss.setText("Dismiss");
+            dismiss.setContentDescription("VISION_V3_POPUP_DISMISS");
+            dismiss.setOnClickListener(v -> root.removeView(overlay));
+            FrameLayout.LayoutParams button = new FrameLayout.LayoutParams(
+                    Math.round(220f * getResources().getDisplayMetrics().density),
+                    Math.round(72f * getResources().getDisplayMetrics().density));
+            button.gravity = Gravity.CENTER;
+            overlay.addView(dismiss, button);
+            root.addView(overlay, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        setContentView(root);
     }
 
     final class BenchmarkView extends View {
@@ -26,20 +66,40 @@ public class VisionBenchmarkActivity extends Activity {
         private final RectF duplicateTarget = new RectF();
         private final boolean duplicate;
         private final String ocrText;
-        private boolean clicked = false;
+        private final boolean staleVariant;
+        private final boolean trackClickCount;
+        private boolean clicked;
+        private int targetClickCount;
 
-        BenchmarkView() {
+        BenchmarkView(Intent intent) {
             super(VisionBenchmarkActivity.this);
-            duplicate = getIntent().getBooleanExtra("duplicate", false);
-            ocrText = getIntent().getStringExtra("ocr_text");
-            clicked = getIntent().getBooleanExtra("clicked", false);
+            Intent source = intent == null ? new Intent() : intent;
+            duplicate = source.getBooleanExtra("duplicate", false);
+            ocrText = source.getStringExtra("ocr_text");
+            clicked = source.getBooleanExtra("clicked", false);
+            staleVariant = source.getBooleanExtra("stale_variant", false);
+            trackClickCount = source.getBooleanExtra("track_click_count", false);
+            targetClickCount = clicked ? 1 : 0;
             // The visible target itself is drawn on Canvas and has no semantic
             // child. The parent view becomes semantically identifiable only
-            // after a successful click so V1 can use the shared semantic
-            // postcondition path.
+            // after a successful click so V1/V3 use the shared postcondition.
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
-            setContentDescription(clicked ? "VISION_V1_CLICKED" : null);
-            setBackgroundColor(VisionBenchmarkPattern.BG_COLOR);
+            updateContentDescription();
+            setBackgroundColor(staleVariant
+                    ? Color.rgb(52, 39, 62)
+                    : VisionBenchmarkPattern.BG_COLOR);
+        }
+
+        private void updateContentDescription() {
+            if (!clicked) {
+                setContentDescription(null);
+                return;
+            }
+            if (trackClickCount) {
+                setContentDescription("VISION_V3_CLICKED_COUNT_" + targetClickCount);
+            } else {
+                setContentDescription("VISION_V1_CLICKED");
+            }
         }
 
         private void updateTargets() {
@@ -103,7 +163,8 @@ public class VisionBenchmarkActivity extends Activity {
                 if (target.contains(event.getX(), event.getY()) ||
                         (duplicate && duplicateTarget.contains(event.getX(), event.getY()))) {
                     clicked = true;
-                    setContentDescription("VISION_V1_CLICKED");
+                    targetClickCount++;
+                    updateContentDescription();
                     sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
                     invalidate();
                     return true;

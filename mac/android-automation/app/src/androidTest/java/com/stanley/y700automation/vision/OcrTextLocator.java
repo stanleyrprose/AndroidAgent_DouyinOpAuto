@@ -120,6 +120,7 @@ public final class OcrTextLocator {
     private Rect cachedRoi;
     private Rect cachedInferenceRoi;
     private boolean cachedContextRetry;
+    private String cachedPackage;
     private JSONObject cachedOcr;
 
     public OcrTextLocator(
@@ -233,6 +234,7 @@ public final class OcrTextLocator {
                 long roiFingerprint = VisionV0Harness.fingerprintRegion(frame.bitmap, roi);
 
                 boolean cacheHit = cachedOcr != null &&
+                        sameString(cachedPackage, currentPackage) &&
                         roiFingerprint == cachedFingerprint &&
                         frame.rotation == cachedRotation &&
                         frame.width == cachedWidth && frame.height == cachedHeight &&
@@ -266,13 +268,13 @@ public final class OcrTextLocator {
                             frame,
                             false,
                             false);
-                    updateCache(roiFingerprint, frame, roi, inferenceRoi, raw, false);
+                    updateCache(currentPackage, roiFingerprint, frame, roi, inferenceRoi, raw, false);
                     metrics.successCount++;
                     metrics.ocrMs.add(msSince(totalStarted));
                     return resolved;
                 } catch (VisionFailure first) {
                     if (!ERR_NOT_FOUND.equals(first.code)) {
-                        updateCache(roiFingerprint, frame, roi, inferenceRoi, raw, false);
+                        updateCache(currentPackage, roiFingerprint, frame, roi, inferenceRoi, raw, false);
                         throw first;
                     }
                 }
@@ -283,14 +285,14 @@ public final class OcrTextLocator {
                         frame.height,
                         MIN_INFERENCE_CONTEXT_HEIGHT_PX);
                 if (expanded.equals(roi)) {
-                    updateCache(roiFingerprint, frame, roi, inferenceRoi, raw, false);
+                    updateCache(currentPackage, roiFingerprint, frame, roi, inferenceRoi, raw, false);
                     throw new VisionFailure(ERR_NOT_FOUND,
                             "OCR found no eligible target inside request ROI");
                 }
 
                 metrics.contextRetryCount++;
                 JSONObject retryRaw = invokeRuntimeOnRoi(frame.bitmap, expanded, deadlineNs);
-                updateCache(roiFingerprint, frame, roi, expanded, retryRaw, true);
+                updateCache(currentPackage, roiFingerprint, frame, roi, expanded, retryRaw, true);
                 Resolved resolved = select(
                         spec,
                         retryRaw,
@@ -384,6 +386,7 @@ public final class OcrTextLocator {
     }
 
     private void updateCache(
+            String currentPackage,
             long roiFingerprint,
             VisionV0Harness.Frame frame,
             Rect roi,
@@ -397,7 +400,24 @@ public final class OcrTextLocator {
         cachedRoi = new Rect(roi);
         cachedInferenceRoi = new Rect(inferenceRoi);
         cachedContextRetry = contextRetry;
+        cachedPackage = currentPackage;
         cachedOcr = new JSONObject(raw.toString());
+    }
+
+    public synchronized void invalidateObservationCache() {
+        cachedFingerprint = Long.MIN_VALUE;
+        cachedRotation = -1;
+        cachedWidth = -1;
+        cachedHeight = -1;
+        cachedRoi = null;
+        cachedInferenceRoi = null;
+        cachedContextRetry = false;
+        cachedPackage = null;
+        cachedOcr = null;
+    }
+
+    private static boolean sameString(String a, String b) {
+        return a == null ? b == null : a.equals(b);
     }
 
     private JSONObject invokeRuntime(Bitmap crop, long timeoutMs) throws VisionFailure {

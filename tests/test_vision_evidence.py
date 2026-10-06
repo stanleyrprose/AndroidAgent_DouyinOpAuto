@@ -47,6 +47,41 @@ class VisionEvidenceQuotaTest(unittest.TestCase):
         with self.assertRaisesRegex(ui_job.UiJobError, "evidence_max_bytes"):
             ui_job.validate_request(req)
 
+    def test_route_summary_is_metadata_only_and_keeps_hybrid_trace(self):
+        result = {
+            "actions": [
+                {
+                    "action_id": "click-1",
+                    "status": "PASS",
+                    "data": {
+                        "locator_source": "vision_text",
+                        "fallback_trace": [
+                            {
+                                "locator_type": "vision_template",
+                                "status": "MISS",
+                                "error_code": "VISION_TEMPLATE_NOT_FOUND",
+                            }
+                        ],
+                        "vision_recovery": [
+                            {
+                                "source": "semantic",
+                                "status": "DISMISSED",
+                            }
+                        ],
+                    },
+                }
+            ]
+        }
+        rows = ui_job._vision_route_summary(result)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["locator_source"], "vision_text")
+        self.assertEqual(
+            rows[0]["fallback_trace"][0]["locator_type"],
+            "vision_template",
+        )
+        self.assertEqual(rows[0]["recovery"][0]["status"], "DISMISSED")
+        self.assertNotIn("screenshot", json.dumps(rows).lower())
+
     def test_quota_evicts_only_old_terminal_unpinned_evidence(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

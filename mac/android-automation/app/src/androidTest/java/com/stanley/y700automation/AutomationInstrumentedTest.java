@@ -40,6 +40,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
@@ -70,6 +71,11 @@ public class AutomationInstrumentedTest {
     private OcrTextLocator ocrLocator;
     private JSONObject lastVisionContext;
     private boolean visionRequested;
+    private long semanticToVisionFallbackCount;
+    private long hybridTemplateToOcrFallbackCount;
+    private long visionStaleReresolveCount;
+    private long visionRecoveryCount;
+    private JSONArray currentVisionRecoveryEvents;
 
     @Test
     public void runWorkflow() throws Exception {
@@ -104,6 +110,11 @@ public class AutomationInstrumentedTest {
             visionLocator = null;
             ocrLocator = null;
             lastVisionContext = null;
+            semanticToVisionFallbackCount = 0L;
+            hybridTemplateToOcrFallbackCount = 0L;
+            visionStaleReresolveCount = 0L;
+            visionRecoveryCount = 0L;
+            currentVisionRecoveryEvents = new JSONArray();
             int protocol = request.optInt("protocol_version", -1);
 
             result.put("job_id", jobId);
@@ -279,6 +290,9 @@ public class AutomationInstrumentedTest {
         boolean duplicate = request.optBoolean("test_benchmark_duplicate", false);
         boolean clicked = request.optBoolean("test_benchmark_clicked", false);
         String ocrText = request.optString("test_benchmark_ocr_text", "");
+        boolean popup = request.optBoolean("test_benchmark_popup", false);
+        boolean staleVariant = request.optBoolean("test_benchmark_stale_variant", false);
+        boolean trackClickCount = request.optBoolean("test_benchmark_track_click_count", false);
         Intent intent = new Intent();
         intent.setClassName("com.stanley.y700automation",
                 "com.stanley.y700automation.VisionBenchmarkActivity");
@@ -290,6 +304,9 @@ public class AutomationInstrumentedTest {
         if (!ocrText.isEmpty()) {
             intent.putExtra("ocr_text", ocrText);
         }
+        intent.putExtra("popup", popup);
+        intent.putExtra("stale_variant", staleVariant);
+        intent.putExtra("track_click_count", trackClickCount);
         context.startActivity(intent);
         long deadline = SystemClock.elapsedRealtime() + 2500L;
         while (SystemClock.elapsedRealtime() < deadline) {
@@ -302,6 +319,29 @@ public class AutomationInstrumentedTest {
         throw new ActionFailure("TEST_BENCHMARK_UNAVAILABLE",
                 "VisionBenchmarkActivity did not become foreground within 2500ms",
                 false, "BLOCKED");
+    }
+
+    private void maybeMutateVisionBenchmarkBeforeAction(
+            JSONObject action,
+            int resolveAttempt) throws Exception {
+        if (!testMode || resolveAttempt != 0 ||
+                !action.optBoolean("test_mutate_vision_before_action", false) ||
+                !isVisionBenchmarkActivityTop()) {
+            return;
+        }
+        Intent intent = new Intent();
+        intent.setClassName("com.stanley.y700automation",
+                "com.stanley.y700automation.VisionBenchmarkActivity");
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
+                Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        String ocrText = action.optString("test_mutate_vision_ocr_text", "");
+        if (!ocrText.isEmpty()) intent.putExtra("ocr_text", ocrText);
+        intent.putExtra("clicked", false);
+        intent.putExtra("popup", false);
+        intent.putExtra("stale_variant", true);
+        context.startActivity(intent);
+        SystemClock.sleep(180L);
     }
 
     private boolean isVisionBenchmarkActivityTop() {
@@ -804,38 +844,82 @@ public class AutomationInstrumentedTest {
                         VisionV0Harness.ERR_TEMPLATE_CONFIG,
                         "fallback must be an array");
             }
-            boolean sawTemplate = false;
-            boolean sawOcr = false;
             if (fallback != null) {
+                if (fallback.length() > 8) {
+                    throw new VisionV0Harness.VisionFailure(
+                            VisionV0Harness.ERR_TEMPLATE_CONFIG,
+                            "fallback contains more than 8 vision candidates");
+                }
                 for (int i = 0; i < fallback.length(); i++) {
                     JSONObject item = fallback.optJSONObject(i);
                     if (item == null) {
                         throw new VisionV0Harness.VisionFailure(
                                 VisionV0Harness.ERR_TEMPLATE_CONFIG,
-                                "V2 fallback entries must be vision objects");
+                                "V3 fallback entries must be vision objects");
                     }
                     String type = item.optString("type");
                     if ("vision_template".equals(type)) {
-                        sawTemplate = true;
                         VisionTemplateLocator.validateTemplateSpec(item);
                     } else if ("vision_text".equals(type)) {
-                        sawOcr = true;
                         OcrTextLocator.validateTextSpec(item);
                     } else {
                         throw new VisionV0Harness.VisionFailure(
                                 VisionV0Harness.ERR_TEMPLATE_CONFIG,
-                                "V2 fallback entries must be vision_template or vision_text");
+                                "V3 fallback entries must be vision_template or vision_text");
                     }
                 }
-            }
-            if (sawTemplate && sawOcr) {
-                throw new VisionV0Harness.VisionFailure(
-                        VisionV0Harness.ERR_TEMPLATE_CONFIG,
-                        "mixed template+OCR fallback is reserved for Sprint V3");
             }
         } catch (VisionV0Harness.VisionFailure e) {
             throw visionActionFailure(e);
         }
+    }
+
+    private List<JSONObject> orderedVisionCandidates(JSONObject selector) {
+        List<JSONObject> templates = new ArrayList<>();
+        List<JSONObject> ocr = new ArrayList<>();
+        if (selector == null) return templates;
+
+        String directType = selector.optString("type");
+        if ("vision_template".equals(directType)) {
+            templates.add(selector);
+            return templates;
+        }
+        if ("vision_text".equals(directType)) {
+            ocr.add(selector);
+            return ocr;
+        }
+
+        JSONArray fallback = selector.optJSONArray("fallback");
+        if (fallback == null) return templates;
+        for (int i = 0; i < fallback.length(); i++) {
+            JSONObject item = fallback.optJSONObject(i);
+            if (item == null) continue;
+            String type = item.optString("type");
+            if ("vision_template".equals(type)) templates.add(item);
+            else if ("vision_text".equals(type)) ocr.add(item);
+        }
+        templates.addAll(ocr);
+        return templates;
+    }
+
+    private boolean isVisionCandidateEnabled(JSONObject spec) {
+        if (spec == null || visionConfig == null || !visionConfig.enabled ||
+                !"fallback".equals(visionConfig.mode)) return false;
+        String type = spec.optString("type");
+        if ("vision_template".equals(type)) return visionConfig.templateEnabled;
+        if ("vision_text".equals(type)) return visionConfig.ocrEnabled;
+        return false;
+    }
+
+    private boolean isSoftLocatorMiss(ActionFailure failure) {
+        return VisionV0Harness.ERR_TEMPLATE_NOT_FOUND.equals(failure.code) ||
+                OcrTextLocator.ERR_NOT_FOUND.equals(failure.code) ||
+                OcrTextLocator.ERR_TIMEOUT.equals(failure.code);
+    }
+
+    private boolean isStaleVisionFailure(VisionV0Harness.VisionFailure failure) {
+        return VisionV0Harness.ERR_STALE_TARGET.equals(failure.code) ||
+                VisionV0Harness.ERR_ROTATION_MISMATCH.equals(failure.code);
     }
 
     private void attachVisionMetrics(JSONObject result) {
@@ -856,6 +940,13 @@ public class AutomationInstrumentedTest {
                     combined.put(key, ocr.get(key));
                 }
             }
+            combined.put("semantic_to_vision_fallback_count",
+                    semanticToVisionFallbackCount);
+            combined.put("hybrid_template_to_ocr_fallback_count",
+                    hybridTemplateToOcrFallbackCount);
+            combined.put("vision_stale_reresolve_count",
+                    visionStaleReresolveCount);
+            combined.put("vision_recovery_count", visionRecoveryCount);
             if (combined.length() > 0) {
                 result.put("vision_metrics", combined);
             }
@@ -1022,10 +1113,9 @@ public class AutomationInstrumentedTest {
             throw new ActionFailure("JOB_PAYLOAD_INVALID", "click requires selector", false);
         }
         validateSelectorKeys(selector);
+        currentVisionRecoveryEvents = new JSONArray();
 
-        JSONObject templateSpec = VisionTemplateLocator.visionSpec(selector);
-        JSONObject ocrSpec = OcrTextLocator.visionTextSpec(selector);
-        JSONObject visionSpec = templateSpec != null ? templateSpec : ocrSpec;
+        List<JSONObject> candidates = orderedVisionCandidates(selector);
         boolean semanticAvailable = hasSemanticCriteria(selector);
         if (semanticAvailable) {
             List<UiObject2> matches = findObjects(selector);
@@ -1041,7 +1131,7 @@ public class AutomationInstrumentedTest {
                         .put("resolved_element", resolved);
             }
 
-            if (visionSpec == null || visionConfig == null || !visionConfig.enabled) {
+            if (candidates.isEmpty() || visionConfig == null || !visionConfig.enabled) {
                 if (matches.isEmpty()) {
                     throw new ActionFailure(
                             "ELEMENT_NOT_FOUND", "selector matched 0 elements", true);
@@ -1051,8 +1141,8 @@ public class AutomationInstrumentedTest {
                         "selector matched " + matches.size() + " elements",
                         false);
             }
-            if (templateSpec != null) ensureVisionLocator().noteSemanticFallback();
-        } else if (visionSpec == null) {
+            semanticToVisionFallbackCount++;
+        } else if (candidates.isEmpty()) {
             throw new ActionFailure(
                     "JOB_PAYLOAD_INVALID",
                     "selector has neither semantic criteria nor an explicit Vision locator",
@@ -1064,42 +1154,141 @@ public class AutomationInstrumentedTest {
         if ("EXTERNAL_IRREVERSIBLE".equals(sideEffect)) {
             throw new ActionFailure(
                     VisionTemplateLocator.ERR_POLICY_BLOCKED,
-                    "V2 denies Vision routing for EXTERNAL_IRREVERSIBLE actions",
+                    "Vision routing remains denied for EXTERNAL_IRREVERSIBLE actions",
                     false,
                     "BLOCKED");
         }
 
-        if (ocrSpec != null) {
-            return clickOcr(action, selector, ocrSpec, semanticAvailable);
+        return clickVisionCascade(action, selector, candidates, semanticAvailable);
+    }
+
+    private JSONObject clickVisionCascade(
+            JSONObject action,
+            JSONObject selector,
+            List<JSONObject> candidates,
+            boolean semanticAvailable) throws Exception {
+        JSONArray trace = new JSONArray();
+        ActionFailure lastMiss = null;
+        boolean recoveryAttempted = false;
+        long[] backoffMs = new long[]{100L, 200L, 400L};
+
+        for (int round = 0; round <= backoffMs.length; round++) {
+            boolean attempted = false;
+            boolean templateMiss = false;
+            for (int i = 0; i < candidates.size(); i++) {
+                JSONObject spec = candidates.get(i);
+                if (!isVisionCandidateEnabled(spec)) continue;
+                attempted = true;
+                String type = spec.optString("type");
+                if ("vision_text".equals(type) && templateMiss) {
+                    hybridTemplateToOcrFallbackCount++;
+                }
+
+                try {
+                    JSONObject out;
+                    if ("vision_template".equals(type)) {
+                        out = clickTemplateCandidate(
+                                action, selector, spec, semanticAvailable, round, i);
+                    } else if ("vision_text".equals(type)) {
+                        out = clickOcrCandidate(
+                                action, selector, spec, semanticAvailable, round, i);
+                    } else {
+                        continue;
+                    }
+                    out.put("fallback_trace", trace);
+                    if (currentVisionRecoveryEvents != null &&
+                            currentVisionRecoveryEvents.length() > 0) {
+                        out.put("vision_recovery", currentVisionRecoveryEvents);
+                    }
+                    return out;
+                } catch (ActionFailure e) {
+                    if (!isSoftLocatorMiss(e)) throw e;
+                    lastMiss = e;
+                    if ("vision_template".equals(type)) templateMiss = true;
+                    trace.put(new JSONObject()
+                            .put("round", round)
+                            .put("candidate_index", i)
+                            .put("locator_type", type)
+                            .put("status", "MISS")
+                            .put("error_code", e.code));
+                }
+            }
+
+            if (!attempted) {
+                throw new ActionFailure(
+                        VisionTemplateLocator.ERR_POLICY_BLOCKED,
+                        "no enabled Vision backend is eligible for selector",
+                        false,
+                        "BLOCKED");
+            }
+
+            if (!recoveryAttempted && attemptKnownPopupRecovery(action)) {
+                recoveryAttempted = true;
+                invalidateVisionObservationCaches();
+                trace.put(new JSONObject()
+                        .put("round", round)
+                        .put("status", "RECOVERY_APPLIED")
+                        .put("recovery", "KNOWN_POPUP"));
+                // Recovery itself must not consume the final retry slot. Repeat
+                // the same round once against the newly-observed screen.
+                round = Math.max(-1, round - 1);
+                continue;
+            }
+
+            if (round < backoffMs.length) {
+                SystemClock.sleep(backoffMs[round]);
+            }
         }
 
-        JSONObject effectiveVision = new JSONObject(visionSpec.toString());
+        String detail = lastMiss == null ? "no eligible visual target" :
+                lastMiss.code + ": " + lastMiss.getMessage();
+        throw new ActionFailure(
+                "VISUAL_TIMEOUT",
+                "semantic/template/OCR cascade exhausted after bounded backoff; last=" + detail,
+                true);
+    }
+
+    private JSONObject clickTemplateCandidate(
+            JSONObject action,
+            JSONObject selector,
+            JSONObject templateSpec,
+            boolean semanticAvailable,
+            int round,
+            int candidateIndex) throws Exception {
+        JSONObject effectiveVision = new JSONObject(templateSpec.toString());
         if (!effectiveVision.has("expected_package") && selector.has("package")) {
             effectiveVision.put("expected_package", selector.getString("package"));
         }
         VisionTemplateLocator locator = ensureVisionLocator();
-        VisionTemplateLocator.Resolved resolved;
-        try {
-            resolved = locator.resolve(effectiveVision);
-            lastVisionContext = new JSONObject(resolved.metadata.toString())
-                    .put("route", semanticAvailable
-                            ? "SEMANTIC_TO_VISION_TEMPLATE"
-                            : "VISION_TEMPLATE");
-            locator.validatePreAction(resolved);
-        } catch (VisionV0Harness.VisionFailure e) {
-            if (lastVisionContext == null) {
-                lastVisionContext = new JSONObject()
-                        .put("locator_type", "vision_template")
-                        .put("template", effectiveVision.optString("template", ""))
-                        .put("template_sha256",
-                                effectiveVision.optString("template_sha256", ""))
-                        .put("error_code", e.code)
-                        .put("error_message", e.getMessage());
-            } else {
-                lastVisionContext.put("error_code", e.code)
-                        .put("error_message", e.getMessage());
+        VisionTemplateLocator.Resolved resolved = null;
+        for (int resolveAttempt = 0; resolveAttempt < 2; resolveAttempt++) {
+            try {
+                resolved = locator.resolve(effectiveVision);
+                lastVisionContext = new JSONObject(resolved.metadata.toString())
+                        .put("route", semanticAvailable
+                                ? "SEMANTIC_TO_TEMPLATE"
+                                : "VISION_TEMPLATE")
+                        .put("hybrid_round", round)
+                        .put("candidate_index", candidateIndex)
+                        .put("resolve_attempt", resolveAttempt + 1);
+                maybeMutateVisionBenchmarkBeforeAction(action, resolveAttempt);
+                locator.validatePreAction(resolved);
+                break;
+            } catch (VisionV0Harness.VisionFailure e) {
+                if (isStaleVisionFailure(e) && resolveAttempt == 0) {
+                    visionStaleReresolveCount++;
+                    continue;
+                }
+                lastVisionContext = visionFailureContext(
+                        "vision_template", effectiveVision, e, round, candidateIndex);
+                throw visionActionFailure(e);
             }
-            throw visionActionFailure(e);
+        }
+        if (resolved == null) {
+            throw new ActionFailure(
+                    VisionV0Harness.ERR_STALE_TARGET,
+                    "template target could not be re-resolved",
+                    true);
         }
 
         int[] point = locator.clickPoint(resolved, false);
@@ -1136,41 +1325,51 @@ public class AutomationInstrumentedTest {
                 .put("postcondition_pass", true);
     }
 
-
-    private JSONObject clickOcr(
+    private JSONObject clickOcrCandidate(
             JSONObject action,
             JSONObject selector,
             JSONObject ocrSpec,
-            boolean semanticAvailable) throws Exception {
+            boolean semanticAvailable,
+            int round,
+            int candidateIndex) throws Exception {
         JSONObject effectiveOcr = new JSONObject(ocrSpec.toString());
         if (!effectiveOcr.has("expected_package") && selector.has("package")) {
             effectiveOcr.put("expected_package", selector.getString("package"));
         }
 
         OcrTextLocator locator = ensureOcrLocator();
-        OcrTextLocator.Resolved resolved;
-        try {
-            resolved = locator.resolve(
-                    effectiveOcr,
-                    action.optLong("timeout_ms", 10000L));
-            lastVisionContext = new JSONObject(resolved.metadata.toString())
-                    .put("route", semanticAvailable
-                            ? "SEMANTIC_TO_VISION_TEXT"
-                            : "VISION_TEXT");
-            locator.validatePreAction(resolved);
-        } catch (VisionV0Harness.VisionFailure e) {
-            if (lastVisionContext == null) {
-                lastVisionContext = new JSONObject()
-                        .put("locator_type", "vision_text")
-                        .put("pattern", effectiveOcr.optString("pattern", ""))
-                        .put("match", effectiveOcr.optString("match", "substring"))
-                        .put("error_code", e.code)
-                        .put("error_message", e.getMessage());
-            } else {
-                lastVisionContext.put("error_code", e.code)
-                        .put("error_message", e.getMessage());
+        OcrTextLocator.Resolved resolved = null;
+        for (int resolveAttempt = 0; resolveAttempt < 2; resolveAttempt++) {
+            try {
+                resolved = locator.resolve(
+                        effectiveOcr,
+                        action.optLong("timeout_ms", 10000L));
+                lastVisionContext = new JSONObject(resolved.metadata.toString())
+                        .put("route", semanticAvailable
+                                ? "SEMANTIC_TO_OCR"
+                                : "VISION_TEXT")
+                        .put("hybrid_round", round)
+                        .put("candidate_index", candidateIndex)
+                        .put("resolve_attempt", resolveAttempt + 1);
+                maybeMutateVisionBenchmarkBeforeAction(action, resolveAttempt);
+                locator.validatePreAction(resolved);
+                break;
+            } catch (VisionV0Harness.VisionFailure e) {
+                if (isStaleVisionFailure(e) && resolveAttempt == 0) {
+                    visionStaleReresolveCount++;
+                    locator.invalidateObservationCache();
+                    continue;
+                }
+                lastVisionContext = visionFailureContext(
+                        "vision_text", effectiveOcr, e, round, candidateIndex);
+                throw visionActionFailure(e);
             }
-            throw visionActionFailure(e);
+        }
+        if (resolved == null) {
+            throw new ActionFailure(
+                    VisionV0Harness.ERR_STALE_TARGET,
+                    "OCR target could not be re-resolved",
+                    true);
         }
 
         int[] point = new int[]{resolved.centerX, resolved.centerY};
@@ -1206,6 +1405,132 @@ public class AutomationInstrumentedTest {
                 .put("postcondition_pass", true);
     }
 
+    private JSONObject visionFailureContext(
+            String type,
+            JSONObject spec,
+            VisionV0Harness.VisionFailure failure,
+            int round,
+            int candidateIndex) throws Exception {
+        JSONObject out = new JSONObject()
+                .put("locator_type", type)
+                .put("error_code", failure.code)
+                .put("error_message", failure.getMessage())
+                .put("hybrid_round", round)
+                .put("candidate_index", candidateIndex);
+        if ("vision_template".equals(type)) {
+            out.put("template", spec.optString("template", ""))
+                    .put("template_sha256", spec.optString("template_sha256", ""));
+        } else {
+            out.put("pattern", spec.optString("pattern", ""))
+                    .put("match", spec.optString("match", "substring"));
+        }
+        return out;
+    }
+
+    private boolean attemptKnownPopupRecovery(JSONObject action) throws Exception {
+        JSONObject recovery = action.optJSONObject("vision_recovery");
+        if (recovery == null) return false;
+        JSONArray popups = recovery.optJSONArray("known_popups");
+        if (popups == null || popups.length() == 0) return false;
+        if (popups.length() > 4) {
+            throw new ActionFailure(
+                    "JOB_PAYLOAD_INVALID",
+                    "vision_recovery.known_popups supports at most 4 entries",
+                    false);
+        }
+
+        String currentPackage = device.getCurrentPackageName();
+        for (int i = 0; i < popups.length(); i++) {
+            JSONObject popup = popups.optJSONObject(i);
+            if (popup == null) {
+                throw new ActionFailure(
+                        "JOB_PAYLOAD_INVALID",
+                        "known popup recovery entry must be an object",
+                        false);
+            }
+            String expectedPackage = popup.optString("expected_package", "");
+            if (expectedPackage.isEmpty()) {
+                throw new ActionFailure(
+                        "JOB_PAYLOAD_INVALID",
+                        "known popup recovery requires expected_package",
+                        false);
+            }
+            if (!expectedPackage.equals(currentPackage)) continue;
+
+            JSONObject semantic = popup.optJSONObject("semantic");
+            if (semantic != null) {
+                if (semantic.has("fallback") || semantic.has("type") ||
+                        !hasSemanticCriteria(semantic)) {
+                    throw new ActionFailure(
+                            "JOB_PAYLOAD_INVALID",
+                            "popup semantic dismiss must be semantic-only",
+                            false);
+                }
+                validateSelectorKeys(semantic);
+                List<UiObject2> matches = findObjects(semantic);
+                if (matches.size() == 1) {
+                    matches.get(0).click();
+                    verifyPopupRecoveryExpectation(popup);
+                    recordPopupRecovery(i, "semantic");
+                    return true;
+                }
+            }
+
+            JSONObject template = popup.optJSONObject("template");
+            if (template != null) {
+                VisionTemplateLocator.validateTemplateSpec(template);
+                if (!template.has("roi") && !template.has("roi_ratio")) {
+                    throw new ActionFailure(
+                            "JOB_PAYLOAD_INVALID",
+                            "popup template recovery requires bounded roi or roi_ratio",
+                            false);
+                }
+                JSONObject effective = new JSONObject(template.toString())
+                        .put("expected_package", expectedPackage);
+                try {
+                    VisionTemplateLocator locator = ensureVisionLocator();
+                    VisionTemplateLocator.Resolved resolved = locator.resolve(effective);
+                    locator.validatePreAction(resolved);
+                    int[] point = locator.clickPoint(resolved, true);
+                    if (!device.click(point[0], point[1])) {
+                        throw new ActionFailure(
+                                "ACTION_FAILED",
+                                "UiDevice.click returned false for popup recovery",
+                                true);
+                    }
+                    verifyPopupRecoveryExpectation(popup);
+                    recordPopupRecovery(i, "vision_template");
+                    return true;
+                } catch (VisionV0Harness.VisionFailure e) {
+                    if (VisionV0Harness.ERR_TEMPLATE_NOT_FOUND.equals(e.code)) continue;
+                    throw visionActionFailure(e);
+                }
+            }
+        }
+        return false;
+    }
+
+    private void verifyPopupRecoveryExpectation(JSONObject popup) throws Exception {
+        JSONObject expect = popup.optJSONObject("expect");
+        if (expect != null) {
+            verifyExpectation(expect, Math.max(250L, popup.optLong("timeout_ms", 2000L)));
+        } else {
+            SystemClock.sleep(100L);
+        }
+    }
+
+    private void recordPopupRecovery(int index, String source) throws Exception {
+        visionRecoveryCount++;
+        if (currentVisionRecoveryEvents == null) currentVisionRecoveryEvents = new JSONArray();
+        currentVisionRecoveryEvents.put(new JSONObject()
+                .put("popup_index", index)
+                .put("source", source)
+                .put("status", "DISMISSED"));
+    }
+
+    private void invalidateVisionObservationCaches() {
+        if (ocrLocator != null) ocrLocator.invalidateObservationCache();
+    }
 
     private JSONObject longClick(JSONObject action) throws Exception {
         UiObject2 target = findUnique(action.optJSONObject("selector"));

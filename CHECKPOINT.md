@@ -677,7 +677,7 @@ OCR capability = READY via explicit vision_text
 OCR default = OFF
 external irreversible / COMMIT Vision = DENY
 mixed Template + OCR hybrid routing = NOT ENABLED
-Sprint V3 = NOT AUTHORIZED / NOT STARTED
+Sprint V3 = AUTHORIZED / IN PROGRESS (user authorization 2026-10-06)
 ```
 
 Detailed implementation and acceptance evidence:

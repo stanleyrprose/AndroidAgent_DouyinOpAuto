@@ -501,6 +501,52 @@ def enforce_vision_evidence_quota(
     return evicted, total
 
 
+def _vision_route_summary(result: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for action in result.get("actions") or []:
+        if not isinstance(action, dict):
+            continue
+        data = action.get("data")
+        failure = action.get("failure_evidence")
+        route_data = data if isinstance(data, dict) else {}
+        context = (
+            failure.get("vision_context")
+            if isinstance(failure, dict)
+            and isinstance(failure.get("vision_context"), dict)
+            else {}
+        )
+        source = route_data.get("locator_source") or context.get("locator_type")
+        trace = route_data.get("fallback_trace")
+        recovery = route_data.get("vision_recovery")
+        if source is None and not trace and not recovery and not context:
+            continue
+        row: dict[str, Any] = {
+            "action_id": action.get("action_id"),
+            "status": action.get("status"),
+        }
+        if source is not None:
+            row["locator_source"] = source
+        if isinstance(trace, list):
+            row["fallback_trace"] = trace[:16]
+        if isinstance(recovery, list):
+            row["recovery"] = recovery[:8]
+        if context:
+            row["failure_context"] = {
+                k: context[k]
+                for k in (
+                    "locator_type",
+                    "route",
+                    "error_code",
+                    "hybrid_round",
+                    "candidate_index",
+                    "resolve_attempt",
+                )
+                if k in context
+            }
+        rows.append(row)
+    return rows
+
+
 def finalize_vision_evidence(
     ui_dir: Path,
     req: dict[str, Any],
@@ -517,6 +563,7 @@ def finalize_vision_evidence(
         "status": result.get("status"),
         "policy": result.get("vision_policy") or vision,
         "metrics": result.get("vision_metrics") or {},
+        "routes": _vision_route_summary(result),
     }
     atomic_json(ui_dir / "evidence" / "vision-metadata.json", marker)
     evicted, retained = enforce_vision_evidence_quota(

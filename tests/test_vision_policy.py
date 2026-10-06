@@ -76,6 +76,27 @@ class VisionRoutingPolicyTest(unittest.TestCase):
         )
         self.assertEqual(d.route, Route.VISION_TEMPLATE)
 
+    def test_template_precedes_ocr_even_when_input_order_is_reversed(self):
+        selector = {
+            "fallback": [
+                {"type": "vision_text", "pattern": "X"},
+                {"type": "vision_template", "template": "x.png"},
+            ]
+        }
+        d = decide_route(
+            semantic_status=SemanticStatus.NOT_FOUND,
+            selector=selector,
+            policy=VisionPolicy(
+                vision_enabled=True,
+                mode="fallback",
+                gate_v0_passed=True,
+                template_enabled=True,
+                ocr_enabled=True,
+                gate_v2_passed=True,
+            ),
+        )
+        self.assertEqual(d.route, Route.VISION_TEMPLATE)
+
     def test_ocr_requires_gate_v2(self):
         selector = {"fallback": [{"type": "vision_text", "pattern": "X"}]}
         d = decide_route(
