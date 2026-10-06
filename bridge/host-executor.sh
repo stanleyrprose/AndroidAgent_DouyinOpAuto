@@ -44,6 +44,10 @@ CONTROL="$JOBS/control"
 LOG="$RUNTIME/host-executor.log"
 LOCK_DIR="$RUNTIME/host-executor.lock"
 PIDFILE="$RUNTIME/host-executor.pid"
+HEALTH_LOOP_PIDFILE="$RUNTIME/health-loop.pid"
+DEBIAN_EXEC="${Y700_DEBIAN_EXEC:-/data/local/y700-linux/exec.sh}"
+DEBIAN_START_HEALTH="${Y700_DEBIAN_START_HEALTH:-/opt/y700/workspaces/y700-agent/scripts/start-health-loop.sh}"
+HEALTH_LOOP_SUPERVISE_MS="${Y700_HEALTH_LOOP_SUPERVISE_MS:-60000}"
 
 SELF_PID=$$
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || printf unknown)"
@@ -52,6 +56,7 @@ STARTED_AT=""
 LAST_HEARTBEAT_MS=0
 LAST_RECONCILE_MS=0
 LAST_METRICS_MS=0
+LAST_HEALTH_LOOP_SUPERVISE_MS=0
 RESTART_COUNT=1
 LAST_SUBMIT_TO_CLAIM_MS=0
 LAST_CLAIM_TO_START_MS=0
@@ -101,6 +106,45 @@ executor_pid_matches() {
   [ -r "/proc/$pid/cmdline" ] || return 1
   "$TOYBOX" tr '\000' ' ' <"/proc/$pid/cmdline" 2>/dev/null | \
     "$TOYBOX" grep -q '/bridge/host-executor.sh'
+}
+
+health_loop_pid_matches() {
+  pid="$(cat "$HEALTH_LOOP_PIDFILE" 2>/dev/null || true)"
+  case "$pid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  "$TOYBOX" tr '\000' ' ' <"/proc/$pid/cmdline" 2>/dev/null | \
+    "$TOYBOX" grep -q '/scripts/health-loop.sh'
+}
+
+ensure_health_loop() {
+  now_ms="$(uptime_ms)"
+  if [ "$LAST_HEALTH_LOOP_SUPERVISE_MS" -ne 0 ] && \
+     [ $((now_ms - LAST_HEALTH_LOOP_SUPERVISE_MS)) -lt "$HEALTH_LOOP_SUPERVISE_MS" ]; then
+    return 0
+  fi
+  LAST_HEALTH_LOOP_SUPERVISE_MS="$now_ms"
+
+  health_loop_pid_matches && return 0
+
+  if [ ! -x "$DEBIAN_EXEC" ]; then
+    append_log "health-loop supervisor unavailable debian_exec=$DEBIAN_EXEC"
+    return 0
+  fi
+
+  append_log "health-loop supervisor recovery_start"
+  if "$DEBIAN_EXEC" /bin/bash "$DEBIAN_START_HEALTH" \
+      >>"$RUNTIME/health-loop-supervisor.log" 2>&1; then
+    if health_loop_pid_matches; then
+      append_log "health-loop supervisor recovery_ok pid=$(cat "$HEALTH_LOOP_PIDFILE" 2>/dev/null || true)"
+    else
+      append_log "health-loop supervisor recovery_unverified"
+    fi
+  else
+    rc=$?
+    append_log "health-loop supervisor recovery_failed rc=$rc"
+  fi
 }
 
 release_singleton() {
@@ -900,12 +944,14 @@ write_protocol
 recover_live_orphan_control || true
 write_executor_heartbeat
 append_log "host-executor v2 start pid=$SELF_PID executor_id=$EXECUTOR_ID"
+ensure_health_loop
 reconcile_stale_v1_startup
 reconcile_v2 all
 write_metrics
 
 while true; do
   write_executor_heartbeat
+  ensure_health_loop
 
   if check_live_orphan_block; then
     [ "$ONESHOT" = 1 ] && exit 0
