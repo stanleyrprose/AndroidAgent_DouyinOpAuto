@@ -757,6 +757,13 @@ P95 = 7000.8 ms
 max = 8782.2 ms
 ```
 
+Accepted candidate APK hashes:
+
+```text
+app  = 791478bb3ee74dca52503bbd62fa704143f76de3ed485d4a7d1412c129268956
+test = 38566b77fa65afc24bf0eea5d58ad04205ece265b326639ac0d16dd9bf6f877f
+```
+
 One repeated Gate run exposed a benchmark-only representative mixed-request OCR
 flake while the frozen 20-run suite still completed 20/20 PASS with valid
 template-miss -> OCR metadata. The harness was hardened so the required cold-start

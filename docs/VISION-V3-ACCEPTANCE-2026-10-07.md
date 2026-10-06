@@ -91,6 +91,13 @@ PASS still requires the complete mixed-route and postcondition contract.
 The final accepted run did not use that fallback: the representative mixed sample
 also passed and supplied the accepted evidence source.
 
+## Candidate APK hashes
+
+```text
+app  = 791478bb3ee74dca52503bbd62fa704143f76de3ed485d4a7d1412c129268956
+test = 38566b77fa65afc24bf0eea5d58ad04205ece265b326639ac0d16dd9bf6f877f
+```
+
 ## Code baseline
 
 Gate code baseline before closure documentation:

@@ -2,7 +2,7 @@
 
 Status: **PASS / FROZEN — Gate V3 accepted on real Y700 (2026-10-07)**
 
-Baseline: Sprint V2 PASS / FROZEN on real Y700. V3 is explicitly authorized by the user on 2026-10-06.
+Baseline: Sprint V2 PASS / FROZEN on real Y700. V3 is explicitly authorized by the user on 2026-10-07 (user local date).
 
 ## Frozen scope
 
@@ -110,3 +110,10 @@ that fallback: `representative_mixed_pass=true` and the evidence source was the
 representative mixed job itself.
 
 Gate code baseline: `7d73357`.
+
+Accepted candidate APK hashes:
+
+```text
+app  = 791478bb3ee74dca52503bbd62fa704143f76de3ed485d4a7d1412c129268956
+test = 38566b77fa65afc24bf0eea5d58ad04205ece265b326639ac0d16dd9bf6f877f
+```
