@@ -161,6 +161,25 @@ def cmd_approve(args) -> int:
     return 0
 
 
+def cmd_mark_album_stored(args) -> int:
+    job = get_job(args.job_id)
+    job.write_state(
+        "STORED_IN_ALBUM",
+        album=args.album,
+        device_path=args.device_path,
+        media_store_verified=True,
+        workflow="album_store",
+    )
+    refresh_index(job)
+    print(json.dumps({
+        "status": "STORED_IN_ALBUM",
+        "job_id": job.job_id,
+        "album": args.album,
+        "device_path": args.device_path,
+    }, ensure_ascii=False))
+    return 0
+
+
 def cmd_finalize(args) -> int:
     job = get_job(args.job_id)
     source = read_json(job.dir / "source" / "source.json")
@@ -196,6 +215,7 @@ def cmd_status(args) -> int:
         "localization/localization.json",
         "production/render-result.json",
         "export/export-result.json",
+        "album-store-closure.json",
     ]:
         p = job.dir / rel
         if p.exists():
@@ -236,6 +256,12 @@ def main() -> int:
     p.add_argument("job_id")
     p.add_argument("--note")
     p.set_defaults(func=cmd_approve)
+
+    p = sp.add_parser("mark-album-stored")
+    p.add_argument("job_id")
+    p.add_argument("--album", default="Y700Agent")
+    p.add_argument("--device-path", required=True)
+    p.set_defaults(func=cmd_mark_album_stored)
 
     p = sp.add_parser("finalize")
     p.add_argument("job_id")

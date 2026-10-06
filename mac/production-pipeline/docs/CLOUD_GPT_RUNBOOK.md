@@ -194,3 +194,24 @@ Durable state is the truth source.
 
 Do not infer success from one tool timeout.
 Do not retry a COMMIT until publication absence is positively established.
+
+## Telegram explicit intent routing
+
+The dedicated Telegram profile no longer treats a bare Douyin link as an execution request.
+Use exactly one of these prefixes:
+
+```text
+自动发布+<Douyin share text or URL>
+存到相册+<Douyin share text or URL>
+```
+
+`自动发布+` follows the established full PUBLIC workflow and carries standing authorization for exactly one PUBLIC COMMIT attempt after mandatory DRY_RUN.
+
+`存到相册+` follows the same Mac ingest / evidence / localization / render / export path, then stops after the Y700 album-only handoff:
+
+```bash
+bash mac/production-pipeline/scripts/store-to-y700-album.sh <job> Y700Agent
+```
+
+The album-only path stores the rendered video non-destructively at
+`/sdcard/Movies/Y700Agent/<job>.mp4`, verifies it through MediaStore, updates the Mac job to `STORED_IN_ALBUM`, sends `ALBUM_STORED`, restores the original Y700 screen power state, and never launches TikTok or crosses a publish boundary.
