@@ -43,6 +43,9 @@ class HostExecutorSingletonContractTests(unittest.TestCase):
         self.assertIn("count_host_executors", text)
         self.assertIn('android_bridge_instances', text)
         self.assertIn('[ "$bridge_instances" -ne 1 ]', text)
+        self.assertIn("while IFS= read -r arg", text)
+        self.assertIn("*/bridge/host-executor.sh)", text)
+        self.assertNotIn('*"/bridge/host-executor.sh"*', text)
 
 
 if __name__ == "__main__":
