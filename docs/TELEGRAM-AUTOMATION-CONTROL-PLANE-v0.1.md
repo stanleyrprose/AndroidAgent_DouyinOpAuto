@@ -122,3 +122,17 @@ A bare Douyin URL no longer authorizes or starts work.
 `自动发布+` runs the full Mac production -> Y700 -> TikTok PUBLIC path and authorizes exactly one PUBLIC COMMIT attempt after mandatory DRY_RUN.
 
 `存到相册+` runs Mac production through export, pulls the capability artifact to Y700, stores the rendered video non-destructively under `Movies/Y700Agent`, verifies MediaStore visibility, saves the final Burmese caption into ZUI Notes for manual copy/publish, emits `ALBUM_STORED`, restores the initial power state, and stops. This path has no TikTok/COMMIT capability.
+
+
+## Durable resume control (2026-10-06)
+
+Telegram supports:
+
+```text
+/resume <job_id>
+继续任务：<job_id>
+继续任务:<job_id>
+继续任务+<job_id>
+```
+
+A canonical job must carry a write-once `workflow_intent` of `AUTO_PUBLISH` or `STORE_ALBUM`. Resume never accepts or infers a replacement intent. `STORE_ALBUM` resumes only from safe exported handoff state; an expired capability URL is regenerated from existing Mac render/caption artifacts without re-downloading or re-localizing. `AUTO_PUBLISH` may resume retry-safe pre-COMMIT stages, but any COMMIT manifest, COMMITTING, ambiguous, or published state is transferred to the existing publication closure/reconciliation controller. A COMMIT with uncertain outcome is never replayed.
