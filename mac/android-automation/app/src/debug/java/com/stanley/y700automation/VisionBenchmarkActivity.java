@@ -16,6 +16,8 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 
 public class VisionBenchmarkActivity extends Activity {
+    private boolean trackClickCountMode;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -33,8 +35,11 @@ public class VisionBenchmarkActivity extends Activity {
     }
 
     private void render(Intent intent) {
+        if (intent != null && intent.getBooleanExtra("track_click_count", false)) {
+            trackClickCountMode = true;
+        }
         FrameLayout root = new FrameLayout(this);
-        BenchmarkView benchmark = new BenchmarkView(intent);
+        BenchmarkView benchmark = new BenchmarkView(intent, trackClickCountMode);
         root.addView(benchmark, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
@@ -123,14 +128,14 @@ public class VisionBenchmarkActivity extends Activity {
         private boolean clicked;
         private int targetClickCount;
 
-        BenchmarkView(Intent intent) {
+        BenchmarkView(Intent intent, boolean trackClickCountMode) {
             super(VisionBenchmarkActivity.this);
             Intent source = intent == null ? new Intent() : intent;
             duplicate = source.getBooleanExtra("duplicate", false);
             ocrText = source.getStringExtra("ocr_text");
             clicked = source.getBooleanExtra("clicked", false);
             staleVariant = source.getBooleanExtra("stale_variant", false);
-            trackClickCount = source.getBooleanExtra("track_click_count", false);
+            trackClickCount = trackClickCountMode;
             targetClickCount = clicked ? 1 : 0;
             // The visible target itself is drawn on Canvas and has no semantic
             // child. The parent view becomes semantically identifiable only

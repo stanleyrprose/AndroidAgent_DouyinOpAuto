@@ -68,6 +68,13 @@ class VisionV3ContractTest(unittest.TestCase):
         self.assertIn('VISION_V3_CLICKED_COUNT_', bench)
         self.assertIn('targetClickCount++', bench)
         self.assertIn('test_benchmark_track_click_count', driver)
+        self.assertIn('private boolean trackClickCountMode;', bench)
+        self.assertIn('trackClickCountMode = true;', bench)
+        self.assertIn('new BenchmarkView(intent, trackClickCountMode)', bench)
+        self.assertNotIn(
+            'trackClickCount = source.getBooleanExtra("track_click_count", false);',
+            bench,
+        )
 
     def test_external_irreversible_vision_remains_blocked(self) -> None:
         text = DRIVER.read_text(encoding="utf-8")
