@@ -6,9 +6,8 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
-from pipeline import cli
+from pipeline.state import set_workflow_intent
 
 ROOT = Path(__file__).resolve().parents[1]
 RESUME = ROOT / "scripts" / "resume-job.sh"
@@ -36,21 +35,17 @@ class FakeJob:
 class WorkflowIntentTests(unittest.TestCase):
     def test_intent_is_write_once_and_idempotent(self) -> None:
         job = FakeJob({"job_id": "dy-1", "state": "EXPORTED"})
-        args = type("Args", (), {"job_id": "dy-1", "intent": "STORE_ALBUM"})()
-        with mock.patch.object(cli, "get_job", return_value=job), mock.patch.object(cli, "refresh_index"):
-            self.assertEqual(cli.cmd_set_intent(args), 0)
-            self.assertEqual(job.state()["workflow_intent"], "STORE_ALBUM")
-            self.assertEqual(cli.cmd_set_intent(args), 0)
-            other = type("Args", (), {"job_id": "dy-1", "intent": "AUTO_PUBLISH"})()
-            with self.assertRaisesRegex(RuntimeError, "workflow intent is immutable"):
-                cli.cmd_set_intent(other)
+        first = set_workflow_intent(job, "STORE_ALBUM")
+        self.assertEqual(first["workflow_intent"], "STORE_ALBUM")
+        second = set_workflow_intent(job, "STORE_ALBUM")
+        self.assertEqual(second["workflow_intent"], "STORE_ALBUM")
+        with self.assertRaisesRegex(RuntimeError, "workflow intent is immutable"):
+            set_workflow_intent(job, "AUTO_PUBLISH")
 
     def test_missing_intent_is_not_backfilled_after_terminal(self) -> None:
         job = FakeJob({"job_id": "dy-1", "state": "VERIFIED"})
-        args = type("Args", (), {"job_id": "dy-1", "intent": "AUTO_PUBLISH"})()
-        with mock.patch.object(cli, "get_job", return_value=job), mock.patch.object(cli, "refresh_index"):
-            with self.assertRaisesRegex(RuntimeError, "cannot backfill"):
-                cli.cmd_set_intent(args)
+        with self.assertRaisesRegex(RuntimeError, "cannot backfill"):
+            set_workflow_intent(job, "AUTO_PUBLISH")
 
 
 class ResumeScriptTests(unittest.TestCase):

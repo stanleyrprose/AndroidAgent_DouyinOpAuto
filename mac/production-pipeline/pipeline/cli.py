@@ -12,7 +12,7 @@ from .douzy import Client, DouzyError
 from .export import export as export_job
 from .localize import save as save_localization
 from .render import render
-from .state import Job, find_duplicate, index_job, mark_published
+from .state import Job, find_duplicate, index_job, mark_published, set_workflow_intent
 
 
 def _find_video(root: Path) -> Path:
@@ -163,30 +163,11 @@ def cmd_approve(args) -> int:
 
 def cmd_set_intent(args) -> int:
     job = get_job(args.job_id)
-    intent = args.intent
-    if intent not in {"AUTO_PUBLISH", "STORE_ALBUM"}:
-        raise RuntimeError(f"unsupported workflow intent: {intent}")
-    current = job.state()
-    existing = current.get("workflow_intent")
-    if existing and existing != intent:
-        raise RuntimeError(f"workflow intent is immutable: existing={existing} requested={intent}")
-    terminal = {"PUBLISHED", "VERIFIED", "STORED_IN_ALBUM"}
-    if not existing and current.get("state") in terminal:
-        raise RuntimeError(f"cannot backfill workflow intent after terminal state: {current.get('state')}")
-    if not existing:
-        state_name = current.get("state")
-        if not state_name:
-            raise RuntimeError("job state missing")
-        job.write_state(
-            state_name,
-            workflow_intent=intent,
-            workflow_intent_set_at=now_iso(),
-        )
-        job.event("WORKFLOW_INTENT_SET", workflow_intent=intent)
-        refresh_index(job)
-    out = job.state()
+    before = job.state().get("workflow_intent")
+    out = set_workflow_intent(job, args.intent)
+    refresh_index(job)
     print(json.dumps({
-        "status": "WORKFLOW_INTENT_SET" if not existing else "WORKFLOW_INTENT_ALREADY_SET",
+        "status": "WORKFLOW_INTENT_ALREADY_SET" if before else "WORKFLOW_INTENT_SET",
         "job_id": job.job_id,
         "workflow_intent": out.get("workflow_intent"),
         "state": out.get("state"),
