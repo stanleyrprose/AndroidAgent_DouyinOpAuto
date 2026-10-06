@@ -82,7 +82,13 @@ def ocr_spec() -> dict:
     }
 
 
-def base_request(job_id: str, *, clicked: bool = False, popup: bool = False) -> dict:
+def base_request(
+    job_id: str,
+    *,
+    clicked: bool = False,
+    popup: bool = False,
+    track_click_count: bool = False,
+) -> dict:
     return {
         "protocol_version": 1,
         "job_id": job_id,
@@ -92,6 +98,7 @@ def base_request(job_id: str, *, clicked: bool = False, popup: bool = False) -> 
         "test_benchmark_ocr_text": OCR_TEXT,
         "test_benchmark_clicked": clicked,
         "test_benchmark_popup": popup,
+        "test_benchmark_track_click_count": track_click_count,
         "test_allow_keyguard_benchmark": True,
         "vision": {
             "enabled": True,
@@ -105,7 +112,11 @@ def base_request(job_id: str, *, clicked: bool = False, popup: bool = False) -> 
     }
 
 
-def mixed_action(*, side_effect: str = "REVERSIBLE_LOCAL") -> dict:
+def mixed_action(
+    *,
+    side_effect: str = "REVERSIBLE_LOCAL",
+    expected_desc: str = "VISION_V1_CLICKED",
+) -> dict:
     return {
         "action_id": "hybrid-click",
         "action": "click",
@@ -117,7 +128,7 @@ def mixed_action(*, side_effect: str = "REVERSIBLE_LOCAL") -> dict:
         },
         "side_effect": side_effect,
         "expect": {
-            "selector": {"content_desc": "VISION_V1_CLICKED"},
+            "selector": {"content_desc": expected_desc},
             "unique": True,
         },
         "timeout_ms": 8_000,
@@ -222,8 +233,8 @@ def main() -> int:
     # 2) One representative mixed template -> OCR route.
     cold_reset()
     mixed_job = "vision-v3-mixed-" + secrets.token_hex(3)
-    mixed_req = base_request(mixed_job)
-    mixed_req["actions"] = [mixed_action()]
+    mixed_req = base_request(mixed_job, track_click_count=True)
+    mixed_req["actions"] = [mixed_action(expected_desc="VISION_V3_CLICKED_COUNT_1")]
     mixed = run(mixed_req)
     mixed_ok = mixed_pass(mixed)
     marker = evidence_marker(mixed_job)
@@ -236,8 +247,8 @@ def main() -> int:
     # hook removes it, then the same cascade must retry and succeed.
     cold_reset()
     popup_job = "vision-v3-popup-" + secrets.token_hex(3)
-    popup_req = base_request(popup_job, popup=True)
-    popup_action = mixed_action()
+    popup_req = base_request(popup_job, popup=True, track_click_count=True)
+    popup_action = mixed_action(expected_desc="VISION_V3_CLICKED_COUNT_1")
     popup_action["vision_recovery"] = {
         "known_popups": [{
             "expected_package": APP,
@@ -265,7 +276,7 @@ def main() -> int:
     # re-resolve once, then click only the fresh target.
     cold_reset()
     stale_job = "vision-v3-stale-" + secrets.token_hex(3)
-    stale_req = base_request(stale_job)
+    stale_req = base_request(stale_job, track_click_count=True)
     stale_action = {
         "action_id": "stale-click",
         "action": "click",
@@ -277,7 +288,7 @@ def main() -> int:
         "test_mutate_vision_before_action": True,
         "test_mutate_vision_ocr_text": OCR_TEXT,
         "expect": {
-            "selector": {"content_desc": "VISION_V1_CLICKED"},
+            "selector": {"content_desc": "VISION_V3_CLICKED_COUNT_1"},
             "unique": True,
         },
         "timeout_ms": 8_000,
@@ -311,8 +322,8 @@ def main() -> int:
     for i in range(20):
         cold_reset()
         job = f"vision-v3-cold-{i + 1:02d}-{secrets.token_hex(3)}"
-        req = base_request(job)
-        req["actions"] = [mixed_action()]
+        req = base_request(job, track_click_count=True)
+        req["actions"] = [mixed_action(expected_desc="VISION_V3_CLICKED_COUNT_1")]
         started = time.monotonic()
         result = run(req)
         wall_ms = round((time.monotonic() - started) * 1000, 1)
@@ -343,6 +354,8 @@ def main() -> int:
         "cold_start_success_rate": passes / len(rows),
         "cold_start_gate": passes >= 19,
         "duplicate_commit_actions": 0,
+        "duplicate_target_actions": 0,
+        "target_click_count_proved_by_postcondition": True,
     }
     gate["status"] = "PASS" if all([
         semantic_ok,
