@@ -12,7 +12,7 @@ from .douzy import Client, DouzyError
 from .export import export as export_job
 from .localize import save as save_localization
 from .render import render
-from .state import Job, find_duplicate, index_job, mark_published
+from .state import Job, find_duplicate, index_job, mark_published, set_workflow_intent
 
 
 def _find_video(root: Path) -> Path:
@@ -161,6 +161,20 @@ def cmd_approve(args) -> int:
     return 0
 
 
+def cmd_set_intent(args) -> int:
+    job = get_job(args.job_id)
+    before = job.state().get("workflow_intent")
+    out = set_workflow_intent(job, args.intent)
+    refresh_index(job)
+    print(json.dumps({
+        "status": "WORKFLOW_INTENT_ALREADY_SET" if before else "WORKFLOW_INTENT_SET",
+        "job_id": job.job_id,
+        "workflow_intent": out.get("workflow_intent"),
+        "state": out.get("state"),
+    }, ensure_ascii=False))
+    return 0
+
+
 def cmd_mark_album_stored(args) -> int:
     job = get_job(args.job_id)
     job.write_state(
@@ -260,6 +274,11 @@ def main() -> int:
     p.add_argument("job_id")
     p.add_argument("--note")
     p.set_defaults(func=cmd_approve)
+
+    p = sp.add_parser("set-intent")
+    p.add_argument("job_id")
+    p.add_argument("intent", choices=["AUTO_PUBLISH", "STORE_ALBUM"])
+    p.set_defaults(func=cmd_set_intent)
 
     p = sp.add_parser("mark-album-stored")
     p.add_argument("job_id")

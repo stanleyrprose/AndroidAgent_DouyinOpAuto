@@ -31,6 +31,12 @@ if [ ! -f "$HANDOFF" ]; then
   exit 3
 fi
 
+# This wrapper itself is an unambiguous STORE_ALBUM control boundary. Persist
+# the workflow intent before any remote side effect so future /resume cannot
+# upgrade this job into a publishing workflow. The pipeline command is
+# idempotent for the same intent and rejects intent changes.
+bash "$PIPELINE_CMD" set-intent "$JOB_ID" STORE_ALBUM >/dev/null
+
 manifest_url="$(python3 - "$HANDOFF" <<'PY'
 import json,sys
 print(json.load(open(sys.argv[1],encoding='utf-8'))['manifest_url'])
