@@ -16,6 +16,18 @@ mkdir -p "$(dirname "$LOG")" "$STATE_DIR"
 echo $$ > "$PID"
 trap 'rm -f "$PID"' EXIT
 
+SCRIPT_PATH="$0"
+SCRIPT_SHA="$(sha256sum "$SCRIPT_PATH" 2>/dev/null | awk '{print $1}')"
+
+maybe_self_update() {
+  local current_sha
+  current_sha="$(sha256sum "$SCRIPT_PATH" 2>/dev/null | awk '{print $1}')"
+  if [ -n "$SCRIPT_SHA" ] && [ -n "$current_sha" ] && [ "$current_sha" != "$SCRIPT_SHA" ]; then
+    echo "$(date -Is) HEALTH_LOOP_SELF_UPDATE old_sha=$SCRIPT_SHA new_sha=$current_sha" >>"$LOG"
+    exec "$SCRIPT_PATH"
+  fi
+}
+
 pid_matches() {
   local pid_file="$1" needle="$2"
   [ -s "$pid_file" ] || return 1
@@ -94,6 +106,7 @@ disconnected_cycles=0
 last_network=""
 
 while true; do
+  maybe_self_update
   now="$(date +%s)"
   if network="$($NETWORK_STATUS 2>/dev/null)"; then
     case "$network" in
