@@ -172,3 +172,42 @@ Sprint V3 = NOT AUTHORIZED / NOT STARTED
 ```
 
 Gate V2 acceptance does not authorize hybrid routing or any V3 work.
+
+## Production closure
+
+Production promotion completed on 2026-10-06.
+
+```text
+GitHub main = 744e5a2a7e9962f2b32ce0b303fe922fa6f1b494
+Y700 stable = /opt/y700/workspaces/y700-agent-release-744e5a2
+previous release = y700-agent-release-5c9fb8c
+production_sot = HEALTHY
+android_bridge_instances = 1
+```
+
+The installed production app/test APK hashes exactly match the accepted Gate candidate hashes above.
+
+Post-promotion real-device sanity:
+
+```text
+semantic:
+  job = prod-v2-semantic-sanity-1791279428282
+  result = PASS
+  locator_source = semantic
+
+template:
+  job = prod-v2-template-sanity-1791279457744
+  result = PASS
+  locator_source = vision_template
+  confidence = 0.9544264674
+  postcondition = PASS
+
+OCR:
+  job = prod-v2-ocr-sanity-1791279464571
+  result = PASS
+  locator_source = vision_text
+  confidence = 0.9999981523
+  postcondition = PASS
+```
+
+The production promotion does not change defaults: OCR remains OFF unless explicitly enabled for an eligible `vision_text` request.

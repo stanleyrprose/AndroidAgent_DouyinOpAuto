@@ -681,7 +681,29 @@ Sprint V3 = NOT AUTHORIZED / NOT STARTED
 ```
 
 Detailed implementation and acceptance evidence:
-`docs/VISION-V2-IMPLEMENTATION.md`.
+`docs/VISION-V2-IMPLEMENTATION.md` and
+`docs/VISION-V2-ACCEPTANCE-2026-10-06.md`.
+
+Production closure on 2026-10-06:
+
+- GitHub `main` was fast-forwarded to `744e5a2` after clean pre-merge validation;
+- clean final worktree: 111 related Python regressions PASS, Python compile PASS,
+  shell syntax PASS, Android debug/app-test build PASS;
+- immutable release `/opt/y700/workspaces/y700-agent-release-744e5a2` was created
+  from exact `origin/main`, verified clean and passed the same 111 Y700-side
+  regressions plus compile/shell checks;
+- stable `/opt/y700/workspaces/y700-agent` was atomically switched from
+  `y700-agent-release-5c9fb8c` to `y700-agent-release-744e5a2`; rollback pointer is
+  `y700-agent-release-5c9fb8c`;
+- post-promotion health: `production_sot=HEALTHY`, one host executor instance,
+  Cloudflare tunnel healthy and Android bridge healthy;
+- installed production APK hashes exactly match the accepted V2 Gate hashes;
+- semantic production sanity PASS (`locator_source=semantic`);
+- Template Vision production sanity PASS (`locator_source=vision_template`,
+  confidence approximately 0.95442647, postcondition PASS);
+- explicit OCR production sanity PASS (`locator_source=vision_text`, confidence
+  approximately 0.99999815, postcondition PASS);
+- OCR remains default OFF; V3 remains NOT AUTHORIZED / NOT STARTED.
 
 ## Telegram Y700 Automation Control Plane v0.1 — CODE / LOCAL PROFILE PREP PASS
 
