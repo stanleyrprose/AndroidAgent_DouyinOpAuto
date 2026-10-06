@@ -32,6 +32,10 @@ class VisionV3ContractTest(unittest.TestCase):
         self.assertGreaterEqual(text.count("resolveAttempt < 2"), 2)
         self.assertIn("visionStaleReresolveCount++", text)
         self.assertIn("locator.invalidateObservationCache()", text)
+        self.assertIn(
+            'intent.putExtra("track_click_count", testBenchmarkTrackClickCount)',
+            text,
+        )
 
     def test_postcondition_failure_never_becomes_soft_fallback(self) -> None:
         text = DRIVER.read_text(encoding="utf-8")

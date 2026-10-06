@@ -65,6 +65,7 @@ public class AutomationInstrumentedTest {
     private String sessionId;
     private long workflowStartedElapsedMs;
     private boolean testMode;
+    private boolean testBenchmarkTrackClickCount;
     private int testObserveFailuresRemaining;
     private VisionTemplateLocator.Config visionConfig;
     private VisionTemplateLocator visionLocator;
@@ -102,6 +103,8 @@ public class AutomationInstrumentedTest {
             jobId = request.optString("job_id", "anonymous");
             sessionId = request.optString("session_id", UUID.randomUUID().toString());
             testMode = request.optBoolean("test_mode", false);
+            testBenchmarkTrackClickCount = testMode &&
+                    request.optBoolean("test_benchmark_track_click_count", false);
             testObserveFailuresRemaining = testMode
                     ? Math.max(0, Math.min(5, request.optInt("test_observe_failures", 0)))
                     : 0;
@@ -342,6 +345,7 @@ public class AutomationInstrumentedTest {
         intent.putExtra("clicked", false);
         intent.putExtra("popup", false);
         intent.putExtra("stale_variant", true);
+        intent.putExtra("track_click_count", testBenchmarkTrackClickCount);
         context.startActivity(intent);
         SystemClock.sleep(180L);
     }
