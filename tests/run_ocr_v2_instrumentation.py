@@ -24,6 +24,7 @@ ALLOWED_CLASSES = {
     "com.stanley.y700automation.vision.OcrTextLocatorNormalizationTest",
     "com.stanley.y700automation.vision.OcrV2CacheAndTimeoutTest",
     "com.stanley.y700automation.OcrV2RuntimeLifecycleTest",
+    "com.stanley.y700automation.OcrV2ColdLatencyTest",
     "com.stanley.y700automation.OcrV2StressTest",
     "com.stanley.y700automation.vision.OcrV2RealDatasetBenchmarkTest",
 }

@@ -64,6 +64,11 @@ CASES = [
         180,
     ),
     (
+        "com.stanley.y700automation.OcrV2ColdLatencyTest",
+        ["coldRequestsDocumentP50P95AfterConfirmedUnload"],
+        300,
+    ),
+    (
         "com.stanley.y700automation.vision.OcrV2RealDatasetBenchmarkTest",
         ["cleanSettingsDatasetMeetsTargetLocationGate"],
         300,
@@ -140,6 +145,32 @@ def wait_for_evidence(
     return rows, errors
 
 
+def cold_report_errors() -> tuple[dict | None, list[str]]:
+    path = EVIDENCE_DIR / "cold-latency-report.json"
+    if not path.is_file():
+        return None, ["missing cold-latency-report.json"]
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return None, [f"invalid cold-latency-report.json: {exc}"]
+
+    errors: list[str] = []
+    if payload.get("runs") != 20:
+        errors.append(f"cold runs expected 20, got {payload.get('runs')}")
+    wall = payload.get("cold_request_wall_latency_ms") or {}
+    runtime = payload.get("runtime_cold_load_ms") or {}
+    if wall.get("count") != 20:
+        errors.append(f"cold wall latency count expected 20, got {wall.get('count')}")
+    if runtime.get("count") != 20:
+        errors.append(f"runtime cold-load count expected 20, got {runtime.get('count')}")
+    after = payload.get("runtime_after") or {}
+    if after.get("loaded") is not False or after.get("in_flight") != 0:
+        errors.append(
+            "cold latency runtime must finish unloaded with in_flight=0"
+        )
+    return payload, errors
+
+
 def stress_report_errors() -> tuple[dict | None, list[str]]:
     path = EVIDENCE_DIR / "stress-report.json"
     if not path.is_file():
@@ -199,6 +230,8 @@ def main() -> int:
         for method in methods:
             path = evidence_path(class_name, method)
             path.unlink(missing_ok=True)
+        if class_name.endswith("OcrV2ColdLatencyTest"):
+            (EVIDENCE_DIR / "cold-latency-report.json").unlink(missing_ok=True)
         if class_name.endswith("OcrV2StressTest"):
             (EVIDENCE_DIR / "stress-report.json").unlink(missing_ok=True)
 
@@ -218,6 +251,11 @@ def main() -> int:
                 f"root-exec rc={proc.returncode} stderr={proc.stderr.strip()}"
             )
 
+        cold_report = None
+        if class_name.endswith("OcrV2ColdLatencyTest"):
+            cold_report, cold_errors = cold_report_errors()
+            errors.extend(cold_errors)
+
         stress_report = None
         if class_name.endswith("OcrV2StressTest"):
             stress_report, stress_errors = stress_report_errors()
@@ -230,6 +268,7 @@ def main() -> int:
             "root_exec_returncode": None if proc is None else proc.returncode,
             "root_exec_stdout": "" if proc is None else proc.stdout[-4000:],
             "root_exec_stderr": "" if proc is None else proc.stderr[-4000:],
+            "cold_report": cold_report,
             "stress_report": stress_report,
             "status": "PASS" if not errors else "FAIL",
             "errors": errors,
