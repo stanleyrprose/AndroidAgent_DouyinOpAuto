@@ -781,3 +781,52 @@ Acceptance evidence and boundary are documented in
 
 This acceptance covers normal sleep/lock. Post-reboot Direct Boot remains a
 separate, unaccepted scenario.
+
+## Android Automation Core v0.6 Rev3.6 Phase 0B — TOOLING / CI PASS; REAL-DEVICE EMPIRICAL GATES BLOCKED (2026-10-06)
+
+Canonical implementation-input SOT:
+
+- `docs/PRD-Y700-AAC-v0.6-Rev3.6-Frozen.md`;
+- merged by PR #19 into GitHub `main`;
+- merge commit: `14b46cd3191e3880284910749510d14a663977ac`;
+- post-merge GitHub Actions `validate`: PASS.
+
+Accepted Phase 0B scope now present in Git SOT:
+
+- machine-readable validation tooling under `scripts/v06/`;
+- semantic-v1 fixed-vector and fingerprint-profile reference checks;
+- UI mutation / pressHome / pressBack / subordinate-job inventory fixtures;
+- Catalog overlay-policy / readiness / claim-session reconcile fixtures;
+- real-device evidence collectors for runtime permissions, process visibility,
+  BOOTTIME/suspend, synthetic admission/fsync load, app/UI identity, ZUI overlay
+  inventory, suspend/wake-lock policy and upgrade blockers;
+- fault-injection harness self-tests under `tests/fault_injection/`;
+- hardware-independent frozen-contract checks wired into CI.
+
+Authorization boundary remains unchanged:
+
+- Production Runtime Implementation Authorization = NO;
+- no production Gateway/Core/Bridge behavior change is accepted by this gate;
+- no BUSINESS capability activation is accepted by this gate;
+- Sprint 1+ implementation remains blocked until the Rev3.6 Phase 0 empirical
+  subset passes and a separate Production Runtime Implementation Authorization
+  decision is made.
+
+Real-device empirical status at this checkpoint:
+
+- Y700 direct CodexPro connector: unavailable due connector internal error;
+- Mac -> Y700 Cloudflare SSH path: unavailable;
+- Cloudflare edge probe for the Y700 SSH hostname returned HTTP 530 and the SSH
+  proxy reported `websocket: bad handshake`;
+- therefore no Rev3.6 real-device empirical gate is marked PASS in this
+  checkpoint;
+- in particular, controlled suspend/wake evidence and full ZUI overlay-scenario
+  coverage remain open and must fail closed until real evidence is collected.
+
+Next gate after Y700 connectivity is restored:
+
+1. align the canonical Y700 workspace to current GitHub `main`;
+2. run all P0B_PRE_IMPLEMENTATION empirical checks on the real Y700;
+3. collect controlled suspend/wake and overlay scenario evidence;
+4. close any failed pre-implementation checks;
+5. only then review whether Production Runtime Implementation may be authorized.
