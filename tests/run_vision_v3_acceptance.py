@@ -94,6 +94,7 @@ def base_request(
     *,
     clicked: bool = False,
     popup: bool = False,
+    popup_template: bool = False,
     track_click_count: bool = False,
 ) -> dict:
     return {
@@ -105,6 +106,7 @@ def base_request(
         "test_benchmark_ocr_text": OCR_TEXT,
         "test_benchmark_clicked": clicked,
         "test_benchmark_popup": popup,
+        "test_benchmark_popup_template": popup_template,
         "test_benchmark_track_click_count": track_click_count,
         "test_allow_keyguard_benchmark": True,
         "vision": {

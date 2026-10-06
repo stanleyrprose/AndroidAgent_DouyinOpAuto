@@ -27,6 +27,7 @@ class VisionV3AcceptanceContractTest(unittest.TestCase):
         self.assertIn("EXTERNAL_IRREVERSIBLE", text)
         self.assertIn("test_mutate_vision_before_action", text)
         self.assertIn("VISION_V3_POPUP_DISMISS", text)
+        self.assertIn("test_benchmark_popup_template", text)
 
 
 if __name__ == "__main__":
