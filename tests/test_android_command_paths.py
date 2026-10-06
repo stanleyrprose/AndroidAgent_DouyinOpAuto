@@ -16,6 +16,8 @@ class AndroidCommandPathContractTest(unittest.TestCase):
     def test_android_runtime_env_is_derived_from_zygote(self):
         text = (ROOT / "bridge" / "android-runtime-env.sh").read_text(encoding="utf-8")
         self.assertIn("pidof zygote64", text)
+        self.assertIn('zygote_pid="${zygote_pids%% *}"', text)
+        self.assertNotIn('"$TOYBOX" awk', text)
         self.assertIn("BOOTCLASSPATH=\"$(read_env BOOTCLASSPATH)\"", text)
         self.assertIn("DEX2OATBOOTCLASSPATH=\"$(read_env DEX2OATBOOTCLASSPATH)\"", text)
         self.assertIn("ANDROID_RUNTIME_ENV_ZYGOTE_UNAVAILABLE", text)
