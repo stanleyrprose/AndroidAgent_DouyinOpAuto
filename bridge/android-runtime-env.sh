@@ -3,7 +3,8 @@ set -eu
 
 TOYBOX=/system/bin/toybox
 
-zygote_pid="$("$TOYBOX" pidof zygote64 2>/dev/null | "$TOYBOX" awk '{print $1}')"
+zygote_pids="$("$TOYBOX" pidof zygote64 2>/dev/null || true)"
+zygote_pid="${zygote_pids%% *}"
 if [ -z "$zygote_pid" ] || [ ! -r "/proc/$zygote_pid/environ" ]; then
   echo "ANDROID_RUNTIME_ENV_ZYGOTE_UNAVAILABLE" >&2
   exit 70
