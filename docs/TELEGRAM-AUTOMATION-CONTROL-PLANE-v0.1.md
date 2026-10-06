@@ -119,4 +119,4 @@ A bare Douyin URL no longer authorizes or starts work.
 
 `自动发布+` runs the full Mac production -> Y700 -> TikTok PUBLIC path and authorizes exactly one PUBLIC COMMIT attempt after mandatory DRY_RUN.
 
-`存到相册+` runs Mac production through export, pulls the capability artifact to Y700, stores the rendered video non-destructively under `Movies/Y700Agent`, verifies MediaStore visibility, emits `ALBUM_STORED`, restores the initial power state, and stops. This path has no TikTok/COMMIT capability.
+`存到相册+` runs Mac production through export, pulls the capability artifact to Y700, stores the rendered video non-destructively under `Movies/Y700Agent`, verifies MediaStore visibility, saves the final Burmese caption into ZUI Notes for manual copy/publish, emits `ALBUM_STORED`, restores the initial power state, and stops. This path has no TikTok/COMMIT capability.

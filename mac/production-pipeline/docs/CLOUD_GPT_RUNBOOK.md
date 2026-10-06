@@ -214,4 +214,4 @@ bash mac/production-pipeline/scripts/store-to-y700-album.sh <job> Y700Agent
 ```
 
 The album-only path stores the rendered video non-destructively at
-`/sdcard/Movies/Y700Agent/<job>.mp4`, verifies it through MediaStore, updates the Mac job to `STORED_IN_ALBUM`, sends `ALBUM_STORED`, restores the original Y700 screen power state, and never launches TikTok or crosses a publish boundary.
+`/sdcard/Movies/Y700Agent/<job>.mp4`, verifies it through MediaStore, saves the final `caption.my.txt` text into ZUI Notes via its exported `ACTION_SEND text/plain` receiver, updates the Mac job to `STORED_IN_ALBUM`, sends `ALBUM_STORED`, restores the original Y700 screen power state, and never launches TikTok or crosses a publish boundary.

@@ -168,6 +168,8 @@ def cmd_mark_album_stored(args) -> int:
         album=args.album,
         device_path=args.device_path,
         media_store_verified=True,
+        note_saved=True,
+        note_app="com.zui.notes",
         workflow="album_store",
     )
     refresh_index(job)
@@ -176,6 +178,8 @@ def cmd_mark_album_stored(args) -> int:
         "job_id": job.job_id,
         "album": args.album,
         "device_path": args.device_path,
+        "note_saved": True,
+        "note_app": "com.zui.notes",
     }, ensure_ascii=False))
     return 0
 
