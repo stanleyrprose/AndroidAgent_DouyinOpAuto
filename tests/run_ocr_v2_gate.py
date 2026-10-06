@@ -64,6 +64,11 @@ CASES = [
         180,
     ),
     (
+        "com.stanley.y700automation.vision.OcrV2RealDatasetBenchmarkTest",
+        ["cleanSettingsDatasetMeetsTargetLocationGate"],
+        300,
+    ),
+    (
         "com.stanley.y700automation.OcrV2StressTest",
         ["warmStressHasNoLoadUnloadChurnAndDocumentsResources"],
         600,

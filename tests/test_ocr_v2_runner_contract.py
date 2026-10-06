@@ -11,6 +11,7 @@ class OcrV2RunnerContractTest(unittest.TestCase):
         self.assertIn("ALLOWED_CLASSES", text)
         self.assertIn("OcrV2ContractTest", text)
         self.assertIn("OcrV2StressTest", text)
+        self.assertIn("OcrV2RealDatasetBenchmarkTest", text)
         self.assertIn("/data/local/y700-agent/workspaces/y700-agent/bridge/android-runtime-env.sh", text)
         self.assertIn("/system/bin/su 2000 -c", text)
         self.assertIn("/system/bin/am instrument -w -r", text)
