@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from bridge import bridge_client as bridge_v2
+from automation.resource_arbiter import ResourceError, assert_guard
 
 os.umask(0o077)
 
@@ -29,7 +30,8 @@ CANCEL_SIGNALS = Path(os.environ.get("Y700_UI_CANCEL_SIGNALS", str(ROOT / "ui-ca
 DRIVER_COMPONENT = "com.stanley.y700automation.test/androidx.test.runner.AndroidJUnitRunner"
 DRIVER_CLASS = "com.stanley.y700automation.AutomationInstrumentedTest#runWorkflow"
 JOB_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
-SAFE_ACTIONS = {"health", "observe", "screenshot", "find", "findAll", "assert", "waitFor", "waitStable", "pressBack", "pressHome"}
+SAFE_ACTIONS = {"health", "observe", "screenshot", "find", "findAll", "assert", "waitFor", "waitStable"}
+MUTATING_ACTIONS = {"click", "longClick", "input", "clear", "swipe", "scroll", "pressBack", "pressHome"}
 RESULT_RE = re.compile(r"y700_result_b64=([^\r\n ]+)")
 HEARTBEAT_RE = re.compile(r"y700_heartbeat_b64=([^\r\n ]+)")
 
@@ -99,7 +101,7 @@ def publish_cancel_signal(job_id: str) -> None:
 
 
 def validate_request(req: dict[str, Any]) -> None:
-    if req.get("protocol_version") != 1:
+    if req.get("protocol_version") not in {1, 2}:
         raise UiJobError("PROTOCOL_MISMATCH")
     job = str(req.get("job_id", ""))
     if not JOB_RE.fullmatch(job):
@@ -110,6 +112,14 @@ def validate_request(req: dict[str, Any]) -> None:
     max_duration = int(req.get("max_duration_ms", 600000))
     if not 1000 <= max_duration <= 600000:
         raise UiJobError("JOB_PAYLOAD_INVALID: max_duration_ms out of range")
+    if req.get("protocol_version") == 2 and any(
+        isinstance(action, dict) and action.get("action") in MUTATING_ACTIONS
+        for action in actions
+    ):
+        try:
+            assert_guard(req.get("resource_guard"))
+        except ResourceError as exc:
+            raise UiJobError(str(exc)) from exc
 
 
 def bridge_submit(command: str, bridge_id: str, timeout_sec: int) -> str:

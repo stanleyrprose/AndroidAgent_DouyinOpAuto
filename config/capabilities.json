@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "capabilities": [
+    {
+      "name": "tiktok.publish",
+      "version": "1.0",
+      "classification": "BUSINESS",
+      "adapter": "tiktok_publish",
+      "resource": "android_ui",
+      "overlay_policy": {
+        "top_level_guard": "REQUIRED",
+        "in_app_modal": "NONE_KNOWN",
+        "blocking_selectors": []
+      },
+      "minimum_policy": {
+        "replay": "NEVER",
+        "verification": "REQUIRED",
+        "approval": "REQUIRED",
+        "expires_in_max_sec": 7200
+      }
+    }
+  ]
+}
