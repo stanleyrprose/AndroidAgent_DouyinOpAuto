@@ -171,6 +171,33 @@ def decode_markers(text: str, regex: re.Pattern[str]) -> list[dict[str, Any]]:
     return rows
 
 
+def _settle_terminal_bridge_location(
+    bridge_id: str,
+    snapshot: dict[str, Any],
+    bridge: Path,
+) -> tuple[dict[str, Any], Path]:
+    """Resolve a v2 terminal job from active/ to its immutable archive path.
+
+    host-executor writes result.json before atomically moving the job directory
+    into archive/. A status poll can therefore observe a terminal result while
+    still returning the soon-to-disappear active/ path. Reading stdout from that
+    stale path loses the driver's final structured result marker.
+    """
+    if snapshot.get("protocol_version") != 2:
+        return snapshot, bridge
+    for _ in range(20):
+        if bridge.parent != BRIDGE_PATHS.active:
+            break
+        time.sleep(0.05)
+        try:
+            fresh = bridge_v2.status(bridge_id, paths=BRIDGE_PATHS)
+        except bridge_v2.BridgeError:
+            continue
+        snapshot = fresh
+        bridge = Path(fresh["location"])
+    return snapshot, bridge
+
+
 def run_bridge_command(command: str, ui_dir: Path, timeout_sec: int = 660) -> tuple[int, str, str, list[dict[str, Any]]]:
     bridge_id = "uihost-" + ui_dir.name[:64] + "-" + secrets.token_hex(4)
     bridge_submit(command, bridge_id, timeout_sec)
@@ -200,6 +227,10 @@ def run_bridge_command(command: str, ui_dir: Path, timeout_sec: int = 660) -> tu
         if bridge_v2.terminal_status(snapshot):
             break
         time.sleep(0.20)
+
+    snapshot, bridge = _settle_terminal_bridge_location(
+        bridge_id, snapshot or {}, bridge
+    )
 
     bridge_result = (snapshot or {}).get("result") or {}
     rc = int(bridge_result.get("exit_code", 1))
