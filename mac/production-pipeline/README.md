@@ -45,4 +45,4 @@ New localization artifacts require `caption_basis`, recording a concise editoria
 
 ## Telegram control plane
 
-Telegram is intentionally thin. The dedicated Hermes profile accepts a Douyin URL plus `/status`, `/cancel`, and `/help`; it does not expose arbitrary shell/ADB/root commands. Runtime bot credentials and allowlist values stay in the Hermes profile `.env`, never in this repository. `tg-notify.sh` is best-effort by default so a Telegram outage cannot change publication truth or cause a duplicate COMMIT.
+Telegram is intentionally thin. The dedicated Hermes profile accepts only `自动发布+<Douyin>`, `存到相册+<Douyin>`, `/status`, `/cancel`, and `/help`; a bare Douyin URL does not execute. `自动发布+` is the full PUBLIC path. `存到相册+` stops after non-destructive storage in `Movies/Y700Agent` and has no TikTok/COMMIT capability. Runtime bot credentials and allowlist values stay in the Hermes profile `.env`, never in this repository. `tg-notify.sh` is best-effort by default so a Telegram outage cannot change publication truth or cause a duplicate COMMIT.

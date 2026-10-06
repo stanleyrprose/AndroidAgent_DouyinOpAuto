@@ -17,6 +17,7 @@ STATES = {
     "APPROVED",
     "PUBLISHED",
     "VERIFIED",
+    "STORED_IN_ALBUM",
     "BLOCKED",
     "FAILED",
     "DUPLICATE",

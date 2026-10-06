@@ -103,3 +103,20 @@ Pending live gate:
 6. verify no duplicate COMMIT and no secret/capability leakage.
 
 The control plane is not production-complete until this live gate passes.
+
+## Current explicit trigger contract (2026-10-06)
+
+The original v0.1 bare-link trigger has been superseded for current production use. Historical acceptance records remain unchanged.
+
+Current Telegram execution intents are:
+
+```text
+自动发布+<Douyin share text or URL>
+存到相册+<Douyin share text or URL>
+```
+
+A bare Douyin URL no longer authorizes or starts work.
+
+`自动发布+` runs the full Mac production -> Y700 -> TikTok PUBLIC path and authorizes exactly one PUBLIC COMMIT attempt after mandatory DRY_RUN.
+
+`存到相册+` runs Mac production through export, pulls the capability artifact to Y700, stores the rendered video non-destructively under `Movies/Y700Agent`, verifies MediaStore visibility, emits `ALBUM_STORED`, restores the initial power state, and stops. This path has no TikTok/COMMIT capability.
