@@ -51,7 +51,7 @@ case "$cmd" in
   launch)
     pkg="${2:-}"
     [[ "$pkg" =~ ^[A-Za-z0-9._]+$ ]] || { echo "invalid package" >&2; exit 64; }
-    "$ROOT_EXEC" "component=\$(cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $pkg 2>/dev/null | tail -1); [ -n \"\$component\" ] || { echo LAUNCHER_ACTIVITY_NOT_FOUND >&2; exit 1; }; su 2000 -c \"am start -W --user 0 -n \\\"\$component\\\"\""
+    "$ROOT_EXEC" "component=\$(/system/bin/cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $pkg 2>/dev/null | tail -1); [ -n \"\$component\" ] || { echo LAUNCHER_ACTIVITY_NOT_FOUND >&2; exit 1; }; /system/bin/su 2000 -c \"/system/bin/am start -W --user 0 -n \\\"\$component\\\"\""
     ;;
   tap)
     [ "$#" -eq 3 ] && require_int "$2" && require_int "$3" || { usage >&2; exit 64; }
