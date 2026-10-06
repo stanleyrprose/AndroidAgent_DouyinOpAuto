@@ -30,7 +30,16 @@ class PublicationClosureTests(unittest.TestCase):
             (runtime / "jobs" / job).mkdir(parents=True)
 
             remote = td / "remote.sh"
-            remote.write_text('#!/bin/bash\necho \'{"status":"PUBLISHED"}\'\n', encoding="utf-8")
+            remote.write_text(
+                """#!/bin/bash
+case "$*" in
+  *publish-status.sh*) echo '{"status":"PUBLISHED"}' ;;
+  *restore-initial-power-state.sh*) echo '{"status":"RESTORED_ASLEEP","job_id":"dy-1"}' ;;
+  *) echo '{"status":"UNKNOWN"}' ;;
+esac
+""",
+                encoding="utf-8",
+            )
             remote.chmod(0o755)
 
             pipeline_log = td / "pipeline.log"
@@ -56,6 +65,7 @@ class PublicationClosureTests(unittest.TestCase):
             closure = json.loads((runtime / "jobs" / job / "telegram-closure.json").read_text())
             self.assertEqual(closure["status"], "PUBLISHED_VERIFIED")
             self.assertTrue(closure["notification"]["sent"])
+            self.assertEqual(closure["power_restore"]["status"], "RESTORED_ASLEEP")
             self.assertIn("finalize dy-1 --verified", pipeline_log.read_text())
 
     def test_start_wrapper_is_detached_and_idempotent_by_pid(self) -> None:

@@ -28,6 +28,7 @@ STATE=Path("/opt/y700/runtime/state/publisher.json")
 PREFLIGHT=ROOT/"scripts"/"publish-preflight.sh"
 STAGER=ROOT/"publisher"/"stage_job.py"
 SECURE_UNLOCK=ROOT/"bridge"/"secure-unlock.sh"
+ANDROIDCTL=ROOT/"bridge"/"androidctl.sh"
 
 class PublishError(RuntimeError):
     pass
@@ -54,6 +55,57 @@ def run(cmd,check=True,timeout=None):
     if check and p.returncode!=0:
         raise PublishError(f"command failed rc={p.returncode}: {' '.join(map(str,cmd))}\n{p.stderr}")
     return p
+
+def _normalize_initial_power_state(raw):
+    text=str(raw or "")
+    if "mWakefulness=Asleep" in text:
+        return "ASLEEP"
+    if "mWakefulness=Awake" in text:
+        return "AWAKE"
+    return "UNKNOWN"
+
+
+def capture_initial_power_state(job, job_id):
+    marker=Path(job)/"initial-power-state.json"
+    if marker.is_file():
+        try:
+            with open(marker,encoding="utf-8") as f:
+                existing=json.load(f)
+            if existing.get("job_id")==job_id:
+                return existing
+        except Exception:
+            pass
+
+    raw=""
+    error=None
+    try:
+        p=run([str(ANDROIDCTL),"screen-state"],check=False,timeout=15)
+        raw=p.stdout.strip() if isinstance(getattr(p,"stdout",None),str) else ""
+        rc=getattr(p,"returncode",0)
+        rc=rc if isinstance(rc,int) else 0
+        if rc!=0:
+            error=f"screen-state rc={rc}"
+    except PublishError as exc:
+        error=str(exc)
+
+    initial=_normalize_initial_power_state(raw)
+    data={
+        "schema_version":1,
+        "job_id":job_id,
+        "initial_power_state":initial,
+        "restore_required":initial=="ASLEEP",
+        "captured_at":time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "raw_screen_state":raw[:400],
+    }
+    if error:
+        data["capture_error"]=error[:400]
+    write_json_atomic(marker,data)
+    try:
+        marker.chmod(0o600)
+    except OSError:
+        pass
+    return data
+
 
 def ensure_device_unlocked(job_id):
     update("UNLOCKING", job_id)
@@ -294,6 +346,11 @@ def main():
             f"duplicate source_aweme_id already published: {duplicate['source_aweme_id']} "
             f"as {duplicate['job_id']}"
         )
+
+    # Capture the caller-visible power state exactly once before any wake/unlock.
+    # DRY_RUN and COMMIT share the same durable marker so COMMIT does not
+    # overwrite an original ASLEEP state after DRY_RUN has already woken Y700.
+    capture_initial_power_state(job,args.job_id)
 
     # Locked/sleeping Android can stall package/content-provider operations
     # before TikTok is launched. Wake/unlock before *any* Android-side
