@@ -954,3 +954,13 @@ Authorization boundary after this gate:
 - Phase 0 PASS only makes the project eligible for a separate Production Runtime Implementation Authorization review.
 - Sprint 1+ production Gateway/Core/Bridge mutation-path implementation must not begin until that separate authorization is explicitly granted.
 - Existing Sprint-gated findings remain expected implementation work, including `pressHome` / `pressBack` mutation reclassification, legacy/direct mutation bypass migration, subordinate provenance enforcement, Catalog/runtime overlay enforcement, and recovery semantics.
+
+## Android Automation Core v0.6 Rev3.6 — Production Runtime Authorization Review OPEN (2026-10-07)
+
+- independent review completed against current GitHub `main` = `6201f3d52b7f27d4e4358be2855d8b16324fdcb3`;
+- architecture review found no new Critical/High blocker;
+- Vision V3 landed after the original Phase 0 validation baseline and changes the mutating click executor path;
+- review recommendation is **CONDITIONAL APPROVE**, pending affected-path real-device revalidation on the then-current canonical `main`;
+- Production Runtime Implementation Authorization remains **NO** until that revalidation passes and explicit authorization is granted;
+- current external blocker: Y700 control plane unavailable (Cloudflare edge HTTP 530 / SSH WebSocket handshake failure; direct CodexPro_Y700 unavailable);
+- review record: `docs/AAC-v0.6-REV3.6-PRODUCTION-AUTHORIZATION-REVIEW-2026-10-07.md`.
