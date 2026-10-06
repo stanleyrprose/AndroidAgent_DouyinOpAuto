@@ -578,13 +578,13 @@ Recurring Cloudflare connector loss is hardened by `c758444`: the existing healt
 loop may restart the same cloudflared connector after a bounded cooldown; no
 second daemon or failover tunnel is introduced.
 
-Accepted capability state:
+Accepted capability state at the Sprint V1 freeze point (historical; superseded by the Sprint V2 section below):
 
 ```text
 Template Vision capability = READY
 default/global Vision routing = OFF unless explicitly requested
 OCR = OFF
-Sprint V2 OCR = NOT STARTED
+Sprint V2 OCR = NOT STARTED at V1 freeze time
 Sprint V3 hybrid routing = NOT STARTED
 ```
 
@@ -607,6 +607,81 @@ Production closure on 2026-10-05:
 - post-release real-device Vision sanity: PASS with
   `locator_source=vision_template`, confidence approximately 0.9544 and shared
   postcondition PASS.
+
+## Vision Locator PRD v0.3 Sprint V2 OCR — PASS / FROZEN
+
+Accepted on the real Y700 on 2026-10-06. Gate code baseline: `a31cd65` on
+`feat/vision-locator-v2`, with current `main` as an ancestor.
+
+Selected runtime: **PaddleOCR PP-OCRv6 tiny / Android ARM64 / ONNX Runtime /
+OpenCV 4.12**, runtime id `paddle-ppocrv6-tiny-onnx`.
+
+Candidate decision and real-device acceptance:
+
+- bundled ML Kit clean rerun: **79/99 = 79.80%**, rejected below the frozen
+  >=96% target-location threshold;
+- selected PaddleOCR clean real-Settings dataset: **96/99 = 96.97%**, PASS;
+- dataset: **6 real Android Settings screens / 99 targets**;
+- accepted confidence threshold remains **0.85**; no generic `0/O` or `1/l`
+  fuzzy matching was added;
+- request ROI remains the acceptance/click boundary; bounded 512 px minimum
+  inference-context retry is allowed only to improve OCR recognition, with the
+  returned bbox still required inside the original request ROI;
+- contract: 7/7 PASS; normalization/context: 7/7 PASS; cache/timeout: 2/2 PASS;
+  lifecycle: 1/1 PASS; cold latency: 1/1 PASS; real dataset: 1/1 PASS;
+  200-run stress: 1/1 PASS;
+- final canonical Gate evidence:
+  `/opt/y700/runtime/ocr-v2/ocr-v2-component-gate-20261006-090839.json`.
+
+Final latency/resource evidence:
+
+```text
+cold request, 20 confirmed-unloaded runs:
+  P50 63.72 ms / P95 109.05 ms
+runtime cold-load component:
+  P50 34.00 ms / P95 46.40 ms
+warm OCR, 200 runs:
+  P50 43.66 ms / P95 49.78 ms
+clean real-dataset target wall latency:
+  P50 32.41 ms / P95 60.66 ms
+thermal delta across 200 warm runs: 0 C
+```
+
+- warm stress: **200/200 success**, timeout count 0;
+- warm PSS delta: +128,381 KB; native-heap delta: +94,459,072 bytes;
+- after unload: 54,808 KB PSS and 87,836,896 bytes native memory reclaimed;
+- production lifecycle defaults remain 10-minute idle timeout and 60-second
+  minimum post-load residency; load/unload is serialized and in-flight-safe.
+
+Low-confidence no-click was verified end-to-end through the shared Action
+Executor path. A normal `vision_text` action resolved `继续` at approximately
+0.99999815 confidence and passed click/postcondition. Repeating from
+`clicked=false` with `min_confidence=1.0` failed closed with
+`VISION_OCR_NOT_FOUND`, recorded `ocr_low_confidence_rejected_count=1`, had
+`ocr_success_count=0`, contained no `click_point`, and its failure-time UI tree
+contained no `VISION_V1_CLICKED`.
+
+Accepted Gate candidate APK hashes:
+
+```text
+app  = c134512e24008475a341dea3fbafdf106a19380971ae520b2950ee94969cd13d
+test = 7f58a59300c5222c054f906e9fd6886feebc27f3376acad36575afb40ce5c4be
+```
+
+Frozen post-V2 capability state:
+
+```text
+Semantic Locator = primary
+Template Vision = explicit fallback
+OCR capability = READY via explicit vision_text
+OCR default = OFF
+external irreversible / COMMIT Vision = DENY
+mixed Template + OCR hybrid routing = NOT ENABLED
+Sprint V3 = NOT AUTHORIZED / NOT STARTED
+```
+
+Detailed implementation and acceptance evidence:
+`docs/VISION-V2-IMPLEMENTATION.md`.
 
 ## Telegram Y700 Automation Control Plane v0.1 — CODE / LOCAL PROFILE PREP PASS
 
