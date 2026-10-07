@@ -2,9 +2,9 @@
 
 Date: 2026-10-07
 
-Review status: **AFFECTED-PATH REAL-DEVICE REVALIDATION PASS / AWAITING EXPLICIT AUTHORIZATION**
+Review status: **AUTHORIZED FOR PHASE 1 / SPRINT 1 ONLY**
 
-Current production authorization: **NO**
+Current production authorization: **YES — Phase 1 / Sprint 1 only**
 
 ## Basis
 
@@ -82,4 +82,16 @@ The Cloudflare control-plane blocker is resolved and separately closed in `CHECK
 - representative admission/load: PASS, 48 samples, P99 approximately 22.155 ms against the frozen 5000 ms candidate rule;
 - fault-injection harness: PASS, 3/3 tests.
 
-Production Runtime Implementation Authorization is still **NO** because the review requires a separate explicit authorization decision after revalidation. No Sprint 1 production implementation may begin merely from this PASS result.
+## Explicit authorization decision
+
+On 2026-10-07, after the affected-path real-device revalidation had passed, the project owner explicitly directed the project to continue Rev3.6 implementation and deployment. This satisfies the separate authorization decision required by the frozen PRD.
+
+Effective decision:
+
+`Production Runtime Implementation Authorization = YES for Phase 1 / Sprint 1 only`
+
+This decision does **not** modify the Rev3.6 frozen architecture. It only changes the implementation-authorization gate that the frozen document intentionally left closed pending a later decision.
+
+The authorization is limited to the scope lock in this review. Sprint 2+, BUSINESS capability activation, approval/effect-boundary work, new daemon/service, MQ/DB, detached execution, weakened Bridge v2 guarantees, and any relaxation of the Vision external-irreversible deny policy remain unauthorized.
+
+Current canonical main at authorization decision: `a428cf3ce1871f2f72ac2ea711c347630af3abc3`. The changes between the accepted affected-path revalidation baseline `c8bae36` and this authorization baseline are limited to Cloudflare/DNS self-heal, CI and documentation paths; no Android mutation executor, TikTok mutator, Bridge mutation path, or Vision executor changed, so the accepted affected-path revalidation remains applicable.
