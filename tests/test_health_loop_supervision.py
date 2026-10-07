@@ -26,7 +26,7 @@ class HealthLoopSupervisionContractTest(unittest.TestCase):
         self.assertIn('MULTIPLE_HEALTH_LOOPS', text)
         self.assertLess(
             text.index('RECOVERED_RUNNING pid=$found'),
-            text.index('nohup "$SCRIPT"'),
+            text.index('nohup /bin/bash "$SCRIPT"'),
         )
 
     def test_start_health_loop_replaces_live_stale_version(self):
