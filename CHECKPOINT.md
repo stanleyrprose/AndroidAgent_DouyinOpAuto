@@ -967,37 +967,42 @@ Authorization boundary after this gate:
 
 ## Y700 Cloudflare Remote-Control Self-Heal Closure (2026-10-07)
 
-Status: **PASS / CLOSED for the reproduced remote-control-plane failure mode.**
+Status: **PASS / CLOSED after final repeated real-device fault injection.**
 
-Incident evidence:
+The earlier `de1302f` closure was **invalidated by a later real test**: Cloudflare again fell to zero active connections and remained unavailable beyond 75 seconds while the existing health loop failed to recover it. That intermediate result is retained in Git history but is not the accepted closure baseline.
 
-- user-observed failure reproduced: Cloudflare Tunnel reached zero usable edge connectivity and remained unavailable beyond the 75-second acceptance window;
-- the first remediation at `5350ff8` improved Android-chroot network detection and retry behavior but failed real fault injection, so it was not accepted as closure;
-- runtime evidence showed the health loop and an independent local failsafe both stopped making timely progress while Android reported `mWakefulness=Asleep`, `mScreenOn=false`, `mNetworkConnected=true`, and DeviceIdle `mState=IDLE`;
-- the kernel exposes reversible `/sys/power/wake_lock` / `wake_unlock`, and controlled acquire/release was verified on the real Y700.
+Final accepted GitHub `main` baseline:
 
-Accepted remediation baseline: `de1302f23d041ab634c0184a143af106d84f8575`.
+`99cecd73db39f8d6dab8d458164273dd167e9ecd`
 
-The closure combines four bounded mechanisms without adding a new daemon:
+The final remediation keeps the previously accepted bounded wake/supervision design and additionally closes the failure modes exposed by repeated testing:
 
-- Android-chroot network status now treats a successful real HTTP probe as authoritative and uses the classic Linux default route only as fallback;
-- the Cloudflare recovery loop preserves true OFFLINE state, does not burn retry budget while the network path is absent, uses a 10-second hot loop, and caps online retry backoff at 30 seconds;
-- health-loop liveness is now supervised by PID + script SHA + monotonic heartbeat freshness; the existing host executor checks it every 10 seconds and restarts a live-but-stalled loop;
-- the production remote-control runtime holds the verified kernel wakelock `y700-remote-control`; startup fails closed if the wakelock cannot be acquired. The heavier full health check is bounded to 10 seconds and no longer depends on Bridge `root-exec` for battery temperature.
+- chroot DNS is now Git-managed by default and no longer silently re-imports the stale Android-host resolver set; an explicit host override path remains available;
+- on the tested mobile/hotspot path, `8.8.8.8` and `8.8.4.4` responded reliably while the previous secondary resolver `114.114.114.114` timed out; after the managed resolver fix, `github.com` lookup and Git fetch immediately recovered;
+- remote-probe hysteresis applies only while cloudflared is still alive with HA connections, so one transient remote-probe/DNS failure does not churn a healthy tunnel; process-dead or zero-connection failures retain the fast recovery path;
+- the restart helper performs bounded TERM -> KILL escalation for a stalled old cloudflared process before spawning a replacement;
+- health-loop launch, self-update, and cloudflared restart are mode-independent through explicit `/bin/bash`, while the scripts still retain executable mode in Git;
+- health-loop PID cleanup is ownership-safe: an exiting old loop removes the PID file only when the file still contains its own `BASHPID`, preventing an old instance from deleting a newer supervised instance's PID file;
+- the Y700 self-heal contract suite is now part of GitHub Actions, so these recovery semantics are continuously validated.
 
-Acceptance evidence on the real Y700 while the screen remained off and Android DeviceIdle remained IDLE:
+Final real-Y700 acceptance evidence:
 
-- related Y700 regressions: 24/24 PASS; shell syntax checks PASS;
-- GitHub Actions `validate` run #83 for `main@de1302f`: PASS;
-- deliberate cloudflared kill at 2026-10-07T00:38:31Z required no human recovery action and did not reach the 90-second failsafe;
-- external Mac observation changed `200 -> 502 -> 530 -> 200` and returned to HTTP 200 in approximately 54 seconds from the injection, below the 75-second acceptance target;
-- Y700 internal evidence showed self-heal restart activity beginning within seconds and final `CLOUDFLARED_SELF_HEAL_OK ... probe_http=200`;
-- final runtime state: `production_sot=HEALTHY`, remote plane `READY`, remote probe HTTP 200, Bridge root round-trip PASS, one host executor instance, health-loop heartbeat fresh, and `y700-remote-control` present in the kernel wakelock set;
-- rollback release remains `y700-agent-release-5350ff8`.
+- Y700 self-heal tests: **34/34 PASS**; shell syntax PASS; key helper scripts mode `0755`;
+- post-merge GitHub Actions `validate` for `main@99cecd7`: **SUCCESS**;
+- final stable runtime points to immutable release `y700-agent-release-99cecd7`;
+- health-loop PID, version SHA and heartbeat SHA were aligned to the final script before fault injection;
+- final Hard Fault: deliberate cloudflared termination produced external `530 -> 200` recovery in **10.0 seconds**, then remained at 200 on repeated probes;
+- internal evidence for that run: `CLOUDFLARED_SELF_HEAL_START` at 04:16:52 UTC, process restart at 04:16:57, and `CLOUDFLARED_SELF_HEAL_OK connections=4 probe_http=200` at 04:17:00;
+- an earlier hard-fault run on the same remediation lineage recovered externally in **9.8 seconds**;
+- soft-fault evidence showed `CLOUDFLARED_REMOTE_PROBE_GRACE connections=4 cycles=1 required=2` while the external endpoint remained HTTP 200, proving one transient remote-probe failure no longer causes immediate restart;
+- PID ownership-safe cleanup semantics: PASS;
+- final runtime state after recovery: remote plane `READY`, remote probe HTTP 200, cloudflared HA connections `4`, restart failures `0`, and no pending retry backoff.
 
-This closure supersedes the earlier Phase 0 observation that the current runtime had no dedicated wake-lock mechanism **only for the Y700 remote-control runtime**. It does not grant or widen Android Automation Core v0.6 Production Runtime Implementation Authorization, and it does not change publish authorization boundaries.
+This closure supersedes the earlier Phase 0 observation that the current runtime had no dedicated wake-lock mechanism **only for the Y700 remote-control runtime**. It does not grant or widen Android Automation Core v0.6 Production Runtime Implementation Authorization, and it does not change TikTok publish/COMMIT authorization boundaries.
 
-Operational decision: the Cloudflare remote-control self-heal blocker is closed. Vision/OCR gate work may resume from its prior checkpoint; the remote-control-plane fix itself must not be treated as evidence for any separate Vision/OCR acceptance criterion.
+Detailed public-safe evidence: `docs/Y700-CLOUDFLARE-SELF-HEAL-FINAL-ACCEPTANCE-2026-10-07.md`.
+
+Operational decision: the Y700 Cloudflare remote-control self-heal blocker is now closed on the final accepted baseline. Vision/OCR or other project gates may resume from their own checkpoints, but this connectivity acceptance must not be reused as evidence for unrelated functional gates.
 
 ## Android Automation Core v0.6 Rev3.6 — Affected-Path Real-Device Revalidation PASS (2026-10-07)
 
