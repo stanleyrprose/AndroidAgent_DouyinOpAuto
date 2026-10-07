@@ -10,6 +10,7 @@ HEALTH_CHECK = ROOT / "scripts" / "health-check.sh"
 NETWORK = ROOT / "scripts" / "network-status.sh"
 RESTART = ROOT / "bootstrap" / "restart-cloudflared-y700.sh"
 START_RUNTIME = ROOT / "scripts" / "start-prod-runtime.sh"
+START_HEALTH = ROOT / "scripts" / "start-health-loop.sh"
 
 
 class CloudflaredSelfHealContractTests(unittest.TestCase):
@@ -120,6 +121,13 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
     def test_restart_helper_is_executable(self) -> None:
         self.assertTrue(os.access(RESTART, os.X_OK))
 
+    def test_health_loop_script_is_executable(self) -> None:
+        self.assertTrue(os.access(HEALTH_LOOP, os.X_OK))
+
+    def test_health_loop_launcher_is_mode_independent(self) -> None:
+        text = START_HEALTH.read_text()
+        self.assertIn('nohup /bin/bash "$SCRIPT"', text)
+
     def test_restart_bounded_stop_escalates_stalled_old_process(self) -> None:
         text = RESTART.read_text()
         self.assertIn("pid_is_cloudflared", text)
@@ -147,7 +155,7 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         self.assertIn('SCRIPT_SHA="$(sha256sum "$SCRIPT_PATH"', text)
         self.assertIn("maybe_self_update", text)
         self.assertIn("HEALTH_LOOP_SELF_UPDATE", text)
-        self.assertIn('exec "$SCRIPT_PATH"', text)
+        self.assertIn('exec /bin/bash "$SCRIPT_PATH"', text)
         self.assertLess(text.index("maybe_self_update\n  publish_heartbeat"), text.index('network="$("$NETWORK_STATUS"'))
 
     def _run_network_status(self, curl_ok: bool, route_ok: bool) -> subprocess.CompletedProcess[str]:
