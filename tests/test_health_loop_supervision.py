@@ -56,6 +56,14 @@ class HealthLoopSupervisionContractTest(unittest.TestCase):
         self.assertIn('version_matches "$p" && heartbeat_fresh "$p"', text)
         self.assertIn('version_matches "$found" && heartbeat_fresh "$found"', text)
 
+    def test_health_loop_exit_only_removes_its_own_pidfile(self):
+        text = (ROOT / "scripts" / "health-loop.sh").read_text(encoding="utf-8")
+        self.assertIn("cleanup_pid()", text)
+        self.assertIn('owner="$(cat "$PID" 2>/dev/null || true)"', text)
+        self.assertIn('if [ "$owner" = "$BASHPID" ]; then', text)
+        self.assertIn('trap cleanup_pid EXIT', text)
+        self.assertNotIn("trap 'rm -f \"$PID\"' EXIT", text)
+
 
 if __name__ == "__main__":
     unittest.main()

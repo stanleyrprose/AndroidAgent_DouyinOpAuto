@@ -22,8 +22,16 @@ HEALTH_CHECK_INTERVAL_SEC="${Y700_HEALTH_CHECK_INTERVAL_SEC:-60}"
 HEALTH_CHECK_TIMEOUT_SEC="${Y700_HEALTH_CHECK_TIMEOUT_SEC:-10}"
 
 mkdir -p "$(dirname "$LOG")" "$STATE_DIR"
-echo $$ > "$PID"
-trap 'rm -f "$PID"' EXIT
+echo "$BASHPID" > "$PID"
+
+cleanup_pid() {
+  local owner
+  owner="$(cat "$PID" 2>/dev/null || true)"
+  if [ "$owner" = "$BASHPID" ]; then
+    rm -f "$PID"
+  fi
+}
+trap cleanup_pid EXIT
 
 SCRIPT_PATH="$0"
 SCRIPT_SHA="$(sha256sum "$SCRIPT_PATH" 2>/dev/null | awk '{print $1}')"
