@@ -705,6 +705,30 @@ Production closure on 2026-10-06:
   approximately 0.99999815, postcondition PASS);
 - OCR remained default OFF at the V2 production closure; V3 hybrid routing was not yet enabled at that historical checkpoint.
 
+Current-production V2 revalidation on 2026-10-07: **PASS**.
+
+- fixed a production-path integrity defect where an absolute stable symlink target made
+  Android-host jobs unable to resolve `bridge/android-runtime-env.sh`; stable release
+  promotion now uses a relative release basename and `production-sot-status.sh` flags
+  an absolute stable symlink as `DRIFT`;
+- production baseline for this revalidation: `3b93308`, raw stable target
+  `y700-agent-release-3b93308`, rollback `y700-agent-release-a428cf3`,
+  `production_sot=HEALTHY`, one Android bridge instance and overall health HEALTHY;
+- fresh V2-only semantic / template / explicit `vision_text` sanity jobs all PASS with
+  hybrid fallback count 0;
+- full current-production V2 component Gate PASS at
+  `/opt/y700/runtime/ocr-v2/ocr-v2-component-gate-20261007-065959.json`:
+  7/7 contract, 7/7 normalization/context, 2/2 cache/timeout, lifecycle PASS,
+  cold-latency PASS, 96/99 real-dataset accuracy PASS, 200-run stress PASS;
+- current measured cold P95 96.17 ms, warm 200-run P95 49.09 ms, thermal delta 0 C;
+- low-confidence no-click remains PASS: `ocr_success_count=0`, rejected count 4,
+  no `click_point`, no clicked marker in failure tree. The current shared executor
+  reports terminal `VISUAL_TIMEOUT` after bounded retries instead of the historical
+  V2 `VISION_OCR_NOT_FOUND`, but the safety invariant remains intact;
+- durable summary:
+  `/opt/y700/runtime/ocr-v2/current-revalidation-20261007/current-production-v2-revalidation-summary.json`;
+- detailed record: `docs/VISION-V2-REVALIDATION-2026-10-07.md`.
+
 ## Vision Locator PRD v0.3 Sprint V3 — PASS / FROZEN
 
 Accepted on the real Y700 on 2026-10-07. Gate code baseline: `7d73357` on
