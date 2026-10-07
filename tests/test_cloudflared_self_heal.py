@@ -51,6 +51,15 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
             text = path.read_text()
             self.assertIn("--metrics 127.0.0.1:20241", text)
 
+    def test_prod_runtime_holds_kernel_wakelock_for_remote_control(self) -> None:
+        text = START_RUNTIME.read_text()
+        self.assertIn("Y700_REMOTE_WAKE_LOCK_NAME:-y700-remote-control", text)
+        self.assertIn("WAKE_LOCK=/sys/power/wake_lock", text)
+        self.assertIn("WAKE_UNLOCK=/sys/power/wake_unlock", text)
+        self.assertIn("acquire_remote_wake_lock", text)
+        self.assertIn("REMOTE_WAKE_LOCK_ACQUIRE_FAILED", text)
+        self.assertIn("release_wake_lock_on_failure", text)
+
     def test_health_output_includes_connection_count(self) -> None:
         text = HEALTH_CHECK.read_text()
         self.assertIn('"tunnel_connections":int(tunnel_connections)', text)
