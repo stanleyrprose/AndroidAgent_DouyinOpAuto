@@ -973,7 +973,7 @@ The earlier `de1302f` closure was **invalidated by a later real test**: Cloudfla
 
 Final accepted GitHub `main` baseline:
 
-`99cecd73db39f8d6dab8d458164273dd167e9ecd`
+`7bf800ee536dea9d33d8f23d002b4c6fe31f832b`
 
 The final remediation keeps the previously accepted bounded wake/supervision design and additionally closes the failure modes exposed by repeated testing:
 
@@ -983,19 +983,22 @@ The final remediation keeps the previously accepted bounded wake/supervision des
 - the restart helper performs bounded TERM -> KILL escalation for a stalled old cloudflared process before spawning a replacement;
 - health-loop launch, self-update, and cloudflared restart are mode-independent through explicit `/bin/bash`, while the scripts still retain executable mode in Git;
 - health-loop PID cleanup is ownership-safe: an exiting old loop removes the PID file only when the file still contains its own `BASHPID`, preventing an old instance from deleting a newer supervised instance's PID file;
+- stale/wedged health-loop replacement is bounded: TERM is attempted first, then escalated to KILL if the live-but-stopped process does not exit, and a replacement is accepted only after publishing a fresh heartbeat;
 - the Y700 self-heal contract suite is now part of GitHub Actions, so these recovery semantics are continuously validated.
 
 Final real-Y700 acceptance evidence:
 
-- Y700 self-heal tests: **34/34 PASS**; shell syntax PASS; key helper scripts mode `0755`;
-- post-merge GitHub Actions `validate` for `main@99cecd7`: **SUCCESS**;
-- final stable runtime points to immutable release `y700-agent-release-99cecd7`;
+- Y700 self-heal tests: **36/36 PASS**; shell syntax PASS; key helper scripts mode `0755`;
+- post-merge GitHub Actions `validate` for `main@7bf800e`: **SUCCESS**;
+- final stable runtime points to immutable release `y700-agent-release-7bf800e`;
 - health-loop PID, version SHA and heartbeat SHA were aligned to the final script before fault injection;
 - final Hard Fault: deliberate cloudflared termination produced external `530 -> 200` recovery in **10.0 seconds**, then remained at 200 on repeated probes;
 - internal evidence for that run: `CLOUDFLARED_SELF_HEAL_START` at 04:16:52 UTC, process restart at 04:16:57, and `CLOUDFLARED_SELF_HEAL_OK connections=4 probe_http=200` at 04:17:00;
 - an earlier hard-fault run on the same remediation lineage recovered externally in **9.8 seconds**;
 - soft-fault evidence showed `CLOUDFLARED_REMOTE_PROBE_GRACE connections=4 cycles=1 required=2` while the external endpoint remained HTTP 200, proving one transient remote-probe failure no longer causes immediate restart;
 - PID ownership-safe cleanup semantics: PASS;
+- wedged-loop fault injection: `SIGSTOP` left the old health-loop PID alive but stopped; after heartbeat expiry the supervisor recorded `STALE_HEALTH_LOOP_TERM_TIMEOUT ... escalating=KILL`, replaced it with a new PID, and restored heartbeat in approximately **53.3 seconds** while the external endpoint remained HTTP 200 throughout;
+- accepted runtime tag: `y700-cloudflare-selfheal-v1.0.1` -> `7bf800e`; the earlier `v1.0.0` tag is retained as historical evidence but is superseded because it did not yet close the wedged-loop replacement gap;
 - final runtime state after recovery: remote plane `READY`, remote probe HTTP 200, cloudflared HA connections `4`, restart failures `0`, and no pending retry backoff.
 
 This closure supersedes the earlier Phase 0 observation that the current runtime had no dedicated wake-lock mechanism **only for the Y700 remote-control runtime**. It does not grant or widen Android Automation Core v0.6 Production Runtime Implementation Authorization, and it does not change TikTok publish/COMMIT authorization boundaries.
