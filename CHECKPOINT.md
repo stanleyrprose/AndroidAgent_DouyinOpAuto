@@ -998,3 +998,30 @@ Acceptance evidence on the real Y700 while the screen remained off and Android D
 This closure supersedes the earlier Phase 0 observation that the current runtime had no dedicated wake-lock mechanism **only for the Y700 remote-control runtime**. It does not grant or widen Android Automation Core v0.6 Production Runtime Implementation Authorization, and it does not change publish authorization boundaries.
 
 Operational decision: the Cloudflare remote-control self-heal blocker is closed. Vision/OCR gate work may resume from its prior checkpoint; the remote-control-plane fix itself must not be treated as evidence for any separate Vision/OCR acceptance criterion.
+
+## Android Automation Core v0.6 Rev3.6 — Affected-Path Real-Device Revalidation PASS (2026-10-07)
+
+Status: **PASS / AUTHORIZATION DECISION STILL REQUIRED.**
+
+After the Cloudflare remote-control blocker was closed, the authorization review's required affected-path checks were rerun on a clean immutable Y700 release at exact canonical baseline `c8bae36daea200c9c427330bfdfc4cdf8766d80b`.
+
+Durable local evidence:
+
+`/opt/y700/runtime/v06-phase0b-evidence/revalidation-c8bae36-20261007/summary.json`
+
+The evidence bundle contains PASS results for preflight baseline, runtime permissions, UI mutation inventory, pressHome/pressBack migration fixture, semantic vectors, fingerprint profiles, proc visibility, same-boot clock evidence, installed app/UI contract, ZUI overlay inventory, suspend/wakelock policy, representative admission/load, and the fault-injection harness.
+
+Notable current-main evidence:
+
+- preflight PASS with `active_bridge_jobs=0`, no current durable `android_ui` claim, root round-trip PASS and clean Git;
+- representative admission/load PASS with 48 samples and P99 approximately 22.155 ms;
+- the existing Sprint-1 mutation findings remain visible rather than being silently normalized away;
+- controlled suspend evidence remains same-boot valid;
+- the new `y700-remote-control` kernel wakelock belongs to the remote-control plane only and does not relax Android Automation AUTO/state-token or mutation-ownership rules.
+
+Authorization boundary:
+
+- the empirical blocker identified by the 2026-10-07 authorization review is now cleared;
+- review recommendation is to allow **Phase 1 / Sprint 1 only** once explicit authorization is given;
+- **Production Runtime Implementation Authorization remains NO until that explicit authorization is granted**;
+- Sprint 2+, BUSINESS capability activation, new daemon/MQ/DB, detached execution, weakened Bridge v2 guarantees, and Vision external-irreversible policy changes remain unauthorized.
