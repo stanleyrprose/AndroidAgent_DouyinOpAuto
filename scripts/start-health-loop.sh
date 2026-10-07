@@ -90,7 +90,7 @@ if [ -n "$found" ]; then
   stop_stale "$found"
 fi
 
-nohup "$SCRIPT" >/opt/y700/runtime/logs/health-loop-launch.log 2>&1 </dev/null &
+nohup /bin/bash "$SCRIPT" >/opt/y700/runtime/logs/health-loop-launch.log 2>&1 </dev/null &
 sleep 1
 p="$(cat "$PID" 2>/dev/null || true)"
 if ! process_matches "$p" || ! version_matches "$p"; then

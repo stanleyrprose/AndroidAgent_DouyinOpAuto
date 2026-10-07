@@ -10,6 +10,7 @@ HEALTH_CHECK = ROOT / "scripts" / "health-check.sh"
 NETWORK = ROOT / "scripts" / "network-status.sh"
 RESTART = ROOT / "bootstrap" / "restart-cloudflared-y700.sh"
 START_RUNTIME = ROOT / "scripts" / "start-prod-runtime.sh"
+START_HEALTH = ROOT / "scripts" / "start-health-loop.sh"
 
 
 class CloudflaredSelfHealContractTests(unittest.TestCase):
@@ -83,10 +84,12 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
     def test_network_recovery_bypasses_stale_backoff(self) -> None:
         text = HEALTH_LOOP.read_text()
         self.assertIn("path_recovered=1", text)
-        self.assertIn('disconnected_cycles="$DISCONNECTED_GRACE_CYCLES"', text)
+        self.assertIn("next_retry_epoch=0", text)
+        self.assertIn('required_grace_cycles="$DISCONNECTED_GRACE_CYCLES"', text)
+        self.assertIn('if [ "$disconnected_cycles" -lt "$required_grace_cycles" ]; then', text)
         self.assertLess(
             text.index("NETWORK_PATH_AVAILABLE mode=$network"),
-            text.index('if [ "$disconnected_cycles" -lt "$required_grace_cycles" ]'),
+            text.index('if [ "$disconnected_cycles" -lt "$required_grace_cycles" ]; then'),
         )
 
     def test_connectivity_loop_is_decoupled_and_bounded(self) -> None:
@@ -110,6 +113,20 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         text = HEALTH_CHECK.read_text()
         self.assertNotIn("bridge/root-exec.sh", text)
         self.assertIn("/sys/class/power_supply/battery/temp", text)
+
+    def test_health_loop_invokes_restart_via_bash(self) -> None:
+        text = HEALTH_LOOP.read_text()
+        self.assertIn('/bin/bash "$CF_RESTART"', text)
+
+    def test_restart_helper_is_executable(self) -> None:
+        self.assertTrue(os.access(RESTART, os.X_OK))
+
+    def test_health_loop_script_is_executable(self) -> None:
+        self.assertTrue(os.access(HEALTH_LOOP, os.X_OK))
+
+    def test_health_loop_launcher_is_mode_independent(self) -> None:
+        text = START_HEALTH.read_text()
+        self.assertIn('nohup /bin/bash "$SCRIPT"', text)
 
     def test_restart_bounded_stop_escalates_stalled_old_process(self) -> None:
         text = RESTART.read_text()
@@ -138,7 +155,7 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         self.assertIn('SCRIPT_SHA="$(sha256sum "$SCRIPT_PATH"', text)
         self.assertIn("maybe_self_update", text)
         self.assertIn("HEALTH_LOOP_SELF_UPDATE", text)
-        self.assertIn('exec "$SCRIPT_PATH"', text)
+        self.assertIn('exec /bin/bash "$SCRIPT_PATH"', text)
         self.assertLess(text.index("maybe_self_update\n  publish_heartbeat"), text.index('network="$("$NETWORK_STATUS"'))
 
     def _run_network_status(self, curl_ok: bool, route_ok: bool) -> subprocess.CompletedProcess[str]:
