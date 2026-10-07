@@ -17,7 +17,7 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         text = HEALTH_LOOP.read_text()
         self.assertIn("network=UNKNOWN", text)
         self.assertIn('remote_probe_ready "$probe_http"', text)
-        self.assertIn("000|530) return 1", text)
+        self.assertIn("200|204) return 0", text)
         self.assertIn('write_connectivity_state "$network" "$tunnel_process" "$connections" READY 0 0 "$probe_http"', text)
         self.assertNotIn('if [ "$connections" -gt 0 ]; then', text)
 
@@ -80,12 +80,27 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
             text.index('if [ "$disconnected_cycles" -lt "$DISCONNECTED_GRACE_CYCLES" ]'),
         )
 
-    def test_connectivity_loop_is_decoupled_from_full_health_check(self) -> None:
+    def test_connectivity_loop_is_decoupled_and_bounded(self) -> None:
         text = HEALTH_LOOP.read_text()
-        self.assertIn("Y700_HEALTH_LOOP_INTERVAL_SEC:-15", text)
+        self.assertIn("Y700_HEALTH_LOOP_INTERVAL_SEC:-10", text)
         self.assertIn("Y700_HEALTH_CHECK_INTERVAL_SEC:-60", text)
+        self.assertIn("Y700_HEALTH_CHECK_TIMEOUT_SEC:-10", text)
         self.assertIn('if [ "$remote_ready" -eq 1 ]', text)
+        self.assertIn('timeout --signal=TERM "$HEALTH_CHECK_TIMEOUT_SEC"', text)
         self.assertIn('sleep "$LOOP_INTERVAL_SEC"', text)
+
+    def test_remote_plane_retry_budget_is_bounded_for_control_plane_slo(self) -> None:
+        text = HEALTH_LOOP.read_text()
+        self.assertIn("Y700_CLOUDFLARED_BACKOFF_BASE_SEC:-15", text)
+        self.assertIn("Y700_CLOUDFLARED_BACKOFF_MAX_SEC:-30", text)
+        self.assertIn("Y700_CLOUDFLARED_DISCONNECTED_GRACE_CYCLES:-1", text)
+        self.assertIn("Y700_CLOUDFLARED_REMOTE_VERIFY_ATTEMPTS:-3", text)
+        self.assertIn("Y700_CLOUDFLARED_REMOTE_VERIFY_DELAY_SEC:-2", text)
+
+    def test_health_check_does_not_depend_on_bridge_root_exec(self) -> None:
+        text = HEALTH_CHECK.read_text()
+        self.assertNotIn("bridge/root-exec.sh", text)
+        self.assertIn("/sys/class/power_supply/battery/temp", text)
 
     def test_restart_fails_if_spawned_cloudflared_dies(self) -> None:
         text = RESTART.read_text()
@@ -98,7 +113,7 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         self.assertIn("maybe_self_update", text)
         self.assertIn("HEALTH_LOOP_SELF_UPDATE", text)
         self.assertIn('exec "$SCRIPT_PATH"', text)
-        self.assertLess(text.index("maybe_self_update\n  now="), text.index('network="$("$NETWORK_STATUS"'))
+        self.assertLess(text.index("maybe_self_update\n  publish_heartbeat"), text.index('network="$("$NETWORK_STATUS"'))
 
     def _run_network_status(self, curl_ok: bool, route_ok: bool) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as tmp:

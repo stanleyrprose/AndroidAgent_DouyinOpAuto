@@ -101,8 +101,14 @@ PY
 )
 fi
 
-temp_tenths=$(/opt/y700/workspaces/y700-agent/bridge/root-exec.sh "dumpsys battery | sed -n 's/^[[:space:]]*temperature: //p' | head -1" 2>/dev/null | tail -1 || true)
-if [[ "$temp_tenths" =~ ^[0-9]+$ ]]; then
+temp_tenths=""
+for temp_path in /sys/class/power_supply/battery/temp /sys/class/power_supply/bms/temp; do
+  if [ -r "$temp_path" ]; then
+    temp_tenths="$(cat "$temp_path" 2>/dev/null || true)"
+    [ -n "$temp_tenths" ] && break
+  fi
+done
+if [[ "$temp_tenths" =~ ^[0-9]+$ ]] && [ "$temp_tenths" -le 1000 ]; then
   temp_c=$(python3 -c "print(round($temp_tenths/10,1))")
 else
   temp_c=null

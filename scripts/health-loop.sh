@@ -5,18 +5,20 @@ LOG=/opt/y700/runtime/logs/health-loop.log
 STATE_DIR=/opt/y700/runtime/state
 CONNECTIVITY_STATE="$STATE_DIR/connectivity.json"
 VERSION_STATE="$STATE_DIR/health-loop.version"
+HEARTBEAT_STATE="$STATE_DIR/health-loop.heartbeat"
 CF_PID=/opt/y700/runtime/cloudflared.pid
 CF_RESTART=/opt/y700/workspaces/y700-agent/bootstrap/restart-cloudflared-y700.sh
 CF_METRICS_URL="${Y700_CLOUDFLARED_METRICS_URL:-http://127.0.0.1:20241/metrics}"
 CF_REMOTE_PROBE_URL="${Y700_CLOUDFLARED_REMOTE_PROBE_URL:-https://y700dev.stanleyxyz.com/}"
 NETWORK_STATUS=/opt/y700/workspaces/y700-agent/scripts/network-status.sh
-BASE_BACKOFF_SEC="${Y700_CLOUDFLARED_BACKOFF_BASE_SEC:-60}"
-MAX_BACKOFF_SEC="${Y700_CLOUDFLARED_BACKOFF_MAX_SEC:-900}"
-DISCONNECTED_GRACE_CYCLES="${Y700_CLOUDFLARED_DISCONNECTED_GRACE_CYCLES:-2}"
-REMOTE_VERIFY_ATTEMPTS="${Y700_CLOUDFLARED_REMOTE_VERIFY_ATTEMPTS:-4}"
-REMOTE_VERIFY_DELAY_SEC="${Y700_CLOUDFLARED_REMOTE_VERIFY_DELAY_SEC:-3}"
-LOOP_INTERVAL_SEC="${Y700_HEALTH_LOOP_INTERVAL_SEC:-15}"
+BASE_BACKOFF_SEC="${Y700_CLOUDFLARED_BACKOFF_BASE_SEC:-15}"
+MAX_BACKOFF_SEC="${Y700_CLOUDFLARED_BACKOFF_MAX_SEC:-30}"
+DISCONNECTED_GRACE_CYCLES="${Y700_CLOUDFLARED_DISCONNECTED_GRACE_CYCLES:-1}"
+REMOTE_VERIFY_ATTEMPTS="${Y700_CLOUDFLARED_REMOTE_VERIFY_ATTEMPTS:-3}"
+REMOTE_VERIFY_DELAY_SEC="${Y700_CLOUDFLARED_REMOTE_VERIFY_DELAY_SEC:-2}"
+LOOP_INTERVAL_SEC="${Y700_HEALTH_LOOP_INTERVAL_SEC:-10}"
 HEALTH_CHECK_INTERVAL_SEC="${Y700_HEALTH_CHECK_INTERVAL_SEC:-60}"
+HEALTH_CHECK_TIMEOUT_SEC="${Y700_HEALTH_CHECK_TIMEOUT_SEC:-10}"
 
 mkdir -p "$(dirname "$LOG")" "$STATE_DIR"
 echo $$ > "$PID"
@@ -33,6 +35,19 @@ publish_version() {
 }
 
 publish_version
+
+monotonic_sec() {
+  awk '{print int($1)}' /proc/uptime 2>/dev/null || date +%s
+}
+
+publish_heartbeat() {
+  local tmp="$HEARTBEAT_STATE.tmp.$$"
+  printf '%s %s %s\n' "$$" "$(monotonic_sec)" "$SCRIPT_SHA" >"$tmp"
+  chmod 600 "$tmp" 2>/dev/null || true
+  mv "$tmp" "$HEARTBEAT_STATE"
+}
+
+publish_heartbeat
 
 maybe_self_update() {
   local current_sha
@@ -67,7 +82,7 @@ tunnel_connection_count() {
 
 remote_probe_http_status() {
   local code
-  code="$(curl -sS -o /dev/null --connect-timeout 5 --max-time 10 -w '%{http_code}' "$CF_REMOTE_PROBE_URL" 2>/dev/null || true)"
+  code="$(curl -sS -o /dev/null --connect-timeout 2 --max-time 4 -w '%{http_code}' "$CF_REMOTE_PROBE_URL" 2>/dev/null || true)"
   case "$code" in
     [0-9][0-9][0-9]) echo "$code" ;;
     *) echo 000 ;;
@@ -77,8 +92,8 @@ remote_probe_http_status() {
 remote_probe_ready() {
   local code="$1"
   case "$code" in
-    000|530) return 1 ;;
-    *) return 0 ;;
+    200|204) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
@@ -153,6 +168,7 @@ last_health_check_epoch=0
 
 while true; do
   maybe_self_update
+  publish_heartbeat
   now="$(date +%s)"
   network="$("$NETWORK_STATUS" 2>/dev/null || true)"
   case "$network" in
@@ -240,8 +256,9 @@ while true; do
   # off the degraded-path hot loop. Connectivity recovery must not wait behind
   # a slow root_exec while the remote control plane is unavailable.
   if [ "$remote_ready" -eq 1 ] && [ $((now - last_health_check_epoch)) -ge "$HEALTH_CHECK_INTERVAL_SEC" ]; then
-    /opt/y700/workspaces/y700-agent/scripts/health-check.sh >>"$LOG" 2>&1 || true
+    timeout --signal=TERM "$HEALTH_CHECK_TIMEOUT_SEC" /opt/y700/workspaces/y700-agent/scripts/health-check.sh >>"$LOG" 2>&1 || true
     last_health_check_epoch="$(date +%s)"
+    publish_heartbeat
   fi
   sleep "$LOOP_INTERVAL_SEC"
 done

@@ -47,7 +47,7 @@ PIDFILE="$RUNTIME/host-executor.pid"
 HEALTH_LOOP_PIDFILE="$RUNTIME/health-loop.pid"
 DEBIAN_EXEC="${Y700_DEBIAN_EXEC:-/data/local/y700-linux/exec.sh}"
 DEBIAN_START_HEALTH="${Y700_DEBIAN_START_HEALTH:-/opt/y700/workspaces/y700-agent/scripts/start-health-loop.sh}"
-HEALTH_LOOP_SUPERVISE_MS="${Y700_HEALTH_LOOP_SUPERVISE_MS:-60000}"
+HEALTH_LOOP_SUPERVISE_MS="${Y700_HEALTH_LOOP_SUPERVISE_MS:-10000}"
 
 SELF_PID=$$
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || printf unknown)"
