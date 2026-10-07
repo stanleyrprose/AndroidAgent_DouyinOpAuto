@@ -1009,7 +1009,7 @@ Operational decision: the Y700 Cloudflare remote-control self-heal blocker is no
 
 ## Android Automation Core v0.6 Rev3.6 — Affected-Path Real-Device Revalidation PASS (2026-10-07)
 
-Status: **PASS / AUTHORIZATION DECISION STILL REQUIRED.**
+Status: **PASS / PHASE 1 SPRINT 1 AUTHORIZED.**
 
 After the Cloudflare remote-control blocker was closed, the authorization review's required affected-path checks were rerun on a clean immutable Y700 release at exact canonical baseline `c8bae36daea200c9c427330bfdfc4cdf8766d80b`.
 
@@ -1029,7 +1029,9 @@ Notable current-main evidence:
 
 Authorization boundary:
 
-- the empirical blocker identified by the 2026-10-07 authorization review is now cleared;
-- review recommendation is to allow **Phase 1 / Sprint 1 only** once explicit authorization is given;
-- **Production Runtime Implementation Authorization remains NO until that explicit authorization is granted**;
-- Sprint 2+, BUSINESS capability activation, new daemon/MQ/DB, detached execution, weakened Bridge v2 guarantees, and Vision external-irreversible policy changes remain unauthorized.
+- the empirical blocker identified by the 2026-10-07 authorization review is cleared;
+- explicit project-owner authorization was given on 2026-10-07 to continue Rev3.6 implementation/deployment;
+- **Production Runtime Implementation Authorization = YES for Phase 1 / Sprint 1 only**;
+- authorization baseline: `a428cf3ce1871f2f72ac2ea711c347630af3abc3`; changes since the accepted affected-path revalidation baseline are limited to Cloudflare/DNS self-heal, CI and documentation paths and do not alter the Android mutation executor;
+- authorized Sprint 1 scope is shared `android_ui` ownership/claim, protocol-v2 `resource_guard`, legacy TikTok mutator migration/no nested reacquisition, `device-state.json` + token/AUTO state integrity, `pressHome`/`pressBack` mutation reclassification, mutation prepare/commit durability, revision ordering, and stale/manual-drift/direct-bypass rejection;
+- Sprint 2+, BUSINESS capability activation, new daemon/MQ/DB, detached execution, weakened Bridge v2 guarantees, approval/effect-boundary work, and Vision external-irreversible policy changes remain unauthorized.
