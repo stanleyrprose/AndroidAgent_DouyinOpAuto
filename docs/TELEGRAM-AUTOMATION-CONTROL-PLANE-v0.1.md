@@ -26,7 +26,9 @@ Telegram dedicated bot
 
 Cloud ChatGPT remains an equivalent manual ingress. Both paths use the same workflow contract and the same Git/runtime sources of truth.
 
-## Supported Telegram intents
+## Original v0.1 Telegram intents — historical / superseded
+
+The following list documents the original v0.1 behavior only. The current production contract is defined in **Current explicit trigger contract** below.
 
 - bare valid Douyin share URL: run the end-to-end workflow;
 - `/status [job_id]`: read durable state;
@@ -35,9 +37,9 @@ Cloud ChatGPT remains an equivalent manual ingress. Both paths use the same work
 
 The bot is not a generic shell, ADB console, root console, account-management interface, or free-form assistant.
 
-## Authorization
+## Original v0.1 authorization — historical / superseded
 
-For the canonical Skill, one supplied Douyin URL is explicit authorization for one durable job and exactly one TikTok `PUBLIC` COMMIT attempt after the mandatory DRY_RUN gate. The same Telegram message can narrow or revoke publication.
+For the original v0.1 canonical Skill, one supplied Douyin URL was explicit authorization for one durable job and exactly one TikTok `PUBLIC` COMMIT attempt after the mandatory DRY_RUN gate. Current production requires an explicit publish intent prefix as defined below.
 
 No blind second COMMIT is allowed after timeout, UI uncertainty, disconnect, or ambiguous durable state.
 
@@ -104,7 +106,7 @@ Pending live gate:
 
 The control plane is not production-complete until this live gate passes.
 
-## Current explicit trigger contract (2026-10-06)
+## Current explicit trigger contract (2026-10-07)
 
 The original v0.1 bare-link trigger has been superseded for current production use. Historical acceptance records remain unchanged.
 
@@ -113,15 +115,21 @@ Current Telegram execution intents are:
 ```text
 自动发布+<Douyin share text or URL>
 自动发布：<Douyin share text or URL>
+Automatic Publish+<Douyin share text or URL>
+Automatic Publish：<Douyin share text or URL>
 存到相册+<Douyin share text or URL>
 存到相册：<Douyin share text or URL>
+Save to Album+<Douyin share text or URL>
+Save to Album：<Douyin share text or URL>
 ```
 
 A bare Douyin URL no longer authorizes or starts work.
 
-`自动发布+` runs the full Mac production -> Y700 -> TikTok PUBLIC path and authorizes exactly one PUBLIC COMMIT attempt after mandatory DRY_RUN.
+`自动发布` and `Automatic Publish` normalize to the same `AUTO_PUBLISH` intent. It runs the full Mac production -> Y700 -> TikTok PUBLIC path and authorizes exactly one PUBLIC COMMIT attempt after mandatory DRY_RUN.
 
-`存到相册+` runs Mac production through export, pulls the capability artifact to Y700, stores the rendered video non-destructively under `Movies/Y700Agent`, verifies MediaStore visibility, saves the final Burmese caption into ZUI Notes for manual copy/publish, emits `ALBUM_STORED`, restores the initial power state, and stops. This path has no TikTok/COMMIT capability.
+`存到相册` and `Save to Album` normalize to the same `STORE_ALBUM` intent. It runs Mac production through export, pulls the capability artifact to Y700, stores the rendered video non-destructively under `Movies/Y700Agent`, verifies MediaStore visibility, saves the final Burmese caption into ZUI Notes for manual copy/publish, emits `ALBUM_STORED`, restores the initial power state, and stops. This path has no TikTok/COMMIT capability.
+
+English aliases are ASCII case-insensitive. For payload-bearing intents, `+`, ASCII `:`, and Chinese `：` are equivalent separators. Fixed English phrases are intentionally narrow; arbitrary synonyms are not inferred.
 
 
 ## Durable resume control (2026-10-06)
@@ -132,6 +140,15 @@ Telegram supports:
 继续任务：<job_id>
 继续任务:<job_id>
 继续任务+<job_id>
+Resume Task：<job_id>
+Resume Task:<job_id>
+Resume Task+<job_id>
+任务状态：<job_id>
+Task Status:<job_id>
+取消任务：<job_id>
+Cancel Task:<job_id>
+帮助
+Help
 ```
 
 A canonical job must carry a write-once `workflow_intent` of `AUTO_PUBLISH` or `STORE_ALBUM`. Resume never accepts or infers a replacement intent. `STORE_ALBUM` resumes only from safe exported handoff state; an expired capability URL is regenerated from existing Mac render/caption artifacts without re-downloading or re-localizing. `AUTO_PUBLISH` may resume retry-safe pre-COMMIT stages, but any COMMIT manifest, COMMITTING, ambiguous, or published state is transferred to the existing publication closure/reconciliation controller. A COMMIT with uncertain outcome is never replayed.
