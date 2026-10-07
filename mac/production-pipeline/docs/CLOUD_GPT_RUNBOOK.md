@@ -198,18 +198,22 @@ Do not retry a COMMIT until publication absence is positively established.
 ## Telegram explicit intent routing
 
 The dedicated Telegram profile no longer treats a bare Douyin link as an execution request.
-Use exactly one of these prefixes:
+Use one of these fixed Chinese/English aliases. English aliases are ASCII case-insensitive; `+`, ASCII `:`, and Chinese `：` are equivalent separators for payload-bearing intents.
 
 ```text
 自动发布+<Douyin share text or URL>
 自动发布：<Douyin share text or URL>
+Automatic Publish+<Douyin share text or URL>
+Automatic Publish：<Douyin share text or URL>
 存到相册+<Douyin share text or URL>
 存到相册：<Douyin share text or URL>
+Save to Album+<Douyin share text or URL>
+Save to Album：<Douyin share text or URL>
 ```
 
-`自动发布+` follows the established full PUBLIC workflow and carries standing authorization for exactly one PUBLIC COMMIT attempt after mandatory DRY_RUN.
+`自动发布` / `Automatic Publish` normalize to `AUTO_PUBLISH`, follow the established full PUBLIC workflow, and carry standing authorization for exactly one PUBLIC COMMIT attempt after mandatory DRY_RUN.
 
-`存到相册+` follows the same Mac ingest / evidence / localization / render / export path, then stops after the Y700 album-only handoff:
+`存到相册` / `Save to Album` normalize to `STORE_ALBUM`, follow the same Mac ingest / evidence / localization / render / export path, then stop after the Y700 album-only handoff:
 
 ```bash
 bash mac/production-pipeline/scripts/store-to-y700-album.sh <job> Y700Agent
@@ -220,6 +224,19 @@ The album-only path stores the rendered video non-destructively at
 
 
 ## Resume a retry-safe Telegram job
+
+Telegram text aliases:
+
+```text
+继续任务：<job_id>
+Resume Task:<job_id>
+任务状态：<job_id>
+Task Status:<job_id>
+取消任务：<job_id>
+Cancel Task:<job_id>
+帮助
+Help
+```
 
 Use the deterministic controller only:
 

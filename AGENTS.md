@@ -30,7 +30,9 @@ This repository is the canonical Git SOT for the Y700 Android automation node pl
 
 - Telegram is a narrow control/notification surface for Y700 automation, not a general-purpose shell or root interface.
 - A dedicated Hermes profile must use a dedicated Telegram bot and an allowlisted user/chat identity.
-- A bare valid Douyin share URL may select the `douyin-tiktok-publish` workflow; `/status`, `/cancel`, and `/help` are the only additional control intents.
+- A bare Douyin share URL is not an execution intent. Production control uses explicit plain-text Chinese or English aliases that normalize to the same workflow intents: `自动发布` / `Automatic Publish`, `存到相册` / `Save to Album`, `继续任务` / `Resume Task`, `任务状态` / `Task Status`, `取消任务` / `Cancel Task`, and `帮助` / `Help`.
+- English intent aliases are ASCII case-insensitive and use the same `+`, `:`, or `：` separators as Chinese intents where a payload is required.
+- Hermes owns slash-command routing; Y700 workflow controls must not reuse `/resume`, `/status`, `/help`, or other Hermes slash commands.
 - Telegram credentials, user/chat ids, runtime sessions and message history remain outside Git.
 - Notification delivery failure must not mutate publication truth or cause a COMMIT replay.
 
