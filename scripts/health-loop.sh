@@ -153,7 +153,7 @@ schedule_backoff() {
 
 restart_cloudflared() {
   echo "$(date -Is) CLOUDFLARED_SELF_HEAL_START failures=$failures disconnected_cycles=$disconnected_cycles" >>"$LOG"
-  if "$CF_RESTART" >>"$LOG" 2>&1; then
+  if /bin/bash "$CF_RESTART" >>"$LOG" 2>&1; then
     echo "$(date -Is) CLOUDFLARED_SELF_HEAL_PROCESS_RESTARTED" >>"$LOG"
     return 0
   fi

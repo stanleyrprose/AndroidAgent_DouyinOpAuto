@@ -83,10 +83,12 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
     def test_network_recovery_bypasses_stale_backoff(self) -> None:
         text = HEALTH_LOOP.read_text()
         self.assertIn("path_recovered=1", text)
-        self.assertIn('disconnected_cycles="$DISCONNECTED_GRACE_CYCLES"', text)
+        self.assertIn("next_retry_epoch=0", text)
+        self.assertIn('required_grace_cycles="$DISCONNECTED_GRACE_CYCLES"', text)
+        self.assertIn('if [ "$disconnected_cycles" -lt "$required_grace_cycles" ]; then', text)
         self.assertLess(
             text.index("NETWORK_PATH_AVAILABLE mode=$network"),
-            text.index('if [ "$disconnected_cycles" -lt "$required_grace_cycles" ]'),
+            text.index('if [ "$disconnected_cycles" -lt "$required_grace_cycles" ]; then'),
         )
 
     def test_connectivity_loop_is_decoupled_and_bounded(self) -> None:
@@ -110,6 +112,13 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         text = HEALTH_CHECK.read_text()
         self.assertNotIn("bridge/root-exec.sh", text)
         self.assertIn("/sys/class/power_supply/battery/temp", text)
+
+    def test_health_loop_invokes_restart_via_bash(self) -> None:
+        text = HEALTH_LOOP.read_text()
+        self.assertIn('/bin/bash "$CF_RESTART"', text)
+
+    def test_restart_helper_is_executable(self) -> None:
+        self.assertTrue(os.access(RESTART, os.X_OK))
 
     def test_restart_bounded_stop_escalates_stalled_old_process(self) -> None:
         text = RESTART.read_text()
