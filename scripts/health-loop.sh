@@ -14,6 +14,7 @@ NETWORK_STATUS=/opt/y700/workspaces/y700-agent/scripts/network-status.sh
 BASE_BACKOFF_SEC="${Y700_CLOUDFLARED_BACKOFF_BASE_SEC:-15}"
 MAX_BACKOFF_SEC="${Y700_CLOUDFLARED_BACKOFF_MAX_SEC:-30}"
 DISCONNECTED_GRACE_CYCLES="${Y700_CLOUDFLARED_DISCONNECTED_GRACE_CYCLES:-1}"
+REMOTE_FAILURE_GRACE_CYCLES="${Y700_CLOUDFLARED_REMOTE_FAILURE_GRACE_CYCLES:-2}"
 REMOTE_VERIFY_ATTEMPTS="${Y700_CLOUDFLARED_REMOTE_VERIFY_ATTEMPTS:-3}"
 REMOTE_VERIFY_DELAY_SEC="${Y700_CLOUDFLARED_REMOTE_VERIFY_DELAY_SEC:-2}"
 LOOP_INTERVAL_SEC="${Y700_HEALTH_LOOP_INTERVAL_SEC:-10}"
@@ -198,6 +199,15 @@ while true; do
     fi
   fi
 
+  # A hard local failure (process dead or zero HA connections) keeps the one-cycle
+  # fast path. When cloudflared still reports live HA connections, require a second
+  # consecutive remote-probe failure before restarting so a transient DNS/edge
+  # lookup failure cannot turn into a restart storm.
+  required_grace_cycles="$DISCONNECTED_GRACE_CYCLES"
+  if [ "$tunnel_process" = HEALTHY ] && [ "$connections" -gt 0 ]; then
+    required_grace_cycles="$REMOTE_FAILURE_GRACE_CYCLES"
+  fi
+
   # The external Cloudflare path is authoritative. Local HA connection metrics can
   # stay non-zero after the edge has already dropped the connector (observed on Y700
   # as local connections=4 while the control plane returned 1033/HTTP 530).
@@ -220,11 +230,16 @@ while true; do
       echo "$(date -Is) NETWORK_PATH_AVAILABLE mode=$network remote-plane-resume" >>"$LOG"
       failures=0
       next_retry_epoch=0
-      disconnected_cycles="$DISCONNECTED_GRACE_CYCLES"
+      if [ "$tunnel_process" = HEALTHY ] && [ "$connections" -gt 0 ]; then
+        disconnected_cycles=0
+      else
+        disconnected_cycles="$DISCONNECTED_GRACE_CYCLES"
+      fi
     else
       disconnected_cycles=$((disconnected_cycles + 1))
     fi
-    if [ "$disconnected_cycles" -lt "$DISCONNECTED_GRACE_CYCLES" ]; then
+    if [ "$disconnected_cycles" -lt "$required_grace_cycles" ]; then
+      echo "$(date -Is) CLOUDFLARED_REMOTE_PROBE_GRACE connections=$connections cycles=$disconnected_cycles required=$required_grace_cycles probe_http=$probe_http" >>"$LOG"
       write_connectivity_state "$network" "$tunnel_process" "$connections" RECOVERING "$failures" "$next_retry_epoch" "$probe_http"
     elif [ "$now" -ge "$next_retry_epoch" ]; then
       if restart_cloudflared; then
