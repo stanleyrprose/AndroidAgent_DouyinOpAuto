@@ -111,6 +111,23 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         self.assertNotIn("bridge/root-exec.sh", text)
         self.assertIn("/sys/class/power_supply/battery/temp", text)
 
+    def test_restart_bounded_stop_escalates_stalled_old_process(self) -> None:
+        text = RESTART.read_text()
+        self.assertIn("pid_is_cloudflared", text)
+        self.assertIn('kill -TERM "$old"', text)
+        self.assertIn("CLOUDFLARED_STOP_ESCALATE", text)
+        self.assertIn('kill -KILL "$old"', text)
+        self.assertIn("CLOUDFLARED_STOP_FAILED", text)
+        self.assertLess(
+            text.index('kill -KILL "$old"'),
+            text.index("nohup /root/.codexpro/bin/cloudflared"),
+        )
+
+    def test_restart_never_kills_pidfile_process_without_cloudflared_identity(self) -> None:
+        text = RESTART.read_text()
+        self.assertIn("CLOUDFLARED_PID_MISMATCH", text)
+        self.assertIn("/root/.codexpro/bin/cloudflared", text)
+
     def test_restart_fails_if_spawned_cloudflared_dies(self) -> None:
         text = RESTART.read_text()
         self.assertIn('kill -0 "$new_pid"', text)
