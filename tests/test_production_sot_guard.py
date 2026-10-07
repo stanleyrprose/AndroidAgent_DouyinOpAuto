@@ -75,6 +75,15 @@ class ProductionSotGuardTest(unittest.TestCase):
             self.assertEqual(out.returncode, 1)
             self.assertEqual(out.stdout.strip(), "DRIFT")
 
+    def test_absolute_stable_symlink_is_drift(self):
+        td, root, _ = self.make_repo()
+        with td:
+            stable = root.parent / "stable"
+            stable.symlink_to(root.resolve())
+            out = self.guard(stable)
+            self.assertEqual(out.returncode, 1)
+            self.assertEqual(out.stdout.strip(), "DRIFT")
+
 
 if __name__ == "__main__":
     unittest.main()

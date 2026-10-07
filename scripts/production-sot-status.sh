@@ -15,6 +15,16 @@ runtime_paths=(
   mac/android-automation
 )
 
+if [ -L "$ROOT" ]; then
+  stable_target="$(readlink "$ROOT" 2>/dev/null || true)"
+  case "$stable_target" in
+    /*)
+      echo DRIFT
+      exit 1
+      ;;
+  esac
+fi
+
 stable_head="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
 main_head="$(git -C "$ROOT" rev-parse "$MAIN_REF" 2>/dev/null || true)"
 
