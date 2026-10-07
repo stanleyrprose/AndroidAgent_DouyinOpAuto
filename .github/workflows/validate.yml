@@ -29,6 +29,9 @@ jobs:
       - name: Run Android automation safety tests
         run: python -m unittest tests.test_tiktok_generic tests.test_publish_routing tests.test_ui_failure_evidence -v
 
+      - name: Run Y700 remote-control self-heal tests
+        run: python -m unittest tests.test_cloudflared_self_heal tests.test_health_loop_supervision tests.test_tunnel_dns_hysteresis -v
+
       - name: Run Rev3.6 Phase 0B frozen-contract checks
         run: |
           python scripts/v06/semantic-vectors.py
