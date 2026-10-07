@@ -78,8 +78,8 @@ class ProductionSotGuardTest(unittest.TestCase):
     def test_absolute_stable_symlink_is_drift(self):
         td, root, _ = self.make_repo()
         with td:
-            stable = root.parent / "stable"
-            stable.symlink_to(root.resolve())
+            stable = root / "absolute-stable-link"
+            stable.symlink_to(root.resolve(), target_is_directory=True)
             out = self.guard(stable)
             self.assertEqual(out.returncode, 1)
             self.assertEqual(out.stdout.strip(), "DRIFT")
