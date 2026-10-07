@@ -64,6 +64,19 @@ class HealthLoopSupervisionContractTest(unittest.TestCase):
         self.assertIn('trap cleanup_pid EXIT', text)
         self.assertNotIn("trap 'rm -f \"$PID\"' EXIT", text)
 
+    def test_stale_health_loop_escalates_from_term_to_kill(self):
+        text = START.read_text(encoding="utf-8")
+        self.assertIn('STALE_HEALTH_LOOP_TERM_TIMEOUT pid=$p escalating=KILL', text)
+        self.assertIn('kill -KILL "$p"', text)
+        self.assertLess(text.index('kill "$p"'), text.index('kill -KILL "$p"'))
+
+    def test_new_health_loop_requires_fresh_heartbeat_before_acceptance(self):
+        text = START.read_text(encoding="utf-8")
+        self.assertIn(
+            'if ! process_matches "$p" || ! version_matches "$p" || ! heartbeat_fresh "$p"; then',
+            text,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
