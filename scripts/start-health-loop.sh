@@ -49,6 +49,15 @@ stop_stale() {
     sleep 0.1
   done
   if kill -0 "$p" 2>/dev/null; then
+    echo "STALE_HEALTH_LOOP_TERM_TIMEOUT pid=$p escalating=KILL" >&2
+    kill -KILL "$p" 2>/dev/null || true
+    i=0
+    while kill -0 "$p" 2>/dev/null && [ "$i" -lt 20 ]; do
+      i=$((i + 1))
+      sleep 0.1
+    done
+  fi
+  if kill -0 "$p" 2>/dev/null; then
     echo "STALE_HEALTH_LOOP_WONT_EXIT pid=$p" >&2
     return 75
   fi
@@ -93,7 +102,7 @@ fi
 nohup /bin/bash "$SCRIPT" >/opt/y700/runtime/logs/health-loop-launch.log 2>&1 </dev/null &
 sleep 1
 p="$(cat "$PID" 2>/dev/null || true)"
-if ! process_matches "$p" || ! version_matches "$p"; then
+if ! process_matches "$p" || ! version_matches "$p" || ! heartbeat_fresh "$p"; then
   echo "HEALTH_LOOP_START_UNVERIFIED pid=${p:-none} expected_sha=$CURRENT_SHA" >&2
   exit 76
 fi
