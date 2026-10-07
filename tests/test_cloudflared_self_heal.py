@@ -86,7 +86,7 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         self.assertIn('disconnected_cycles="$DISCONNECTED_GRACE_CYCLES"', text)
         self.assertLess(
             text.index("NETWORK_PATH_AVAILABLE mode=$network"),
-            text.index('if [ "$disconnected_cycles" -lt "$DISCONNECTED_GRACE_CYCLES" ]'),
+            text.index('if [ "$disconnected_cycles" -lt "$required_grace_cycles" ]'),
         )
 
     def test_connectivity_loop_is_decoupled_and_bounded(self) -> None:
