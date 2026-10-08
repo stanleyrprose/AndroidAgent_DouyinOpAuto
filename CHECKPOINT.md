@@ -781,9 +781,9 @@ Gate V3 acceptance:
 Accepted 20-run cold-start end-to-end workflow latency:
 
 ```text
-P50 = 5815.1 ms
-P95 = 7000.8 ms
-max = 8782.2 ms
+P50 = 6040.7 ms
+P95 = 7002.2 ms
+max = 7010.9 ms
 ```
 
 Accepted candidate APK hashes:
