@@ -2,9 +2,9 @@
 
 Date: 2026-10-07 (user local time)
 
-Status: **ENGINEERING GATE PASS / PRODUCTION NOT AUTHORIZED**
+Status: **HISTORICAL ENGINEERING GATE PASS / PRODUCTION AUTHORIZED 2026-10-08 / CURRENT-MAIN REVALIDATION PENDING**
 
-> Authorization correction (2026-10-08): no explicit production authorization for Sprint V3 multi-candidate hybrid routing is recorded. The evidence below remains valid as an engineering test result only. Production must reject multi-candidate Vision fallback until separately authorized.
+> Authorization update (2026-10-08): the user explicitly authorized Sprint V3 production hybrid routing. The evidence below remains the historical 2026-10-07 engineering gate; current-main real-Y700 revalidation is required before production promotion.
 
 ## Scope
 

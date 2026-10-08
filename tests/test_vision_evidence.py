@@ -65,10 +65,10 @@ class VisionEvidenceQuotaTest(unittest.TestCase):
         }
         ui_job.validate_request(req)
 
-    def test_request_rejects_unauthorized_multi_candidate_vision_fallback(self):
+    def test_request_accepts_authorized_multi_candidate_vision_fallback(self):
         req = {
             "protocol_version": 1,
-            "job_id": "vision-hybrid-blocked",
+            "job_id": "vision-hybrid-authorized",
             "actions": [{
                 "action": "click",
                 "selector": {
@@ -86,9 +86,32 @@ class VisionEvidenceQuotaTest(unittest.TestCase):
                 "ocr_enabled": True,
             },
         }
+        ui_job.validate_request(req)
+
+    def test_request_rejects_more_than_eight_fallback_candidates(self):
+        req = {
+            "protocol_version": 1,
+            "job_id": "vision-hybrid-too-many",
+            "actions": [{
+                "action": "click",
+                "selector": {
+                    "text": "Close",
+                    "fallback": [
+                        {"type": "vision_template", "template": f"common/close-{i}.png"}
+                        for i in range(9)
+                    ],
+                },
+            }],
+            "vision": {
+                "enabled": True,
+                "mode": "fallback",
+                "template_enabled": True,
+                "ocr_enabled": True,
+            },
+        }
         with self.assertRaisesRegex(
             ui_job.UiJobError,
-            "multi-candidate Vision fallback is not authorized",
+            "fallback contains more than 8 vision candidates",
         ):
             ui_job.validate_request(req)
 

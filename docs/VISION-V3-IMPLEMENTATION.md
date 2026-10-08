@@ -1,10 +1,10 @@
 # Y700 Vision Locator — Sprint V3 Hybrid Vision & Recovery
 
-Status: **ENGINEERING EVIDENCE ONLY — PRODUCTION HYBRID ROUTING NOT AUTHORIZED**
+Status: **PRODUCTION HYBRID ROUTING AUTHORIZED — CURRENT-MAIN REVALIDATION IN PROGRESS**
 
-Baseline: Sprint V2 PASS / FROZEN on real Y700. The 2026-10-07 V3 gate run is retained as engineering evidence only; it does not constitute user authorization to enable multi-candidate hybrid routing in production.
+Baseline: Sprint V2 PASS / FROZEN on real Y700. Sprint V3 production hybrid routing was explicitly authorized by the user on 2026-10-08. The 2026-10-07 real-Y700 gate remains historical engineering evidence and must be revalidated on current main before production promotion.
 
-## Engineering-test scope
+## Authorized production scope
 
 Implement only the PRD V3 scope:
 

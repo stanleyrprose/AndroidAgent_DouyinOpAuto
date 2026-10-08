@@ -851,11 +851,6 @@ public class AutomationInstrumentedTest {
                         "fallback must be an array");
             }
             if (fallback != null) {
-                if (fallback.length() > 1) {
-                    throw new VisionV0Harness.VisionFailure(
-                            VisionTemplateLocator.ERR_POLICY_BLOCKED,
-                            "multi-candidate Vision fallback is not authorized");
-                }
                 if (fallback.length() > 8) {
                     throw new VisionV0Harness.VisionFailure(
                             VisionV0Harness.ERR_TEMPLATE_CONFIG,

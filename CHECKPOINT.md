@@ -729,15 +729,14 @@ Current-production V2 revalidation on 2026-10-07: **PASS**.
   `/opt/y700/runtime/ocr-v2/current-revalidation-20261007/current-production-v2-revalidation-summary.json`;
 - detailed record: `docs/VISION-V2-REVALIDATION-2026-10-07.md`.
 
-## Vision Locator PRD v0.3 Sprint V3 — ENGINEERING EVIDENCE ONLY / PRODUCTION DISABLED
+## Vision Locator PRD v0.3 Sprint V3 — AUTHORIZED / CURRENT-MAIN REVALIDATION IN PROGRESS
 
 A real-Y700 V3 engineering gate was run on 2026-10-07 at code baseline `7d73357` on
-`feat/vision-locator-v3`, with `origin/main` as an ancestor. Authorization review on
-2026-10-08 found no explicit user authorization for production multi-candidate hybrid
-routing. The gate evidence remains historical engineering evidence only. Production
-must remain on the authorized V2 boundary: semantic-first plus at most one explicit
-Vision fallback candidate. Multi-candidate Vision fallback is fail-closed in both the
-host request validator and Android driver until separately authorized.
+`feat/vision-locator-v3`, with `origin/main` as an ancestor. On 2026-10-08 the user
+explicitly authorized Sprint V3 production hybrid routing. The historical gate remains
+valid supporting evidence, but current-main real-Y700 revalidation is required before
+production promotion. The authorization enables bounded multi-candidate Vision
+fallback when explicitly requested; global/default Vision routing remains OFF.
 
 Implemented/frozen V3 behavior:
 
@@ -807,7 +806,7 @@ Frozen post-V3 capability state:
 Semantic Locator = primary
 Template Vision = READY fallback
 OCR Vision = READY fallback
-Hybrid semantic -> template -> OCR routing = DISABLED / NOT AUTHORIZED
+Hybrid semantic -> template -> OCR routing = AUTHORIZED WHEN EXPLICITLY REQUESTED
 global/default Vision routing = OFF
 OCR default = OFF unless explicitly enabled in Vision policy
 known popup recovery = READY, package/context bound

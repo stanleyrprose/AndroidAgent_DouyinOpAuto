@@ -161,19 +161,10 @@ def validate_request(req: dict[str, Any]) -> None:
         if not isinstance(selector, dict):
             continue
         fallback = selector.get("fallback")
-        if not isinstance(fallback, list):
-            continue
-        vision_candidates = [
-            item
-            for item in fallback
-            if isinstance(item, dict)
-            and item.get("type") in {"vision_template", "vision_text"}
-        ]
-        if len(vision_candidates) > 1:
+        if isinstance(fallback, list) and len(fallback) > 8:
             raise UiJobError(
-                "JOB_PAYLOAD_INVALID: multi-candidate Vision fallback is not authorized"
+                "JOB_PAYLOAD_INVALID: fallback contains more than 8 vision candidates"
             )
-
 
 def bridge_submit(command: str, bridge_id: str, timeout_sec: int) -> str:
     try:
