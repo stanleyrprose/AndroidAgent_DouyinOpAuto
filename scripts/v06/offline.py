@@ -40,13 +40,74 @@ def claim_session_reconcile():
     return result("claim-session-reconcile",ok,"SPRINT_GATED_FIXTURE",{"new_session_requires_new_claim_id":True,"stale_subjob_rejected":True,"proof_matrix":[{"process":p,"backend":b,"release":r} for p,b,r in matrix]},[] if ok else ["PROOF_MATRIX_INVALID"])
 
 def ui_mutation_inventory():
-    patterns=[("direct_android_input",re.compile(r"\binput\s+(?:tap|swipe|text|keyevent)\b")),("uiautomator_mutation",re.compile(r"\bdevice\.(?:click|swipe|pressBack|pressHome|longClick)\b")),("legacy_ui_lease",re.compile(r"\bui_lease\s*\(")),("instrumentation_dispatch",re.compile(r"\bam instrument\b"))]
-    found=inventory(patterns); paths={x["path"] for rows in found.values() for x in rows}; missing=sorted({"apps/tiktok/controller.py","publisher/controller.py"}-paths); total=sum(len(v) for v in found.values())
-    return result("ui-mutation-inventory",total>0 and not missing,"P0B_PRE_IMPLEMENTATION",{"finding_count":total,"legacy_bypass_elimination_required_in_sprint1":True,"findings":found},["MISSING_EXPECTED_MUTATOR:"+x for x in missing])
+    patterns=[
+        ("direct_android_input",re.compile(r"\binput\s+(?:tap|swipe|text|keyevent)\b")),
+        ("uiautomator_mutation",re.compile(r"\bdevice\.(?:click|swipe|pressBack|pressHome|longClick)\b")),
+        ("legacy_ui_lease",re.compile(r"\bui_lease\s*\(")),
+        ("instrumentation_dispatch",re.compile(r"\bam instrument\b")),
+    ]
+    found=inventory(patterns)
+    tiktok=(REPO/"apps/tiktok/controller.py").read_text(encoding="utf-8")
+    ui_job=(REPO/"automation/ui_job.py").read_text(encoding="utf-8")
+    arbiter=(REPO/"automation/resource_arbiter.py").read_text(encoding="utf-8")
+    publisher=(REPO/"publisher/controller.py").read_text(encoding="utf-8")
+    publish_job=(REPO/"publisher/publish_job.py").read_text(encoding="utf-8")
+    album=(REPO/"publisher/store_album_job.py").read_text(encoding="utf-8")
+    checks={
+        "canonical_lock_reused": 'RUNTIME / "android-ui.lock"' in arbiter,
+        "canonical_claim_present": 'RUNTIME / "android-ui.claim.json"' in arbiter,
+        "tiktok_uses_shared_arbiter": "resource_arbiter.acquire_android_ui" in tiktok,
+        "tiktok_no_private_flock": "fcntl" not in tiktok and "UI_LEASE" not in tiktok,
+        "tiktok_no_raw_android_input": not bool(re.search(r"\binput\s+(?:tap|swipe|text|keyevent)\b",tiktok)),
+        "tiktok_mutation_uses_protocol_v2": '"protocol_version": 2 if mutating else 1' in tiktok,
+        "tiktok_propagates_resource_guard": 'request["resource_guard"] = current_guard.as_dict()' in tiktok,
+        "tiktok_propagates_state_guard": 'request["state_guard"] = {"mode": "AUTO"' in tiktok,
+        "core_v1_mutation_blocked": "PROTOCOL_V2_REQUIRED_FOR_MUTATION" in ui_job,
+        "legacy_publisher_mutation_boundary_disabled": "LEGACY_MUTATOR_DISABLED" in publisher and "OBSERVATION_ANDROIDCTL" in publisher,
+        "publisher_unlock_uses_canonical_arbiter": "resource_arbiter.acquire_android_ui" in publish_job,
+        "publisher_unlock_invalidates_state_tokens_before_raw_ui": ("state_integrity." + "bump_epoch") in publish_job and "SECURE_UNLOCK" in publish_job,
+        "store_album_uses_canonical_arbiter": "resource_arbiter.acquire_android_ui" in album,
+        "store_album_invalidates_state_tokens_before_legacy_ui": ("state_integrity." + "bump_epoch") in album,
+    }
+    ok=all(checks.values())
+    reasons=[name for name,value in checks.items() if not value]
+    return result("ui-mutation-inventory",ok,"SPRINT1_PRODUCTION",{
+        "finding_count":sum(len(v) for v in found.values()),
+        "production_boundary_checks":checks,
+        "inventory":found,
+        "classification":{
+            "bridge_raw_input":"LOW_LEVEL_ADMIN_MAINTENANCE",
+            "android_driver_mutation":"CORE_INTERNAL_EXPECTED",
+            "publisher_secure_unlock_raw_ui":"LEGACY_PROTECTED_BY_CANONICAL_CLAIM_AND_EPOCH_INVALIDATION",
+            "store_album_raw_ui":"LEGACY_PROTECTED_BY_CANONICAL_CLAIM_AND_EPOCH_INVALIDATION",
+            "publisher_legacy_mutator":"RUNTIME_FAIL_CLOSED",
+        },
+    },reasons,phase="1")
 
 def presshome_back():
-    found=inventory([("pressHome",re.compile(r"\bpressHome\b")),("pressBack",re.compile(r"\bpressBack\b"))]); ok=bool(found["pressHome"] and found["pressBack"])
-    return result("presshome-back-migration",ok,"SPRINT_GATED_FIXTURE",{"production_pass_expected_after":"Sprint 1","required_contract":{"classification":"LOCAL_UI_MUTATION","protocol":"v2","resource_guard":"required"},"call_sites":found},[] if ok else ["CALLSITE_INVENTORY_INCOMPLETE"])
+    found=inventory([("pressHome",re.compile(r"\bpressHome\b")),("pressBack",re.compile(r"\bpressBack\b"))])
+    ui_job=(REPO/"automation/ui_job.py").read_text(encoding="utf-8")
+    core=(REPO/"automation/ui_core_v2.py").read_text(encoding="utf-8")
+    tests=(REPO/"tests/test_rev36_ui_core_v2.py").read_text(encoding="utf-8")
+    obs='OBSERVATION_ACTIONS = {"health", "observe", "screenshot", "find", "findAll", "assert", "waitFor", "waitStable"}'
+    checks={
+        "presshome_not_observation_safe": '"pressHome"' in ui_job and obs in ui_job,
+        "pressback_not_observation_safe": '"pressBack"' in ui_job and obs in ui_job,
+        "both_in_local_mutation_set": '"pressBack", "pressHome"' in ui_job,
+        "core_requires_resource_guard": "resource_arbiter.assert_guard" in core,
+        "core_prepares_before_dispatch": '"phase": "MUTATION_PREPARED"' in core,
+        "core_commits_after_revision": "state_integrity.advance_revision()" in core and '"phase": "MUTATION_COMMITTED"' in core,
+        "a31_regression_test_present": "test_a31_press_home_is_prepared_committed_and_increments_revision" in tests,
+    }
+    ok=all(checks.values()) and bool(found["pressHome"] and found["pressBack"])
+    reasons=[name for name,value in checks.items() if not value]
+    if not found["pressHome"] or not found["pressBack"]:
+        reasons.append("CALLSITE_INVENTORY_INCOMPLETE")
+    return result("presshome-back-migration",ok,"SPRINT1_PRODUCTION",{
+        "required_contract":{"classification":"LOCAL_UI_MUTATION","protocol":"v2","resource_guard":"required","state_guard":"required"},
+        "checks":checks,
+        "call_sites":found,
+    },reasons,phase="1")
 
 def subjob_provenance():
     found=inventory([("ui_job",re.compile(r"(?:ui_job\.py|run_ui_job|run_workflow|_ui_job)")),("bridge",re.compile(r"(?:submit_root|root-exec\.sh|bridge_submit)"))]); total=sum(len(v) for v in found.values())

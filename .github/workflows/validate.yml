@@ -31,8 +31,21 @@ jobs:
           python scripts/v07/delta-freeze-check.py
           python -m unittest tests.test_rev37_delta_freeze -v
 
+      - name: Run Rev3.7 Sprint 1A route and frame foundation tests
+        run: python -m unittest tests.test_rev37_runtime_foundation -v
+
       - name: Run Android automation safety tests
         run: python -m unittest tests.test_tiktok_generic tests.test_publish_routing tests.test_ui_failure_evidence -v
+
+      - name: Run Rev3.6 Sprint 1 ownership and state-integrity tests
+        run: >-
+          python -m unittest
+          tests.test_rev36_resource_arbiter
+          tests.test_rev36_state_integrity
+          tests.test_rev36_ui_core_v2
+          tests.test_rev36_tiktok_ownership
+          tests.test_rev36_legacy_publisher_boundary
+          -v
 
       - name: Run Y700 remote-control self-heal tests
         run: python -m unittest tests.test_cloudflared_self_heal tests.test_health_loop_supervision tests.test_tunnel_dns_hysteresis -v
@@ -44,10 +57,21 @@ jobs:
           python scripts/v06/catalog-overlay-policy.py
           python scripts/v06/capability-readiness.py
           python scripts/v06/claim-session-reconcile.py
-          python scripts/v06/ui-mutation-inventory.py
-          python scripts/v06/presshome-back-migration.py
           python scripts/v06/subjob-provenance.py
           python -m unittest discover -s tests/fault_injection -v
+
+      - name: Run Rev3.6 Sprint 1 ownership and state-integrity gates
+        run: |
+          python -m unittest \
+            tests.test_rev36_resource_arbiter \
+            tests.test_rev36_state_integrity \
+            tests.test_rev36_ui_core_v2 \
+            tests.test_rev36_tiktok_ownership \
+            tests.test_rev36_legacy_publisher_boundary \
+            tests.test_album_store_contract \
+            -v
+          python scripts/v06/ui-mutation-inventory.py
+          python scripts/v06/presshome-back-migration.py
 
       - name: Check shell syntax
         shell: bash
