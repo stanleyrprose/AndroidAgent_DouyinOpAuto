@@ -1088,3 +1088,16 @@ Authorization boundary:
 - authorization baseline: `a428cf3ce1871f2f72ac2ea711c347630af3abc3`; changes since the accepted affected-path revalidation baseline are limited to Cloudflare/DNS self-heal, CI and documentation paths and do not alter the Android mutation executor;
 - authorized Sprint 1 scope is shared `android_ui` ownership/claim, protocol-v2 `resource_guard`, legacy TikTok mutator migration/no nested reacquisition, `device-state.json` + token/AUTO state integrity, `pressHome`/`pressBack` mutation reclassification, mutation prepare/commit durability, revision ordering, and stale/manual-drift/direct-bypass rejection;
 - Sprint 2+, BUSINESS capability activation, new daemon/MQ/DB, detached execution, weakened Bridge v2 guarantees, approval/effect-boundary work, and Vision external-irreversible policy changes remain unauthorized.
+
+## OCR V2 instrumentation host-executor ART integration — PASS (2026-10-08)
+
+Scope: close instrumentation launch/evidence/health-check issues only. Frozen OCR, Vision routing, Android Automation Core, APKs and publication authorization are unchanged.
+
+- Root cause: Bridge-launched `am instrument` / `app_process` from Debian/chroot lacked Android ART environment (`BOOTCLASSPATH` and `DEX2OATBOOTCLASSPATH`) and could return `rc=0` without running tests. Host-executor now loads the necessary environment from Android zygote at startup.
+- Instrumentation writes method JSON through target app context/UID to the target private files directory. Executor process count now uses exact argv matching, avoiding substring false positives.
+- PR #38: https://github.com/stanleyrprose/AndroidAgent_DouyinOpAuto/pull/38 ; code merged into `main` at `0c2a1d60fc59fe0752c72f7e45258b62b83b4e0b`. The two Python runners no longer call the temporary `android-runtime-env.sh`; per-class evidence is invalidated without deleting unrelated artifacts.
+- Clean immutable Y700 release `y700-agent-release-0c2a1d6`: focused OCR tests 4/4 PASS, host singleton tests 4/4 PASS, Python compilation PASS, complete **wrapperless Gate V2 20/20 method evidence PASS** across seven classes.
+- Canonical runtime evidence (not committed): `/opt/y700/runtime/ocr-v2/ocr-v2-component-gate-20261008-093430.json`, `GATE_PASS`; warm 200-run P50/P95 **42.63/50.28 ms**, load/unload **1/0**, in-flight **0**, thermal delta approximately **+0.2 C**. Cold 20-run P50/P95 **64.39/116.93 ms**.
+- Production stable symlink switched from `y700-agent-release-3835b77` to `y700-agent-release-0c2a1d6`, old release retained as rollback. Post-deployment SOT HEALTHY, one bridge executor, Cloudflare 4 connections, CodexPro/Bridge HEALTHY, and unwrapped `am help` PASS.
+- Cloudflare long-duration fault-injection acceptance and v0.6 Phase-1 authorization remain independent gates. This OCR runner fix does not expand their scope.
+
