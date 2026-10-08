@@ -6,7 +6,7 @@ import re
 import time
 from typing import Any, Callable
 
-from automation import resource_arbiter, state_integrity
+from automation import frame_guard, resource_arbiter, state_integrity
 
 
 class CoreV2Error(RuntimeError):
@@ -24,6 +24,81 @@ _MUTATING = {
     "click", "longClick", "inputText", "clearText", "swipe", "scroll",
     "pressBack", "pressHome", "tapObserved", "appForceStop", "appLaunch",
 }
+
+
+_VISION_LOCATOR_TYPES = {"vision_template", "vision_text"}
+
+# Trusted only when provided by the host's own capture/locator pipeline. The
+# workflow JSON must never supply a callback or claim its own D-G3 acceptance.
+VisualEvidenceProvider = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
+
+
+def action_may_use_visual_locator(action: dict[str, Any]) -> bool:
+    """Detect vision fallbacks that the driver could execute implicitly."""
+    if action.get("route_class") == "VISION_ASSISTED_UI":
+        return True
+    selector = action.get("selector")
+    if not isinstance(selector, dict):
+        return False
+    if selector.get("type") in _VISION_LOCATOR_TYPES:
+        return True
+    fallback = selector.get("fallback")
+    return isinstance(fallback, list) and any(
+        isinstance(item, dict) and item.get("type") in _VISION_LOCATOR_TYPES
+        for item in fallback
+    )
+
+
+def _jit_visual_guard(
+    action: dict[str, Any],
+    proof: dict[str, Any],
+    provider: VisualEvidenceProvider | None,
+) -> dict[str, Any]:
+    """Fail closed before PREPARED; never trust evidence from workflow JSON.
+
+    Provider must read independent live device state at the action boundary.
+    Deliberately no provider is registered in ui_job production until D-G3.
+    """
+    if action.get("side_effect") == "EXTERNAL_IRREVERSIBLE":
+        raise frame_guard.FrameGuardError("VISION_IRREVERSIBLE_DENIED")
+    if provider is None:
+        raise frame_guard.FrameGuardError("VISION_ROUTE_GATE_CLOSED")
+    evidence = provider(action, proof)
+    if not isinstance(evidence, dict):
+        raise frame_guard.FrameGuardError("FRAME_UNAVAILABLE")
+    if evidence.get("dg3_accepted") is not True:
+        raise frame_guard.FrameGuardError("VISION_ROUTE_GATE_CLOSED")
+    if evidence.get("state_token_revision") != proof.get("revision"):
+        raise frame_guard.FrameGuardError("FRAME_REVISION_STALE")
+    expected_age = evidence.get("route_max_frame_age_ms")
+    # The provider's age calibration must come from a frozen route/action
+    # contract, not from action, selector, request, frame, or locator.
+    if not isinstance(evidence.get("route_id"), str) or not evidence["route_id"]:
+        raise frame_guard.FrameGuardError("FRAME_UNAVAILABLE")
+    metrics = frame_guard.validate_frame_guard(
+        evidence.get("frame"),
+        evidence.get("locator"),
+        evidence.get("current"),
+        expected_max_age_ms=expected_age,
+        now_boottime_ms=evidence.get("now_boottime_ms"),
+        expected_locator_contract_version=evidence.get("locator_contract_version"),
+    )
+    if evidence["frame"].get("revision") != proof["revision"]:
+        raise frame_guard.FrameGuardError("FRAME_REVISION_STALE")
+    if evidence["frame"].get("state_epoch") != proof.get("state_epoch"):
+        raise frame_guard.FrameGuardError("FRAME_STALE")
+    if evidence["frame"].get("observed_boot_id") != proof.get("observed_boot_id"):
+        raise frame_guard.FrameGuardError("FRAME_BOOT_MISMATCH")
+    result = {"route_id": evidence["route_id"], **metrics}
+    for name in (
+        "capture_latency_ms", "locator_latency_ms",
+        "frame_age_at_locator_ms", "recapture_count",
+    ):
+        value = evidence.get(name)
+        if type(value) is not int or value < 0:
+            raise frame_guard.FrameGuardError("FRAME_UNAVAILABLE")
+        result[name] = value
+    return result
 
 
 def classify_blocking_overlay(
@@ -243,6 +318,7 @@ def _run_mutation(
     journal_append: JournalAppend,
     checkpoint_write: CheckpointWrite,
     now_iso: NowIso,
+    visual_evidence_provider: VisualEvidenceProvider | None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
     try:
         claim = resource_arbiter.assert_guard(req.get("resource_guard"))
@@ -263,6 +339,34 @@ def _run_mutation(
         return None, _blocked(
             req, results, str(exc).split(":", 1)[0], started
         ), None
+
+    # A semantic selector with a vision fallback may become a visual click
+    # inside the driver. Require fresh trusted evidence before even PREPARED.
+    if action_may_use_visual_locator(action):
+        try:
+            visual_metrics = _jit_visual_guard(
+                action, proof, visual_evidence_provider
+            )
+        except frame_guard.FrameGuardError as exc:
+            journal_append({
+                "timestamp": now_iso(),
+                "phase": "VISUAL_DISPATCH_BLOCKED",
+                "action_index": index,
+                "action_id": action.get("action_id"),
+                "error_code": exc.code,
+                "failure_stage": exc.failure_stage,
+                "action_attempts": 0,
+            })
+            terminal = _blocked(req, results, exc.code, started)
+            terminal["error"]["failure_stage"] = exc.failure_stage
+            return None, terminal, None
+        journal_append({
+            "timestamp": now_iso(),
+            "phase": "FRAME_FRESHNESS_VERIFIED",
+            "action_index": index,
+            "action_id": action.get("action_id"),
+            **visual_metrics,
+        })
 
     journal_append(
         _prepared_row(
@@ -362,6 +466,7 @@ def run(
     checkpoint_write: CheckpointWrite,
     cancel_check: CancelCheck,
     now_iso: NowIso,
+    visual_evidence_provider: VisualEvidenceProvider | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     results: list[dict[str, Any]] = []
@@ -432,6 +537,7 @@ def run(
             journal_append=journal_append,
             checkpoint_write=checkpoint_write,
             now_iso=now_iso,
+            visual_evidence_provider=visual_evidence_provider,
         )
         if first_preflight is None:
             first_preflight = preflight

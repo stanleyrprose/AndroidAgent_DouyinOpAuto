@@ -31,8 +31,17 @@ jobs:
           python scripts/v07/delta-freeze-check.py
           python -m unittest tests.test_rev37_delta_freeze -v
 
-      - name: Run Rev3.7 Sprint 1A route and frame foundation tests
-        run: python -m unittest tests.test_rev37_runtime_foundation -v
+      - name: Run Rev3.7 Sprint 1A route, frame, and mutation boundary tests
+        run: >-
+          python -m unittest
+          tests.test_rev37_runtime_foundation
+          tests.test_rev37_visual_dispatch_boundary
+          -v
+
+      - name: Run Rev3.7 Sprint 1A offline fixture gates
+        run: |
+          python scripts/v07/check-frame-freshness.py
+          python scripts/v07/check-conditional-dispatch.py
 
       - name: Run Android automation safety tests
         run: python -m unittest tests.test_tiktok_generic tests.test_publish_routing tests.test_ui_failure_evidence -v
