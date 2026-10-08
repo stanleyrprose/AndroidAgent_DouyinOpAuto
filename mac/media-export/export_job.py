@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -14,6 +15,17 @@ def sha256(path):
         for chunk in iter(lambda:f.read(1024*1024),b""):
             h.update(chunk)
     return h.hexdigest()
+
+def link_video_or_copy(source: Path, destination: Path) -> None:
+    """Avoid storing another video payload in the short-lived export gateway."""
+    try:
+        os.link(source, destination)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        # On a separate filesystem there is no hardlink; preserve handoff reliability.
+        shutil.copy2(source, destination)
+
 
 def main():
     ap=argparse.ArgumentParser()
@@ -80,12 +92,15 @@ def main():
 
     if generic:
         for name,source in artifacts:
-            shutil.copy2(source,job/name)
+            if source.suffix.lower() == ".mp4":
+                link_video_or_copy(source, job/name)
+            else:
+                shutil.copy2(source,job/name)
     else:
         video_name="video.mp4"
         caption_name="caption.txt"
         metadata_name="metadata.json"
-        shutil.copy2(video,job/video_name)
+        link_video_or_copy(video,job/video_name)
         (job/caption_name).write_text(caption,encoding="utf-8")
         (job/metadata_name).write_text(json.dumps({
             "title":args.title,

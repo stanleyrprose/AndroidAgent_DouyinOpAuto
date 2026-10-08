@@ -92,7 +92,11 @@ def analyze(video: Path, analysis_dir: Path) -> dict:
     duration = float(probe["format"]["duration"])
     wav = analysis_dir / "audio-16k.wav"
     extract_audio(video, wav)
-    transcript = transcribe(wav)
+    try:
+        transcript = transcribe(wav)
+    finally:
+        # The Chinese transcript is durable; the uncompressed WAV is not.
+        wav.unlink(missing_ok=True)
     atomic_json(analysis_dir / "transcript.zh.json", transcript)
     (analysis_dir / "transcript.zh.txt").write_text(
         "\n".join(x["text"] for x in transcript["segments"]) + "\n",

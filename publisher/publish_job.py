@@ -9,10 +9,14 @@ from pathlib import Path
 
 try:
     from .job_contract import load_manifest, write_json_atomic
+    from .media_retention import prune_verified_video
+    from .stage_job import root_exec as retention_root_exec
     from . import controller
 except ImportError:
     # Preserve direct execution: python3 publisher/publish_job.py ...
     from job_contract import load_manifest, write_json_atomic
+    from media_retention import prune_verified_video
+    from stage_job import root_exec as retention_root_exec
     import controller
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -456,7 +460,14 @@ def main():
                visibility=visibility,
                submission=submission,
                verification=verification)
-        print(json.dumps({"job_id":args.job_id,"status":"PUBLISHED","path":str(dest)},ensure_ascii=False))
+        # Publication truth has already been committed. Storage cleanup is best-effort,
+        # requires gallery SHA-256 equality, and must never trigger COMMIT replay.
+        retention=prune_verified_video(
+            dest, manifest["video_file"],
+            f"/sdcard/Movies/Y700Agent/{args.job_id}.mp4", retention_root_exec,
+        )
+        print(json.dumps({"job_id":args.job,"status":"PUBLISHED","path":str(dest),
+                          "storage_cleanup":retention},ensure_ascii=False))
     except Exception as e:
         if mode=="DRY_RUN":
             generic_tiktok.force_stop()

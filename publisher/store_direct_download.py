@@ -12,8 +12,10 @@ from pathlib import Path
 
 try:
     from .job_contract import write_json_atomic
+    from .media_retention import prune_verified_video
 except ImportError:
     from job_contract import write_json_atomic
+    from media_retention import prune_verified_video
 
 ROOT = Path(__file__).resolve().parents[1]
 PULL_ROOT = Path(os.environ.get("Y700_DIRECT_PULL_ROOT", "/opt/y700/runtime/direct-download"))
@@ -194,6 +196,10 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         }
         write_json_atomic(run_dir / "result.json", result)
         write_json_atomic(STATE, {**result, "timestamp": now_iso()})
+        # Keep metadata and receipts; the Android gallery owns the sole MP4.
+        result["storage_cleanup"] = prune_verified_video(
+            PULL_ROOT / job_id, "original.mp4", dst, root_exec,
+        )
         return result
     finally:
         try:

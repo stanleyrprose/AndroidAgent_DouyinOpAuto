@@ -13,8 +13,10 @@ from pathlib import Path
 
 try:
     from .job_contract import load_manifest, write_json_atomic
+    from .media_retention import prune_verified_video
 except ImportError:
     from job_contract import load_manifest, write_json_atomic
+    from media_retention import prune_verified_video
 
 ROOT = Path(__file__).resolve().parents[1]
 READY = Path(os.environ.get("Y700_READY_ROOT", "/opt/y700/media/ready"))
@@ -261,6 +263,8 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
             note_saved=True,
             note_app=note["note_app"],
         )
+        # Only after durable success and checksum-matching gallery storage.
+        result["storage_cleanup"] = prune_verified_video(job, video, dst, root_exec)
         return result
     except Exception as exc:
         error = str(exc)

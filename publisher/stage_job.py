@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -48,7 +49,8 @@ def main():
     dst=f"{ALBUM}/{args.job_id}.mp4"
 
     write_json_atomic(STATE,{"status":"STAGING","job_id":args.job_id})
-    root_exec(f"mkdir -p {ALBUM}; find {ALBUM} -maxdepth 1 -type f -delete; cp '{src}' '{dst}'; chmod 644 '{dst}'")
+    part=f"{ALBUM}/.{args.job_id}.mp4.part"
+    root_exec(f"mkdir -p {shlex.quote(ALBUM)}; cp {shlex.quote(src)} {shlex.quote(part)}; chmod 644 {shlex.quote(part)}; mv -f {shlex.quote(part)} {shlex.quote(dst)}")
     root_exec(f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{dst} >/dev/null")
     found=False
     display_name=f"{args.job_id}.mp4"
