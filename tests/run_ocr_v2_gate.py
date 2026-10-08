@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
 import time
@@ -92,7 +91,6 @@ def evidence_path(class_name: str, method: str) -> Path:
 def run_instrumentation(class_name: str, timeout_sec: int) -> subprocess.CompletedProcess[str]:
     command = (
         f"toybox timeout {timeout_sec} "
-        f"/data/local/y700-agent/workspaces/y700-agent/bridge/android-runtime-env.sh "
         f"/system/bin/su 2000 -c "
         f"'/system/bin/am instrument -w -r -e class {class_name} {COMPONENT}'"
     )
@@ -210,8 +208,8 @@ def main() -> int:
         print(f"GATE_FAIL missing root executor: {ROOT_EXEC}", file=sys.stderr)
         return 2
 
-    if EVIDENCE_DIR.exists():
-        shutil.rmtree(EVIDENCE_DIR)
+    # Do not remove unrelated OCR evidence. Each case unlinks its own stale
+    # method files and enforces a per-run started_at_ms freshness check.
 
     started = datetime.now().astimezone()
     summary: dict = {

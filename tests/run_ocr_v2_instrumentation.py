@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -40,11 +39,14 @@ def run_class(class_name: str, timeout_s: int) -> dict:
     if not ROOT_EXEC.is_file():
         raise SystemExit(f"root-exec not found: {ROOT_EXEC}")
 
-    shutil.rmtree(EVIDENCE_DIR, ignore_errors=True)
+    # Never clear evidence from other classes or benchmark reports.
+    prefix = f"test-{simple_name(class_name)}-"
+    for stale in EVIDENCE_DIR.glob(f"{prefix}*.json"):
+        stale.unlink(missing_ok=True)
+    started_at_ms = int(time.time() * 1000)
 
     command = (
         f"toybox timeout {int(timeout_s)} "
-        f"/data/local/y700-agent/workspaces/y700-agent/bridge/android-runtime-env.sh "
         f"/system/bin/su 2000 -c "
         f"'/system/bin/am instrument -w -r -e class {class_name} {RUNNER}'"
     )
@@ -61,8 +63,6 @@ def run_class(class_name: str, timeout_s: int) -> dict:
         env=env,
     )
     duration_s = round(time.monotonic() - started, 3)
-
-    prefix = f"test-{simple_name(class_name)}-"
     deadline = time.monotonic() + 10.0
     files: list[Path] = []
     while time.monotonic() < deadline:
@@ -95,6 +95,8 @@ def run_class(class_name: str, timeout_s: int) -> dict:
         proc.returncode == 0
         and bool(evidence)
         and all(status == "PASS" for status in statuses)
+        and all(item.get("class_name") == class_name for item in evidence)
+        and all(int(item.get("started_at_ms") or 0) >= started_at_ms - 1000 for item in evidence)
     )
 
     result = {
