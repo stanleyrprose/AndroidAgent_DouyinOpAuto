@@ -36,6 +36,7 @@ jobs:
           python -m unittest
           tests.test_rev37_runtime_foundation
           tests.test_rev37_visual_dispatch_boundary
+          tests.test_rev37_visual_receipt
           -v
 
       - name: Run Rev3.7 read-only probe and Android-driver D-G3 barrier tests

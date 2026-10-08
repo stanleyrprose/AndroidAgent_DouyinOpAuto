@@ -68,7 +68,11 @@ class VisualDispatchBoundaryTests(unittest.TestCase):
             "data": {"postcondition_passed": True, "postcondition_kind": "ACK"},
         }]}
 
-    def run_core(self, provider=None):
+    def run_core(self, provider=None, *, simulated_release=None):
+        # Only the synthetic harness can model a future accepted deployment.
+        # The actual production visual_route_gate default remains FALSE.
+        if simulated_release is None:
+            simulated_release = provider is not None
         def journal(row):
             self.events.append(row["phase"])
         with (
@@ -77,6 +81,7 @@ class VisualDispatchBoundaryTests(unittest.TestCase):
             }),
             mock.patch.object(core, "validate_state_guard", return_value=PROOF),
             mock.patch.object(core.state_integrity, "advance_revision", return_value=(42, 43)),
+            mock.patch.object(core.visual_route_gate, "is_visual_mutation_accepted", return_value=simulated_release),
         ):
             return core.run(
                 self.req,
@@ -103,6 +108,19 @@ class VisualDispatchBoundaryTests(unittest.TestCase):
         self.req["actions"][0]["frame_guard"] = self.trusted_evidence(ACTION, PROOF)
         self.req["actions"][0]["dg3_accepted"] = True
         self.check_blocked("VISION_ROUTE_GATE_CLOSED")
+
+    def test_provider_claimed_dg3_cannot_override_production_release_gate(self):
+        calls = []
+        def provider(action, proof):
+            calls.append("CALLED")
+            return self.trusted_evidence(action, proof)
+        result = self.run_core(provider, simulated_release=False)
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertEqual(result["error"]["code"], "VISION_ROUTE_GATE_CLOSED")
+        self.assertEqual(result["action_attempts"], 0)
+        self.assertEqual(self.actions, [])
+        self.assertEqual(calls, [])
+        self.assertNotIn("MUTATION_PREPARED", self.events)
 
     def test_direct_visual_selector_also_blocks(self):
         self.req["actions"][0]["selector"] = {

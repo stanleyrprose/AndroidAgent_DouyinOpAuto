@@ -6,7 +6,7 @@ import re
 import time
 from typing import Any, Callable
 
-from automation import frame_guard, resource_arbiter, state_integrity
+from automation import frame_guard, resource_arbiter, state_integrity, visual_route_gate
 
 
 class CoreV2Error(RuntimeError):
@@ -65,6 +65,11 @@ def _jit_visual_guard(
     """
     if action.get("side_effect") == "EXTERNAL_IRREVERSIBLE":
         raise frame_guard.FrameGuardError("VISION_IRREVERSIBLE_DENIED")
+    # Provider-local dg3_accepted=True is not production release authority.
+    # Requiring the code-reviewed deployment switch prevents a callback or
+    # workflow from unilaterally authorizing visual mutation.
+    if not visual_route_gate.is_visual_mutation_accepted():
+        raise frame_guard.FrameGuardError("VISION_ROUTE_GATE_CLOSED")
     if provider is None:
         raise frame_guard.FrameGuardError("VISION_ROUTE_GATE_CLOSED")
     evidence = provider(action, proof)
