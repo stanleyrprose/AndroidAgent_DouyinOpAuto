@@ -15,6 +15,7 @@ STATE="$JOB_DIR/state.json"
 HANDOFF="$JOB_DIR/export/handoff.json"
 PIPELINE_CMD="${Y700_PIPELINE_CMD:-$PIPE_ROOT/scripts/pipeline.sh}"
 ALBUM_CMD="${Y700_ALBUM_STORE_CMD:-$PIPE_ROOT/scripts/store-to-y700-album.sh}"
+DIRECT_CMD="${Y700_DIRECT_DOWNLOAD_CMD:-$PIPE_ROOT/scripts/complete-direct-download.sh}"
 CLOSURE_CMD="${Y700_CLOSURE_START_CMD:-$PIPE_ROOT/scripts/start-publication-closure.sh}"
 TG_NOTIFY="${Y700_TG_NOTIFY:-$PIPE_ROOT/scripts/tg-notify.sh}"
 HOST="${Y700_DEPLOY_HOST:-y700dev.stanleyxyz.com}"
@@ -78,7 +79,7 @@ PY
 if [ "$mac_state" = "INVALID" ]; then
   block "invalid Mac job state"
 fi
-if [ "$intent" != "STORE_ALBUM" ] && [ "$intent" != "AUTO_PUBLISH" ]; then
+if [ "$intent" != "STORE_ALBUM" ] && [ "$intent" != "AUTO_PUBLISH" ] && [ "$intent" != "DIRECT_DOWNLOAD" ]; then
   block "workflow_intent missing; refusing to infer or upgrade legacy job"
 fi
 
@@ -103,7 +104,11 @@ refresh_export_if_needed() {
   fi
   case "$mac_state" in
     EXPORTED|AWAITING_APPROVAL)
-      bash "$PIPELINE_CMD" export "$JOB_ID" >/dev/null || block "unable to refresh expired handoff"
+      if [ "$intent" = "DIRECT_DOWNLOAD" ]; then
+        bash "$PIPELINE_CMD" direct-export "$JOB_ID" >/dev/null || block "unable to refresh expired direct-download handoff"
+      else
+        bash "$PIPELINE_CMD" export "$JOB_ID" >/dev/null || block "unable to refresh expired handoff"
+      fi
       mac_state="$(python3 - "$STATE" <<'PY'
 import json,sys
 print(json.load(open(sys.argv[1],encoding='utf-8')).get('state',''))
@@ -123,6 +128,31 @@ print(json.load(open(sys.argv[1],encoding='utf-8'))['manifest_url'])
 PY
 }
 
+if [ "$intent" = "DIRECT_DOWNLOAD" ]; then
+  case "$mac_state" in
+    DIRECT_DOWNLOADED)
+      emit "{\"status\":\"ALREADY_COMPLETE\",\"job_id\":\"$JOB_ID\",\"workflow_intent\":\"DIRECT_DOWNLOAD\"}"
+      exit 0
+      ;;
+    DOWNLOADED)
+      if ! bash "$PIPELINE_CMD" direct-export "$JOB_ID" >/dev/null; then
+        waiting "direct-download capability export still unavailable; original MP4 remains on Mac"
+      fi
+      mac_state="EXPORTED"
+      ;;
+    EXPORTED)
+      ;;
+    *)
+      block "DIRECT_DOWNLOAD resume only allows DOWNLOADED/EXPORTED; current=$mac_state"
+      ;;
+  esac
+  refresh_export_if_needed
+  if ! bash "$DIRECT_CMD" "$JOB_ID" Y700Agent; then
+    waiting "Y700 direct-download handoff did not complete; keep Mac original and retry 继续任务 / Resume Task after connectivity returns"
+  fi
+  exit 0
+fi
+
 if [ "$intent" = "STORE_ALBUM" ]; then
   case "$mac_state" in
     STORED_IN_ALBUM)
@@ -137,7 +167,7 @@ if [ "$intent" = "STORE_ALBUM" ]; then
   esac
   refresh_export_if_needed
   if ! bash "$ALBUM_CMD" "$JOB_ID" Y700Agent; then
-    waiting "Y700 album handoff did not complete; keep Mac artifacts and retry /resume after connectivity returns"
+    waiting "Y700 album handoff did not complete; keep Mac artifacts and retry 继续任务 / Resume Task after connectivity returns"
   fi
   exit 0
 fi
@@ -152,8 +182,8 @@ case "$mac_state" in
     ;;
   EXPORTED|AWAITING_APPROVAL|APPROVED)
     ;;
-  STORED_IN_ALBUM)
-    block "job is STORE_ALBUM terminal but intent says AUTO_PUBLISH"
+  STORED_IN_ALBUM|DIRECT_DOWNLOADED)
+    block "non-publish terminal job cannot be resumed as AUTO_PUBLISH"
     ;;
   *)
     block "AUTO_PUBLISH resume does not accept Mac state=$mac_state"
@@ -283,7 +313,7 @@ PY
         emit "{\"status\":\"RECONCILE_REQUIRED\",\"job_id\":\"$JOB_ID\",\"reason\":\"failed_after_commit_arm\"}"
         exit 0
       fi
-      notify FAILED_SAFE "恢复中的 DRY_RUN 明确失败；未进入 COMMIT，可稍后再次 /resume"
+      notify FAILED_SAFE "恢复中的 DRY_RUN 明确失败；未进入 COMMIT，可稍后再次 继续任务 / Resume Task"
       emit "{\"status\":\"FAILED_SAFE\",\"job_id\":\"$JOB_ID\",\"phase\":\"DRY_RUN\"}"
       exit 1
       ;;
@@ -291,4 +321,4 @@ PY
   sleep "$POLL_SEC"
 done
 
-waiting "resume 等待 DRY_RUN 超时；没有发起新的 COMMIT，可再次 /resume"
+waiting "resume 等待 DRY_RUN 超时；没有发起新的 COMMIT，可再次 继续任务 / Resume Task"

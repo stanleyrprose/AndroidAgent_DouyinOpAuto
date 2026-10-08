@@ -3,11 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 from .analyze import analyze
-from .common import JOBS, atomic_json, ensure_runtime, extract_aweme_id, now_iso, read_json, url_key
+from .common import JOBS, MEDIA_EXPORT, atomic_json, ensure_runtime, extract_aweme_id, now_iso, read_json, url_key
 from .douzy import Client, DouzyError
 from .export import export as export_job
 from .localize import save as save_localization
@@ -51,6 +52,111 @@ def _canonicalize(job: Job, source_url: str, video: Path, result: dict, *, allow
     job.write_state("DOWNLOADED", aweme_id=aweme_id, douzy_job_id=result.get("job_id"))
     index_job(job, aweme_id=aweme_id, url_key=url_key(source_url))
     return job
+
+
+def _direct_export(job: Job, *, ttl_seconds: int = 3600) -> dict:
+    source = read_json(job.dir / "source" / "source.json")
+    video = Path(source["video_path"])
+    export_dir = job.dir / "export"
+    tool = MEDIA_EXPORT / "export_job.py"
+    bundle = MEDIA_EXPORT / "exports" / job.job_id
+    if bundle.exists():
+        shutil.rmtree(bundle)
+    p = subprocess.run([
+        "python3", str(tool),
+        "--artifact", f"original.mp4={video}",
+        "--job-id", job.job_id,
+        "--ttl-seconds", str(ttl_seconds),
+        "--root", str(MEDIA_EXPORT / "exports"),
+    ], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if p.returncode != 0:
+        raise RuntimeError(f"direct export failed: {p.stderr.strip()}")
+    info = json.loads(p.stdout.strip().splitlines()[-1])
+    atomic_json(export_dir / "handoff.json", info)
+    safe = {
+        "job_id": info["job_id"],
+        "expires_at": info["expires_at"],
+        "manifest_url_file": "export/handoff.json",
+        "artifact": "original.mp4",
+    }
+    atomic_json(export_dir / "export-result.json", safe)
+    job.write_state("EXPORTED", expires_at=info["expires_at"])
+    return safe
+
+
+def cmd_direct_download(args) -> int:
+    ensure_runtime()
+    key = url_key(args.url)
+    temp = f"direct-src-{key}"
+    if (JOBS / temp).exists():
+        shutil.rmtree(JOBS / temp)
+    job = Job.create(temp, args.url)
+    try:
+        client = Client()
+        result = client.download(args.url, job.dir / "source")
+        atomic_json(job.dir / "source" / "douzy-result.json", result)
+        video = _find_video(job.dir / "source")
+        aweme_id = extract_aweme_id(str(video)) or extract_aweme_id(json.dumps(result, ensure_ascii=False))
+        if not aweme_id:
+            raise RuntimeError("unable to determine aweme_id")
+        desired = f"dd-{aweme_id}"
+        target = JOBS / desired
+        if target.exists():
+            existing = Job(desired).state()
+            print(json.dumps({
+                "status": "EXISTING_DIRECT_JOB",
+                "job_id": desired,
+                "state": existing.get("state"),
+                "workflow_intent": existing.get("workflow_intent"),
+            }, ensure_ascii=False))
+            shutil.rmtree(job.dir, ignore_errors=True)
+            return 11
+        job.dir.rename(target)
+        job = Job(desired)
+        video2 = _find_video(job.dir / "source")
+        source = {
+            "source_url": args.url,
+            "aweme_id": aweme_id,
+            "author_nickname": result.get("author_nickname"),
+            "douzy_job_id": result.get("job_id"),
+            "video_path": str(video2.resolve()),
+        }
+        atomic_json(job.dir / "source" / "source.json", source)
+        job.write_state("DOWNLOADED", aweme_id=aweme_id, douzy_job_id=result.get("job_id"))
+        set_workflow_intent(job, "DIRECT_DOWNLOAD")
+        try:
+            out = _direct_export(job, ttl_seconds=args.ttl)
+        except Exception as exc:
+            job.write_state("DOWNLOADED", direct_export_error=str(exc))
+            print(json.dumps({
+                "status": "DIRECT_EXPORT_FAILED_SAFE",
+                "job_id": job.job_id,
+                "workflow_intent": "DIRECT_DOWNLOAD",
+                "reason": str(exc),
+            }, ensure_ascii=False))
+            return 21
+        print(json.dumps({"status": "EXPORTED", "workflow_intent": "DIRECT_DOWNLOAD", **out}, ensure_ascii=False))
+        return 0
+    except DouzyError as exc:
+        state = "BLOCKED" if "BLOCKED_LOGIN" in str(exc) else "FAILED"
+        job.write_state(state, reason=str(exc))
+        print(json.dumps({"status": state, "job_id": job.job_id, "reason": str(exc)}, ensure_ascii=False))
+        return 20
+    except Exception as exc:
+        if job.dir.exists():
+            job.write_state("FAILED", reason=str(exc))
+        raise
+
+
+def cmd_direct_export(args) -> int:
+    job = get_job(args.job_id)
+    if job.state().get("workflow_intent") != "DIRECT_DOWNLOAD":
+        raise RuntimeError("job is not DIRECT_DOWNLOAD")
+    if job.state().get("state") not in {"DOWNLOADED", "EXPORTED"}:
+        raise RuntimeError(f"direct export not allowed from state={job.state().get('state')}")
+    out = _direct_export(job, ttl_seconds=args.ttl)
+    print(json.dumps({"status": "EXPORTED", "workflow_intent": "DIRECT_DOWNLOAD", **out}, ensure_ascii=False))
+    return 0
 
 
 def cmd_submit(args) -> int:
@@ -175,6 +281,26 @@ def cmd_set_intent(args) -> int:
     return 0
 
 
+def cmd_mark_direct_downloaded(args) -> int:
+    job = get_job(args.job_id)
+    if job.state().get("workflow_intent") != "DIRECT_DOWNLOAD":
+        raise RuntimeError("job is not DIRECT_DOWNLOAD")
+    job.write_state(
+        "DIRECT_DOWNLOADED",
+        album=args.album,
+        device_path=args.device_path,
+        media_store_verified=True,
+        workflow="direct_download",
+    )
+    print(json.dumps({
+        "status": "DIRECT_DOWNLOADED",
+        "job_id": job.job_id,
+        "album": args.album,
+        "device_path": args.device_path,
+    }, ensure_ascii=False))
+    return 0
+
+
 def cmd_mark_album_stored(args) -> int:
     job = get_job(args.job_id)
     job.write_state(
@@ -234,6 +360,7 @@ def cmd_status(args) -> int:
         "production/render-result.json",
         "export/export-result.json",
         "album-store-closure.json",
+        "direct-download-closure.json",
     ]:
         p = job.dir / rel
         if p.exists():
@@ -245,6 +372,16 @@ def cmd_status(args) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(prog="douyin-myanmar")
     sp = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sp.add_parser("direct-download")
+    p.add_argument("url")
+    p.add_argument("--ttl", type=int, default=3600)
+    p.set_defaults(func=cmd_direct_download)
+
+    p = sp.add_parser("direct-export")
+    p.add_argument("job_id")
+    p.add_argument("--ttl", type=int, default=3600)
+    p.set_defaults(func=cmd_direct_export)
 
     p = sp.add_parser("submit")
     p.add_argument("url")
@@ -277,8 +414,14 @@ def main() -> int:
 
     p = sp.add_parser("set-intent")
     p.add_argument("job_id")
-    p.add_argument("intent", choices=["AUTO_PUBLISH", "STORE_ALBUM"])
+    p.add_argument("intent", choices=["AUTO_PUBLISH", "STORE_ALBUM", "DIRECT_DOWNLOAD"])
     p.set_defaults(func=cmd_set_intent)
+
+    p = sp.add_parser("mark-direct-downloaded")
+    p.add_argument("job_id")
+    p.add_argument("--album", default="Y700Agent")
+    p.add_argument("--device-path", required=True)
+    p.set_defaults(func=cmd_mark_direct_downloaded)
 
     p = sp.add_parser("mark-album-stored")
     p.add_argument("job_id")
