@@ -115,6 +115,19 @@ class VisualDispatchBoundaryTests(unittest.TestCase):
         self.req["actions"][0]["route_class"] = "VISION_ASSISTED_UI"
         self.check_blocked("VISION_ROUTE_GATE_CLOSED")
 
+    def test_visual_popup_recovery_has_no_semantic_bypass(self):
+        self.req["actions"][0]["selector"] = {"text": "Close"}
+        self.req["actions"][0]["vision_recovery"] = {
+            "known_popups": [{"expected_package": "com.example",
+                              "template": {"type": "vision_template", "template": "popup.png"}}]
+        }
+        self.check_blocked("VISION_ROUTE_GATE_CLOSED")
+
+    def test_visual_popup_recovery_empty_still_fails_closed(self):
+        self.req["actions"][0]["selector"] = {"text": "Close"}
+        self.req["actions"][0]["vision_recovery"] = {}
+        self.check_blocked("VISION_ROUTE_GATE_CLOSED")
+
     def test_stale_frame_no_prepared_and_zero_attempt(self):
         def stale(action, proof):
             return {**self.trusted_evidence(action, proof), "now_boottime_ms": 2300}

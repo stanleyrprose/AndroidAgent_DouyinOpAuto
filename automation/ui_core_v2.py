@@ -37,6 +37,10 @@ def action_may_use_visual_locator(action: dict[str, Any]) -> bool:
     """Detect vision fallbacks that the driver could execute implicitly."""
     if action.get("route_class") == "VISION_ASSISTED_UI":
         return True
+    # Popup recovery can itself resolve a visual candidate even when the
+    # primary selector is semantic; gate the entire mutating action.
+    if "vision_recovery" in action:
+        return True
     selector = action.get("selector")
     if not isinstance(selector, dict):
         return False
