@@ -28,7 +28,14 @@ Implemented within authorized Sprint 1/1A:
 
 ## Y700 read-only capture latency baseline (2026-10-08)
 
-A 3-sample Android host `screencap -p` benchmark discarded all screenshot bytes to `/dev/null`. Measured capture durations: **328 ms, 364 ms, 320 ms** (all exit code 0). This samples only screenshot capture, not OCR/locator or action-dispatch latency, and does **not** calibrate or approve a route `max_frame_age_ms`. Real latency p95/p99 and end-to-end D-G3 remain OPEN.
+### Initial exploratory run (3 samples)
+Android host `screencap -p` with screenshot bytes discarded to `/dev/null`: **328, 364, 320 ms**; exit codes all 0. This was not a statistically defensible calibration.
+
+### Repeatable Y700 read-only probe (current branch, 2026-10-08)
+
+`python3 scripts/v07/probe-android-frame-latency.py --samples 20` captured 20 frames without saving pixels or sending click commands. Android `/proc/uptime` (centisecond-resolution boot-elapsed proxy) was sampled immediately around each `screencap` call. Results: **min 880 ms, median 970 ms, P95 1,070 ms, P99 1,080 ms, max 1,080 ms**. Independent 5-sample repeat: **min 720 ms, median 930 ms, P95/max 1,080 ms**. Both executions returned `MEASURED_READ_ONLY` and explicitly `production_gate_passed=false`.
+
+The observed much slower repeated captures versus the exploratory run are **unexplained**; possible load/screen/compression/thermal impacts have not been isolated. Neither run measures template/OCR latency, frame-age-at-locator/dispatch, Android instrumentation `CLOCK_BOOTTIME` timing, post-capture activity drift, or an actual frame-id-bound locator. Therefore **do not derive or enable a production 1,200 ms freshness threshold from these captures**. D-G3 remains **OPEN**, and the Java Driver maintains a hard-stop until a verified on-device D-G3 guard is developed and accepted.
 
 ## Reproduction
 
