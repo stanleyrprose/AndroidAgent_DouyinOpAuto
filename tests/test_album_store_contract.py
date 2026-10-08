@@ -5,7 +5,10 @@ import os
 import subprocess
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 STORE = ROOT / "publisher" / "store_album_job.py"
@@ -89,6 +92,8 @@ class AlbumStoreContractTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "Y700_READY_ROOT": str(ready),
+                "Y700_RUNTIME": str(td / "runtime"),
+                "Y700_UI_STATE_DIR": str(td / "runtime" / "ui-state"),
                 "Y700_ALBUM_STORE_RUN_ROOT": str(run_root),
                 "Y700_ALBUM_STORE_STATE": str(state),
                 "Y700_HOST_READY_ROOT": "/fake/host/ready",
@@ -116,6 +121,97 @@ class AlbumStoreContractTests(unittest.TestCase):
             self.assertIn(caption, commands)
             power = json.loads((run_root / job.name / "power-restore.json").read_text())
             self.assertEqual(power["status"], "RESTORED_ASLEEP")
+
+    def test_album_store_claim_and_epoch_precede_legacy_ui_mutation(self) -> None:
+        from publisher import store_album_job as store
+
+        events: list[str] = []
+
+        @contextmanager
+        def fake_claim(**kwargs):
+            events.append("claim_enter")
+            try:
+                yield SimpleNamespace(as_dict=lambda: {"claim_id": "claim-test"})
+            finally:
+                events.append("claim_exit")
+
+        def fake_root_exec(command, **kwargs):
+            events.append("root:" + str(command))
+            if "content query" in str(command):
+                return SimpleNamespace(
+                    stdout=(
+                        "Row: 0 _id=1, _display_name=job-1.mp4, "
+                        "relative_path=Movies/Y700Agent/"
+                    ),
+                    stderr="",
+                    returncode=0,
+                )
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        def fake_run(cmd, **kwargs):
+            events.append("run:" + " ".join(map(str, cmd)))
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            td = Path(tmp)
+            ready = td / "ready"
+            job = ready / "job-1"
+            job.mkdir(parents=True)
+            run_root = td / "runs"
+
+            manifest = {
+                "job_id": "job-1",
+                "video_file": "video.my.mp4",
+                "caption_file": "caption.my.txt",
+            }
+
+            with (
+                patch.object(store, "READY", ready),
+                patch.object(store, "RUN_ROOT", run_root),
+                patch.object(store, "existing_result", return_value=None),
+                patch.object(store, "load_manifest", return_value=manifest),
+                patch.object(store, "capture_power_state", return_value=("AWAKE", "")),
+                patch.object(store, "write_state", side_effect=lambda *a, **k: {}),
+                patch.object(store, "write_json_atomic", side_effect=lambda *a, **k: None),
+                patch.object(
+                    store.resource_arbiter,
+                    "acquire_android_ui",
+                    side_effect=fake_claim,
+                ),
+                patch.object(
+                    store.state_integrity,
+                    "bump_epoch",
+                    side_effect=lambda reason: events.append("epoch") or {},
+                ),
+                patch.object(store, "run", side_effect=fake_run),
+                patch.object(store, "root_exec", side_effect=fake_root_exec),
+                patch.object(
+                    store,
+                    "save_caption_note",
+                    side_effect=lambda *a, **k: {
+                        "note_app": "com.zui.notes",
+                        "note_method": "ACTION_SEND_TEXT_PLAIN",
+                        "caption_sha256": "a" * 64,
+                    },
+                ),
+                patch.object(
+                    store,
+                    "restore_power_state",
+                    return_value={"status": "RESTORE_NOT_REQUIRED"},
+                ),
+            ):
+                result = store.store("job-1")
+
+        self.assertEqual(result["status"], "STORED_IN_ALBUM")
+        first_root = next(i for i, event in enumerate(events) if event.startswith("root:"))
+        secure_unlock = next(
+            i for i, event in enumerate(events)
+            if event.startswith("run:") and "secure-unlock" in event
+        )
+        self.assertLess(events.index("claim_enter"), events.index("epoch"))
+        self.assertLess(events.index("epoch"), secure_unlock)
+        self.assertLess(secure_unlock, first_root)
+        self.assertGreater(events.index("claim_exit"), first_root)
 
     def test_album_store_note_is_idempotent(self) -> None:
         text = STORE.read_text()

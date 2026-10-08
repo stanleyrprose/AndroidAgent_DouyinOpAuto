@@ -36,10 +36,17 @@ def run(*args, check=True, capture=True):
         raise UIError(f"command failed rc={p.returncode}: {' '.join(map(str,args))}\n{p.stderr or ''}")
     return p
 
+OBSERVATION_ANDROIDCTL = {"dump-ui", "screenshot", "activity", "screen-state"}
+
 def androidctl(*args, check=True):
+    if not args or str(args[0]) not in OBSERVATION_ANDROIDCTL:
+        raise UIError("LEGACY_MUTATOR_DISABLED: use apps.tiktok.controller/Core v2")
     return run(CTL, *args, check=check)
 
 def root_exec(command, check=True):
+    command = str(command)
+    if "uiautomator dump" not in command and not command.lstrip().startswith("dumpsys "):
+        raise UIError("LEGACY_MUTATOR_DISABLED: raw root mutation path is disabled")
     return run(ROOT_EXEC, command, check=check)
 
 def dump_ui():

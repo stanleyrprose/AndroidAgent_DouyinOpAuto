@@ -18,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from bridge import bridge_client as bridge_v2
+from automation import resource_arbiter, state_integrity, ui_core_v2
 
 os.umask(0o077)
 
@@ -30,7 +31,11 @@ CANCEL_SIGNALS = Path(os.environ.get("Y700_UI_CANCEL_SIGNALS", str(ROOT / "ui-ca
 DRIVER_COMPONENT = "com.stanley.y700automation.test/androidx.test.runner.AndroidJUnitRunner"
 DRIVER_CLASS = "com.stanley.y700automation.AutomationInstrumentedTest#runWorkflow"
 JOB_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
-SAFE_ACTIONS = {"health", "observe", "screenshot", "find", "findAll", "assert", "waitFor", "waitStable", "pressBack", "pressHome"}
+PACKAGE_RE = re.compile(r"^[A-Za-z0-9_.]{3,160}$")
+ACTIVITY_RE = re.compile(r"^[A-Za-z0-9_.$]{1,200}$")
+OBSERVATION_ACTIONS = {"health", "observe", "screenshot", "find", "findAll", "assert", "waitFor", "waitStable"}
+LOCAL_MUTATION_ACTIONS = {"click", "longClick", "inputText", "clearText", "swipe", "scroll", "pressBack", "pressHome", "tapObserved", "appForceStop", "appLaunch"}
+SAFE_ACTIONS = set(OBSERVATION_ACTIONS)
 RESULT_RE = re.compile(r"y700_result_b64=([^\r\n ]+)")
 HEARTBEAT_RE = re.compile(r"y700_heartbeat_b64=([^\r\n ]+)")
 
@@ -99,8 +104,13 @@ def publish_cancel_signal(job_id: str) -> None:
     atomic_write(cancel_signal_path(job_id), b"", mode=0o600)
 
 
-def validate_request(req: dict[str, Any]) -> None:
-    if req.get("protocol_version") != 1:
+def action_is_mutating(action: dict[str, Any]) -> bool:
+    return str(action.get("action", "")) in LOCAL_MUTATION_ACTIONS
+
+
+def validate_request(req: dict[str, Any], *, internal_backend: bool = False) -> None:
+    protocol = req.get("protocol_version")
+    if protocol not in {1, 2}:
         raise UiJobError("PROTOCOL_MISMATCH")
     job = str(req.get("job_id", ""))
     if not JOB_RE.fullmatch(job):
@@ -111,6 +121,47 @@ def validate_request(req: dict[str, Any]) -> None:
     max_duration = int(req.get("max_duration_ms", 600000))
     if not 1000 <= max_duration <= 600000:
         raise UiJobError("JOB_PAYLOAD_INVALID: max_duration_ms out of range")
+
+    has_mutation = False
+    for i, action in enumerate(actions):
+        if not isinstance(action, dict):
+            raise UiJobError(f"JOB_PAYLOAD_INVALID: action[{i}] must be an object")
+        name = str(action.get("action", ""))
+        if name not in OBSERVATION_ACTIONS | LOCAL_MUTATION_ACTIONS:
+            raise UiJobError(f"JOB_PAYLOAD_INVALID: unsupported action={name}")
+        if name == "tapObserved":
+            if not isinstance(action.get("selector"), dict) or not action.get("selector"):
+                raise UiJobError("JOB_PAYLOAD_INVALID: tapObserved requires selector")
+            ordinal = action.get("ordinal")
+            if not isinstance(ordinal, int) or ordinal < 0:
+                raise UiJobError("JOB_PAYLOAD_INVALID: tapObserved ordinal must be >=0")
+        if name in {"appForceStop", "appLaunch"}:
+            package = str(action.get("package", ""))
+            if not PACKAGE_RE.fullmatch(package):
+                raise UiJobError(f"JOB_PAYLOAD_INVALID: invalid package for {name}")
+            activity = action.get("activity")
+            if activity is not None and (
+                name != "appLaunch"
+                or not isinstance(activity, str)
+                or not ACTIVITY_RE.fullmatch(activity)
+            ):
+                raise UiJobError("JOB_PAYLOAD_INVALID: invalid appLaunch activity")
+        if action_is_mutating(action):
+            has_mutation = True
+
+    if has_mutation and protocol == 1 and not internal_backend:
+        raise UiJobError("PROTOCOL_V2_REQUIRED_FOR_MUTATION")
+    if has_mutation and protocol == 2:
+        guard = req.get("resource_guard")
+        if not isinstance(guard, dict) or not guard.get("claim_id") or not guard.get("owner_id"):
+            raise UiJobError("RESOURCE_OWNERSHIP_REQUIRED")
+        if guard.get("resource") != "android_ui":
+            raise UiJobError("RESOURCE_OWNERSHIP_MISMATCH")
+        state_guard = req.get("state_guard")
+        if not isinstance(state_guard, dict) or state_guard.get("mode") not in {"AUTO", "TOKEN"}:
+            raise UiJobError("UNGUARDED_MUTATION_NOT_ALLOWED")
+        if state_guard.get("mode") == "TOKEN" and not isinstance(state_guard.get("token"), dict):
+            raise UiJobError("UNGUARDED_MUTATION_NOT_ALLOWED")
 
     vision = req.get("vision")
     if vision is not None:
@@ -617,11 +668,41 @@ def write_checkpoint(ui_dir: Path, req: dict[str, Any], completed_index: int, sa
     })
 
 
-def run_workflow(path: Path) -> dict[str, Any]:
+
+def enforce_driver_session_liveness(
+    result: dict[str, Any],
+    *,
+    mutation_prepared: bool,
+    session_terminal: bool,
+    job_id: str,
+    session_id: str,
+) -> dict[str, Any]:
+    """Retain exact UI ownership whenever a prepared mutator may still be alive."""
+    if not mutation_prepared or session_terminal:
+        return result
+    return {
+        "status": "RECONCILE_REQUIRED",
+        "job_id": job_id,
+        "session_id": session_id,
+        "protocol_version": 2,
+        "actions": result.get("actions", []),
+        "retain_resource_claim": True,
+        "error": {
+            "code": "DRIVER_SESSION_LIVENESS_UNKNOWN",
+            "message": (
+                "mutation was prepared but the single instrumentation "
+                "session could not be positively proven terminal"
+            ),
+            "retryable": False,
+        },
+    }
+
+
+def run_workflow(path: Path, *, internal_backend: bool = False) -> dict[str, Any]:
     req = read_json(path)
     if not isinstance(req, dict):
         raise UiJobError("JOB_PAYLOAD_INVALID")
-    validate_request(req)
+    validate_request(req, internal_backend=internal_backend)
     job_id = req["job_id"]
     req.setdefault("session_id", f"{job_id}-{secrets.token_hex(6)}")
     req.setdefault("max_duration_ms", 600000)
@@ -647,6 +728,253 @@ def run_workflow(path: Path) -> dict[str, Any]:
         "timestamp": now_iso(), "phase": "SESSION_START",
         "job_id": job_id, "session_id": req["session_id"],
     })
+
+    if req.get("protocol_version") == 2 and not internal_backend:
+        control_meta_dir = ui_dir / ".control"
+        control_meta_dir.mkdir(mode=0o700)
+        control_id = f"v2-{secrets.token_hex(12)}"
+        control_root = (
+            "/data/user/0/com.stanley.y700automation/files/core-v2/"
+            + control_id
+        )
+        driver_seq = 0
+        driver_request: dict[str, Any] = {
+            "protocol_version": 1,
+            "job_id": job_id,
+            "session_id": req["session_id"],
+            "max_duration_ms": int(req.get("max_duration_ms", 600000)),
+            "interactive_core_v2": True,
+            "interactive_control_id": control_id,
+            # v2 state-integrity owns screen/keyguard transitions. The driver
+            # must not wake or dismiss before MUTATION_PREPARED is durable.
+            "auto_wake": False,
+            "dismiss_keyguard": False,
+        }
+        if isinstance(req.get("vision"), dict):
+            driver_request["vision"] = req["vision"]
+
+        driver_payload = base64.b64encode(
+            json.dumps(driver_request, separators=(",", ":")).encode()
+        ).decode()
+        driver_timeout_sec = min(
+            620,
+            max(30, int(driver_request["max_duration_ms"] / 1000) + 20),
+        )
+        driver_command = (
+            f"toybox timeout {driver_timeout_sec} "
+            f"/data/local/y700-agent/workspaces/y700-agent/bridge/android-runtime-env.sh "
+            f"/system/bin/su 2000 -c "
+            f"'/system/bin/am instrument -w -r -e request_b64 {driver_payload} "
+            f"-e class {DRIVER_CLASS} {DRIVER_COMPONENT}'"
+        )
+        session_bridge_id = (
+            f"uiv2-{job_id[:72]}-{secrets.token_hex(4)}"
+        )[:128]
+        bridge_submit(driver_command, session_bridge_id, driver_timeout_sec + 20)
+        atomic_json(
+            ui_dir / "driver-session.json",
+            {
+                "bridge_job_id": session_bridge_id,
+                "control_id": control_id,
+                "control_root": control_root,
+                "protocol_version": 1,
+                "interactive_core_v2": True,
+            },
+        )
+
+        def control_exec(command: str, timeout_sec: int = 30) -> tuple[int, str, str]:
+            rc, stdout, stderr, _ = run_bridge_command(
+                command,
+                control_meta_dir,
+                timeout_sec=timeout_sec,
+            )
+            return rc, stdout, stderr
+
+        def control_read(filename: str, timeout_sec: int = 30) -> dict[str, Any]:
+            path = f"{control_root}/{filename}"
+            loops = max(1, int(timeout_sec * 10))
+            command = (
+                "i=0; "
+                f"while [ $i -lt {loops} ]; do "
+                f"if [ -s '{path}' ]; then cat '{path}'; exit 0; fi; "
+                "i=$((i+1)); sleep 0.1; "
+                "done; exit 124"
+            )
+            rc, stdout, stderr = control_exec(command, timeout_sec + 5)
+            if rc != 0:
+                raise ui_core_v2.CoreV2Error(
+                    "DRIVER_SESSION_CONTROL_TIMEOUT: "
+                    + filename
+                    + (" " + stderr.strip() if stderr.strip() else "")
+                )
+            try:
+                value = json.loads(stdout)
+            except json.JSONDecodeError as exc:
+                raise ui_core_v2.CoreV2Error(
+                    "DRIVER_SESSION_CONTROL_INVALID: " + filename
+                ) from exc
+            if not isinstance(value, dict):
+                raise ui_core_v2.CoreV2Error(
+                    "DRIVER_SESSION_CONTROL_INVALID: " + filename
+                )
+            return value
+
+        def control_write(filename: str, value: dict[str, Any]) -> None:
+            path = f"{control_root}/{filename}"
+            payload = base64.b64encode(
+                json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+            ).decode()
+            command = (
+                f"test -d '{control_root}' || exit 41; "
+                f"uid=$(stat -c %u '{control_root}'); "
+                f"gid=$(stat -c %g '{control_root}'); "
+                f"tmp='{path}.tmp'; "
+                f"printf '%s' '{payload}' | toybox base64 -d > \"$tmp\"; "
+                "chown \"$uid:$gid\" \"$tmp\"; chmod 600 \"$tmp\"; "
+                "restorecon \"$tmp\" >/dev/null 2>&1 || true; "
+                f"mv -f \"$tmp\" '{path}'"
+            )
+            rc, _, stderr = control_exec(command, 20)
+            if rc != 0:
+                raise ui_core_v2.CoreV2Error(
+                    "DRIVER_SESSION_CONTROL_WRITE_FAILED: "
+                    + filename
+                    + (" " + stderr.strip() if stderr.strip() else "")
+                )
+
+        mutation_prepared = False
+
+        def journal_record(row: dict[str, Any]) -> None:
+            nonlocal mutation_prepared
+            if row.get("phase") == "MUTATION_PREPARED":
+                mutation_prepared = True
+            append_journal(ui_dir / "journal.jsonl", row)
+
+        def driver_run(actions: list[dict[str, Any]], label: str) -> dict[str, Any]:
+            nonlocal driver_seq
+            sequence = driver_seq
+            driver_seq += 1
+            control_write(
+                f"command-{sequence:03d}.json",
+                {
+                    "sequence": sequence,
+                    "label": re.sub(r"[^A-Za-z0-9._-]", "-", label)[:64],
+                    "actions": actions,
+                },
+            )
+            return control_read(f"result-{sequence:03d}.json", 190)
+
+        def activity_read(label: str) -> str:
+            rc, stdout, _, _ = run_bridge_command(
+                "dumpsys activity activities",
+                control_meta_dir,
+                timeout_sec=15,
+            )
+            if rc != 0:
+                raise ui_core_v2.CoreV2Error(
+                    f"STATE_FINGERPRINT_UNAVAILABLE: activity query {label}"
+                )
+            return stdout
+
+        try:
+            ready = control_read("ready.json", 15)
+            if ready.get("status") != "PASS":
+                error = ready.get("error") or {}
+                raise ui_core_v2.CoreV2Error(
+                    str(error.get("code") or "DRIVER_PREFLIGHT_BLOCKED")
+                )
+
+            result = ui_core_v2.run(
+                req,
+                driver_run=driver_run,
+                activity_read=activity_read,
+                journal_append=journal_record,
+                checkpoint_write=lambda index, safe: write_checkpoint(
+                    ui_dir, req, index, safe
+                ),
+                cancel_check=lambda: cancel_signal_path(job_id).exists(),
+                now_iso=now_iso,
+            )
+        except ui_core_v2.CoreV2Error as exc:
+            result = {
+                "status": (
+                    "RECONCILE_REQUIRED" if mutation_prepared else "BLOCKED"
+                ),
+                "job_id": job_id,
+                "session_id": req["session_id"],
+                "protocol_version": 2,
+                "actions": [],
+                "action_attempts": 0 if not mutation_prepared else None,
+                "error": {
+                    "code": str(exc).split(":", 1)[0],
+                    "message": str(exc),
+                    "retryable": False,
+                },
+            }
+        finally:
+            try:
+                control_write(
+                    "finish.json",
+                    {"finish": True, "timestamp": now_iso()},
+                )
+            except Exception as exc:
+                append_journal(
+                    ui_dir / "journal.jsonl",
+                    {
+                        "timestamp": now_iso(),
+                        "phase": "DRIVER_SESSION_FINISH_SIGNAL_FAILED",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+
+            deadline = time.monotonic() + 15.0
+            terminal_snapshot: dict[str, Any] | None = None
+            while time.monotonic() < deadline:
+                try:
+                    terminal_snapshot = bridge_v2.status(
+                        session_bridge_id, paths=BRIDGE_PATHS
+                    )
+                except bridge_v2.BridgeError:
+                    terminal_snapshot = None
+                if terminal_snapshot and bridge_v2.terminal_status(terminal_snapshot):
+                    break
+                time.sleep(0.1)
+            session_terminal = (
+                bool(terminal_snapshot)
+                and bridge_v2.terminal_status(terminal_snapshot)
+            )
+            atomic_json(
+                ui_dir / "driver-session-final.json",
+                {
+                    "bridge_job_id": session_bridge_id,
+                    "terminal": session_terminal,
+                    "snapshot": terminal_snapshot,
+                    "updated_at": now_iso(),
+                },
+            )
+            result = enforce_driver_session_liveness(
+                result,
+                mutation_prepared=mutation_prepared,
+                session_terminal=session_terminal,
+                job_id=job_id,
+                session_id=req["session_id"],
+            )
+
+        if isinstance(req.get("vision"), dict):
+            finalize_vision_evidence(ui_dir, req, result)
+        atomic_json(
+            ui_dir / "state.json",
+            {"status": result.get("status"), "updated_at": now_iso()},
+        )
+        append_journal(ui_dir / "journal.jsonl", {
+            "timestamp": now_iso(),
+            "phase": "SESSION_END",
+            "status": result.get("status"),
+            "protocol_version": 2,
+        })
+        atomic_json(ui_dir / "result.json", result)
+        cancel_signal_path(job_id).unlink(missing_ok=True)
+        return result
 
     payload = base64.b64encode(json.dumps(req, separators=(",", ":")).encode()).decode()
     timeout_sec = min(620, max(30, int(req["max_duration_ms"] / 1000) + 20))

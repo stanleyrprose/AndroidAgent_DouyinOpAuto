@@ -47,10 +47,16 @@ class VisionEvidenceQuotaTest(unittest.TestCase):
         with self.assertRaisesRegex(ui_job.UiJobError, "evidence_max_bytes"):
             ui_job.validate_request(req)
 
-    def test_request_accepts_single_v1_v2_vision_fallback(self):
+    def test_request_accepts_single_v2_vision_fallback(self):
         req = {
-            "protocol_version": 1,
+            "protocol_version": 2,
             "job_id": "vision-single-fallback",
+            "resource_guard": {
+                "resource": "android_ui",
+                "claim_id": "ui-claim-vision-test",
+                "owner_id": "legacy:vision-test",
+            },
+            "state_guard": {"mode": "AUTO"},
             "actions": [{
                 "action": "click",
                 "selector": {
@@ -67,8 +73,14 @@ class VisionEvidenceQuotaTest(unittest.TestCase):
 
     def test_request_rejects_unauthorized_multi_candidate_vision_fallback(self):
         req = {
-            "protocol_version": 1,
+            "protocol_version": 2,
             "job_id": "vision-hybrid-blocked",
+            "resource_guard": {
+                "resource": "android_ui",
+                "claim_id": "ui-claim-vision-test",
+                "owner_id": "legacy:vision-test",
+            },
+            "state_guard": {"mode": "AUTO"},
             "actions": [{
                 "action": "click",
                 "selector": {
