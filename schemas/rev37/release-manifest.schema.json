@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rev37-release-manifest-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "release_id",
+    "git_commit",
+    "patch_class",
+    "schema_level",
+    "required_contracts",
+    "created_at"
+  ],
+  "properties": {
+    "manifest_version": {
+      "const": 1
+    },
+    "release_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "git_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "patch_class": {
+      "enum": [
+        "PATCH_SAFE",
+        "QUIESCENT_MIGRATION",
+        "MANUAL_ONLY"
+      ]
+    },
+    "schema_level": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "required_contracts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

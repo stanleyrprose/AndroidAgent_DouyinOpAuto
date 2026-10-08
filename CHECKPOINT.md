@@ -1089,6 +1089,19 @@ Authorization boundary:
 - authorized Sprint 1 scope is shared `android_ui` ownership/claim, protocol-v2 `resource_guard`, legacy TikTok mutator migration/no nested reacquisition, `device-state.json` + token/AUTO state integrity, `pressHome`/`pressBack` mutation reclassification, mutation prepare/commit durability, revision ordering, and stale/manual-drift/direct-bypass rejection;
 - Sprint 2+, BUSINESS capability activation, new daemon/MQ/DB, detached execution, weakened Bridge v2 guarantees, approval/effect-boundary work, and Vision external-irreversible policy changes remain unauthorized.
 
+## AAC v0.6 Rev3.7 Freeze + Implementation Authorization (2026-10-08)
+
+Status: **REV3.7 FROZEN / SPRINT 1 + SPRINT 1A AUTHORIZED.**
+
+- Rev3.7 supersedes Rev3.6 as the frozen implementation-input SOT after delta freeze review.
+- Rev3.6 accepted empirical evidence remains inherited unless a Rev3.7 delta changes the relevant authority/timing/routing/upgrade/diagnostic assumption.
+- User explicitly authorized continuing Rev3.7 implementation on 2026-10-08.
+- Authorized production scope: **Phase 1 / Sprint 1 + Phase 1A / Sprint 1A only**.
+- Sprint 2+, BUSINESS activation, approval/effect-boundary work, new daemon/MQ/DB, cross-device scheduling/failover remain unauthorized.
+- Freeze-gate validation-only artifacts: `schemas/rev37/*`, `scripts/v07/delta_contracts.py`, `scripts/v07/delta-freeze-check.py`, `tests/test_rev37_delta_freeze.py`.
+- D-G3 remains a **real-device blocking gate before any visual-assisted mutation is enabled**.
+- D-G4 remains blocking before first PATCH_SAFE automatic activation.
+
 ## OCR V2 instrumentation host-executor ART integration — PASS (2026-10-08)
 
 Scope: close instrumentation launch/evidence/health-check issues only. Frozen OCR, Vision routing, Android Automation Core, APKs and publication authorization are unchanged.
@@ -1100,4 +1113,3 @@ Scope: close instrumentation launch/evidence/health-check issues only. Frozen OC
 - Canonical runtime evidence (not committed): `/opt/y700/runtime/ocr-v2/ocr-v2-component-gate-20261008-093430.json`, `GATE_PASS`; warm 200-run P50/P95 **42.63/50.28 ms**, load/unload **1/0**, in-flight **0**, thermal delta approximately **+0.2 C**. Cold 20-run P50/P95 **64.39/116.93 ms**.
 - Production stable symlink switched from `y700-agent-release-3835b77` to `y700-agent-release-0c2a1d6`, old release retained as rollback. Post-deployment SOT HEALTHY, one bridge executor, Cloudflare 4 connections, CodexPro/Bridge HEALTHY, and unwrapped `am help` PASS.
 - Cloudflare long-duration fault-injection acceptance and v0.6 Phase-1 authorization remain independent gates. This OCR runner fix does not expand their scope.
-

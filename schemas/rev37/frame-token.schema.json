@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rev37-frame-token-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "frame_token_version",
+    "frame_id",
+    "source",
+    "observed_boot_id",
+    "captured_boottime_ms",
+    "state_epoch",
+    "revision",
+    "display_id",
+    "rotation",
+    "width",
+    "height",
+    "foreground",
+    "max_age_ms"
+  ],
+  "properties": {
+    "frame_token_version": {
+      "const": 1
+    },
+    "frame_id": {
+      "type": "string",
+      "pattern": "^frame-"
+    },
+    "source": {
+      "enum": [
+        "SCREENSHOT",
+        "STREAM",
+        "CAPTURE_API"
+      ]
+    },
+    "observed_boot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "captured_boottime_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "state_epoch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "display_id": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rotation": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "foreground": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package",
+        "activity"
+      ],
+      "properties": {
+        "package": {
+          "type": "string",
+          "minLength": 1
+        },
+        "activity": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "max_age_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    }
+  }
+}

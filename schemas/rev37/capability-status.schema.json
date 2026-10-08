@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rev37-capability-status-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "support_state",
+    "permission_state",
+    "readiness_state",
+    "reason_codes"
+  ],
+  "properties": {
+    "support_state": {
+      "enum": [
+        "SUPPORTED",
+        "UNSUPPORTED",
+        "UNKNOWN",
+        "SUPPORTED_UNADVERTISED"
+      ]
+    },
+    "permission_state": {
+      "enum": [
+        "ALLOWED",
+        "DENIED",
+        "APPROVAL_REQUIRED",
+        "POLICY_UNRESOLVED"
+      ]
+    },
+    "readiness_state": {
+      "enum": [
+        "UNKNOWN",
+        "READY",
+        "DEGRADED",
+        "BUSY",
+        "BLOCKED_RECONCILE",
+        "UNAVAILABLE"
+      ]
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
