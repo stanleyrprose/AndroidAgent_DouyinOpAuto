@@ -39,6 +39,10 @@ Android host `screencap -p` with screenshot bytes discarded to `/dev/null`: **32
 
 The observed much slower repeated captures versus the exploratory run are **unexplained**; possible load/screen/compression/thermal impacts have not been isolated. Neither run measures template/OCR latency, frame-age-at-locator/dispatch, Android instrumentation `CLOCK_BOOTTIME` timing, post-capture activity drift, or an actual frame-id-bound locator. Therefore **do not derive or enable a production 1,200 ms freshness threshold from these captures**. D-G3 remains **OPEN**, and the Java Driver maintains a hard-stop until a verified on-device D-G3 guard is developed and accepted.
 
+## Y700 pre/post read-only context probe (2026-10-08)
+
+Isolated Y700 checkout `f46decd` ran `python3 scripts/v07/probe-android-frame-context.py` over existing Host Bridge. Result: **OBSERVED_READ_ONLY**; screencap **980 ms**; pre-capture context read **60 ms**, post-capture context read **30 ms**; no detected change in foreground identity, rotation, display geometry, screen wakefulness or `mInputRestricted`; **zero UI actions and no screenshot retained**. Both screen observations indicated interactive. The device probe does not prove keyguard fully unlocked (only the limited `mInputRestricted` reading), nor observe authoritative state epoch/revision, emit frame tokens, localize a target or measure JIT dispatch age. Accordingly `production_gate_passed=false`, `dg3_status=OPEN` and visual route remains hard-disabled. Y700 focused regression 52/52 PASS, PR CI PASS at this commit.
+
 ## Reproduction
 
 ```sh
