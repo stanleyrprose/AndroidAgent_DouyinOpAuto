@@ -25,14 +25,14 @@ class VisionV3AuthorizationGuardTest(unittest.TestCase):
         self.assertIn("vision_enabled: bool = False", policy)
         self.assertIn("ocr_enabled: bool = False", policy)
 
-    def test_checkpoint_records_v3_authorized_pending_current_main_revalidation(self) -> None:
+    def test_checkpoint_records_v3_production_acceptance(self) -> None:
         text = (ROOT / "CHECKPOINT.md").read_text(encoding="utf-8")
         self.assertIn(
-            "Sprint V3 — AUTHORIZED / CURRENT-MAIN REVALIDATION IN PROGRESS",
+            "Sprint V3 — PASS / FROZEN / PRODUCTION AUTHORIZED",
             text,
         )
         self.assertIn(
-            "Hybrid semantic -> template -> OCR routing = AUTHORIZED WHEN EXPLICITLY REQUESTED",
+            "Hybrid semantic -> template -> OCR routing = READY / AUTHORIZED WHEN EXPLICITLY REQUESTED",
             text,
         )
 

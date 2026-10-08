@@ -1,8 +1,8 @@
 # Y700 Vision Locator — Sprint V3 Hybrid Vision & Recovery
 
-Status: **PRODUCTION HYBRID ROUTING AUTHORIZED — CURRENT-MAIN REVALIDATION IN PROGRESS**
+Status: **PRODUCTION HYBRID ROUTING AUTHORIZED — CLEAN REVALIDATION IN PROGRESS**
 
-Baseline: Sprint V2 PASS / FROZEN on real Y700. Sprint V3 production hybrid routing was explicitly authorized by the user on 2026-10-08. The 2026-10-07 real-Y700 gate remains historical engineering evidence and must be revalidated on current main before production promotion.
+Baseline: Sprint V2 PASS / FROZEN on real Y700. Sprint V3 production hybrid routing was explicitly authorized by the user on 2026-10-08. Current-main real-Y700 revalidation passed on 2026-10-08; production promotion is accepted.
 
 ## Authorized production scope
 
@@ -117,3 +117,22 @@ Accepted candidate APK hashes:
 app  = 791478bb3ee74dca52503bbd62fa704143f76de3ed485d4a7d1412c129268956
 test = 38566b77fa65afc24bf0eea5d58ad04205ece265b326639ac0d16dd9bf6f877f
 ```
+
+
+## Production authorization rerun — 2026-10-08
+
+Durable result:
+
+```text
+/opt/y700/runtime/vision-v3-current-main/vision-v3-20261008-033237.json
+```
+
+Result: **PASS**. The current-main rerun completed 20/20 cold-start mixed
+workflows, preserved semantic-only behavior, passed template -> OCR routing,
+known-popup recovery and stale-target re-resolution, kept external irreversible
+Vision blocked, persisted metadata-only route evidence, and recorded zero duplicate
+target actions and zero duplicate commit actions.
+
+Latency on this rerun: P50 10610.95 ms / P95 11192.30 ms / max 11620.10 ms.
+
+See `docs/VISION-V3-PRODUCTION-ACCEPTANCE-2026-10-08.md`.

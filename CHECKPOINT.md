@@ -729,14 +729,15 @@ Current-production V2 revalidation on 2026-10-07: **PASS**.
   `/opt/y700/runtime/ocr-v2/current-revalidation-20261007/current-production-v2-revalidation-summary.json`;
 - detailed record: `docs/VISION-V2-REVALIDATION-2026-10-07.md`.
 
-## Vision Locator PRD v0.3 Sprint V3 — AUTHORIZED / CURRENT-MAIN REVALIDATION IN PROGRESS
+## Vision Locator PRD v0.3 Sprint V3 — AUTHORIZED / CLEAN REVALIDATION IN PROGRESS
 
 A real-Y700 V3 engineering gate was run on 2026-10-07 at code baseline `7d73357` on
 `feat/vision-locator-v3`, with `origin/main` as an ancestor. On 2026-10-08 the user
 explicitly authorized Sprint V3 production hybrid routing. The historical gate remains
-valid supporting evidence, but current-main real-Y700 revalidation is required before
-production promotion. The authorization enables bounded multi-candidate Vision
-fallback when explicitly requested; global/default Vision routing remains OFF.
+valid supporting evidence. Current-main real-Y700 revalidation on 2026-10-08
+passed 20/20 cold-start mixed workflows with zero duplicate target/commit actions.
+Production promotion is accepted. The authorization enables bounded multi-candidate
+Vision fallback when explicitly requested; global/default Vision routing remains OFF.
 
 Implemented/frozen V3 behavior:
 
@@ -806,7 +807,7 @@ Frozen post-V3 capability state:
 Semantic Locator = primary
 Template Vision = READY fallback
 OCR Vision = READY fallback
-Hybrid semantic -> template -> OCR routing = AUTHORIZED WHEN EXPLICITLY REQUESTED
+Hybrid semantic -> template -> OCR routing = READY / AUTHORIZED WHEN EXPLICITLY REQUESTED
 global/default Vision routing = OFF
 OCR default = OFF unless explicitly enabled in Vision policy
 known popup recovery = READY, package/context bound
@@ -815,8 +816,9 @@ external irreversible / COMMIT Vision = DENY by default
 ```
 
 Detailed evidence:
-`docs/VISION-V3-IMPLEMENTATION.md` and
-`docs/VISION-V3-ACCEPTANCE-2026-10-07.md`.
+`docs/VISION-V3-IMPLEMENTATION.md`,
+`docs/VISION-V3-ACCEPTANCE-2026-10-07.md`, and
+`docs/VISION-V3-PRODUCTION-ACCEPTANCE-2026-10-08.md`.
 
 ## Telegram Y700 Automation Control Plane v0.1 — CODE / LOCAL PROFILE PREP PASS
 
