@@ -1088,3 +1088,17 @@ Authorization boundary:
 - authorization baseline: `a428cf3ce1871f2f72ac2ea711c347630af3abc3`; changes since the accepted affected-path revalidation baseline are limited to Cloudflare/DNS self-heal, CI and documentation paths and do not alter the Android mutation executor;
 - authorized Sprint 1 scope is shared `android_ui` ownership/claim, protocol-v2 `resource_guard`, legacy TikTok mutator migration/no nested reacquisition, `device-state.json` + token/AUTO state integrity, `pressHome`/`pressBack` mutation reclassification, mutation prepare/commit durability, revision ordering, and stale/manual-drift/direct-bypass rejection;
 - Sprint 2+, BUSINESS capability activation, new daemon/MQ/DB, detached execution, weakened Bridge v2 guarantees, approval/effect-boundary work, and Vision external-irreversible policy changes remain unauthorized.
+
+
+## AAC v0.6 Rev3.7 Freeze + Implementation Authorization (2026-10-08)
+
+Status: **REV3.7 FROZEN / SPRINT 1 + SPRINT 1A AUTHORIZED.**
+
+- Rev3.7 supersedes Rev3.6 as the frozen implementation-input SOT after delta freeze review.
+- Rev3.6 accepted empirical evidence remains inherited unless a Rev3.7 delta changes the relevant authority/timing/routing/upgrade/diagnostic assumption.
+- User explicitly authorized continuing Rev3.7 implementation on 2026-10-08.
+- Authorized production scope: **Phase 1 / Sprint 1 + Phase 1A / Sprint 1A only**.
+- Sprint 2+, BUSINESS activation, approval/effect-boundary work, new daemon/MQ/DB, cross-device scheduling/failover remain unauthorized.
+- Freeze-gate validation-only artifacts: `schemas/rev37/*`, `scripts/v07/delta_contracts.py`, `scripts/v07/delta-freeze-check.py`, `tests/test_rev37_delta_freeze.py`.
+- D-G3 remains a **real-device blocking gate before any visual-assisted mutation is enabled**.
+- D-G4 remains blocking before first PATCH_SAFE automatic activation.

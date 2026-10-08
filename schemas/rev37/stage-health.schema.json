@@ -1,0 +1,355 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rev37-stage-health-v3",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "status",
+    "stages",
+    "capabilities"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 3
+    },
+    "status": {
+      "type": "string"
+    },
+    "stages": {
+      "type": "object",
+      "required": [
+        "control_plane",
+        "device_connectivity",
+        "observation_source",
+        "frame_acquisition",
+        "frame_freshness",
+        "target_localization",
+        "permission",
+        "resource_ownership",
+        "state_guard",
+        "action_dispatch",
+        "postcondition",
+        "business_verification"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "control_plane": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason_codes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "UNKNOWN",
+                "PASS",
+                "DEGRADED",
+                "BLOCKED",
+                "FAIL",
+                "NOT_APPLICABLE"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "device_connectivity": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason_codes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "UNKNOWN",
+                "PASS",
+                "DEGRADED",
+                "BLOCKED",
+                "FAIL",
+                "NOT_APPLICABLE"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "observation_source": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason_codes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "UNKNOWN",
+                "PASS",
+                "DEGRADED",
+                "BLOCKED",
+                "FAIL",
+                "NOT_APPLICABLE"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "frame_acquisition": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason_codes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "UNKNOWN",
+                "PASS",
+                "DEGRADED",
+                "BLOCKED",
+                "FAIL",
+                "NOT_APPLICABLE"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "frame_freshness": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason_codes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "UNKNOWN",
+                "PASS",
+                "DEGRADED",
+                "BLOCKED",
+                "FAIL",
+                "NOT_APPLICABLE"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "target_localization": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason_codes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "UNKNOWN",
+                "PASS",
+                "DEGRADED",
+                "BLOCKED",
+                "FAIL",
+                "NOT_APPLICABLE"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "permission": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason_codes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "UNKNOWN",
+                "PASS",
+                "DEGRADED",
+                "BLOCKED",
+                "FAIL",
+                "NOT_APPLICABLE"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "resource_ownership": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason_codes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "UNKNOWN",
+                "PASS",
+                "DEGRADED",
+                "BLOCKED",
+                "FAIL",
+                "NOT_APPLICABLE"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "state_guard": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason_codes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "UNKNOWN",
+                "PASS",
+                "DEGRADED",
+                "BLOCKED",
+                "FAIL",
+                "NOT_APPLICABLE"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "action_dispatch": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason_codes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "UNKNOWN",
+                "PASS",
+                "DEGRADED",
+                "BLOCKED",
+                "FAIL",
+                "NOT_APPLICABLE"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "postcondition": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason_codes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "UNKNOWN",
+                "PASS",
+                "DEGRADED",
+                "BLOCKED",
+                "FAIL",
+                "NOT_APPLICABLE"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "business_verification": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason_codes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "UNKNOWN",
+                "PASS",
+                "DEGRADED",
+                "BLOCKED",
+                "FAIL",
+                "NOT_APPLICABLE"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object"
+    }
+  }
+}

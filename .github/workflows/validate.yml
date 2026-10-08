@@ -26,6 +26,11 @@ jobs:
       - name: Run Bridge v2 unit tests
         run: python -m unittest tests.test_bridge_v2 -v
 
+      - name: Run Rev3.7 delta freeze tests
+        run: |
+          python scripts/v07/delta-freeze-check.py
+          python -m unittest tests.test_rev37_delta_freeze -v
+
       - name: Run Android automation safety tests
         run: python -m unittest tests.test_tiktok_generic tests.test_publish_routing tests.test_ui_failure_evidence -v
 
