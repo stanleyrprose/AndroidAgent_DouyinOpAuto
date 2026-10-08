@@ -106,7 +106,7 @@ Pending live gate:
 
 The control plane is not production-complete until this live gate passes.
 
-## Current explicit trigger contract (2026-10-07)
+## Current explicit trigger contract (2026-10-08)
 
 The original v0.1 bare-link trigger has been superseded for current production use. Historical acceptance records remain unchanged.
 
@@ -121,6 +121,10 @@ Automatic Publish：<Douyin share text or URL>
 存到相册：<Douyin share text or URL>
 Save to Album+<Douyin share text or URL>
 Save to Album：<Douyin share text or URL>
+直接下载+<Douyin share text or URL>
+直接下载：<Douyin share text or URL>
+Direct Download+<Douyin share text or URL>
+Direct Download：<Douyin share text or URL>
 ```
 
 A bare Douyin URL no longer authorizes or starts work.
@@ -128,6 +132,8 @@ A bare Douyin URL no longer authorizes or starts work.
 `自动发布` and `Automatic Publish` normalize to the same `AUTO_PUBLISH` intent. It runs the full Mac production -> Y700 -> TikTok PUBLIC path and authorizes exactly one PUBLIC COMMIT attempt after mandatory DRY_RUN.
 
 `存到相册` and `Save to Album` normalize to the same `STORE_ALBUM` intent. It runs Mac production through export, pulls the capability artifact to Y700, stores the rendered video non-destructively under `Movies/Y700Agent`, verifies MediaStore visibility, saves the final Burmese caption into ZUI Notes for manual copy/publish, emits `ALBUM_STORED`, restores the initial power state, and stops. This path has no TikTok/COMMIT capability.
+
+`直接下载` and `Direct Download` normalize to `DIRECT_DOWNLOAD`. It downloads only the original Douyin MP4, exports it as a generic capability artifact, has Y700 verify size and SHA-256, stores it under `Movies/Y700Agent`, verifies MediaStore, emits `DIRECT_DOWNLOADED`, restores the initial power state, and stops. It does not analyze, localize, render subtitles, write Notes, or open TikTok.
 
 English aliases are ASCII case-insensitive. For payload-bearing intents, `+`, ASCII `:`, and Chinese `：` are equivalent separators. Fixed English phrases are intentionally narrow; arbitrary synonyms are not inferred.
 
@@ -151,4 +157,4 @@ Cancel Task:<job_id>
 Help
 ```
 
-A canonical job must carry a write-once `workflow_intent` of `AUTO_PUBLISH` or `STORE_ALBUM`. Resume never accepts or infers a replacement intent. `STORE_ALBUM` resumes only from safe exported handoff state; an expired capability URL is regenerated from existing Mac render/caption artifacts without re-downloading or re-localizing. `AUTO_PUBLISH` may resume retry-safe pre-COMMIT stages, but any COMMIT manifest, COMMITTING, ambiguous, or published state is transferred to the existing publication closure/reconciliation controller. A COMMIT with uncertain outcome is never replayed.
+A canonical job must carry a write-once `workflow_intent` of `AUTO_PUBLISH`, `STORE_ALBUM`, or `DIRECT_DOWNLOAD`. Resume never accepts or infers a replacement intent. `STORE_ALBUM` resumes only from safe exported handoff state; an expired capability URL is regenerated from existing Mac render/caption artifacts without re-downloading or re-localizing. `DIRECT_DOWNLOAD` resumes only the original-video handoff; an expired capability URL is regenerated from the already downloaded original MP4 without re-downloading Douyin. `AUTO_PUBLISH` may resume retry-safe pre-COMMIT stages, but any COMMIT manifest, COMMITTING, ambiguous, or published state is transferred to the existing publication closure/reconciliation controller. A COMMIT with uncertain outcome is never replayed.

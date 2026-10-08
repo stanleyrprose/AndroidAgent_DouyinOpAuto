@@ -16,6 +16,7 @@ STATUS_TEXT = {
     "COMMITTING": ("🟠", "正在发布"),
     "PUBLISHED_VERIFIED": ("🟢", "已发布（已验证）"),
     "ALBUM_STORED": ("🟢", "已存到相册"),
+    "DIRECT_DOWNLOADED": ("🟢", "原视频已下载到相册"),
     "PUBLISHED_WITH_LIMITED_VERIFICATION": ("🟢", "已发布（验证有限）"),
     "RECONCILE_REQUIRED": ("🟠", "状态待核对，禁止重复发布"),
     "FAILED_SAFE": ("🔴", "失败（确认未发布）"),
