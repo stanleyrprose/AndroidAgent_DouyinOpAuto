@@ -371,7 +371,25 @@ public class AutomationInstrumentedTest {
                             actionIndex,
                             action.optString("action", "unknown"),
                             "STARTED");
-                    JSONObject one = executeWithRetry(action, actionIndex);
+                    // Defense in depth: the interactive v2 driver has no
+                    // D-G3 frame-id/locator/boot/revision verifier yet.
+                    // Even if the host were to accept stale evidence, refuse
+                    // ANY mutating action that may invoke visual localization
+                    // before executeWithRetry/executeAction can click.
+                    JSONObject one;
+                    if (interactiveVisionMutationRequiresDg3(action)) {
+                        one = new JSONObject()
+                                .put("action_id", action.optString("action_id",
+                                        "action-" + actionIndex))
+                                .put("action", action.optString("action", ""))
+                                .put("status", "BLOCKED")
+                                .put("attempts", 0)
+                                .put("error", error("VISION_DRIVER_GATE_CLOSED",
+                                        "driver-side D-G3 visual dispatch not accepted",
+                                        false));
+                    } else {
+                        one = executeWithRetry(action, actionIndex);
+                    }
                     rows.put(one);
                     aggregate.put(one);
                     emitHeartbeat(
@@ -641,6 +659,32 @@ public class AutomationInstrumentedTest {
             default:
                 return "REVERSIBLE_LOCAL";
         }
+    }
+
+    /**
+     * Sprint 1A: interactive v2 has not yet completed the real-device D-G3
+     * receipt and live mutation-boundary validation. No workflow-provided
+     * boolean, vision_enabled, or frame metadata can open this gate.
+     * Legacy benchmark/read-only flows keep their separate contracts.
+     */
+    private boolean interactiveVisionMutationRequiresDg3(JSONObject action) {
+        if (!isMutationAction(action.optString("action", ""))) return false;
+        if ("VISION_ASSISTED_UI".equals(action.optString("route_class", ""))) return true;
+        if (action.has("vision_recovery")) return true;
+        JSONObject selector = action.optJSONObject("selector");
+        if (selector == null) return false;
+        String type = selector.optString("type", "");
+        if ("vision_template".equals(type) || "vision_text".equals(type)) return true;
+        JSONArray fallback = selector.optJSONArray("fallback");
+        if (fallback == null) return false;
+        for (int i = 0; i < fallback.length(); i++) {
+            JSONObject candidate = fallback.optJSONObject(i);
+            if (candidate == null) continue;
+            String candidateType = candidate.optString("type", "");
+            if ("vision_template".equals(candidateType) ||
+                    "vision_text".equals(candidateType)) return true;
+        }
+        return false;
     }
 
     private boolean isMutationAction(String name) {

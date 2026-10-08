@@ -38,6 +38,13 @@ jobs:
           tests.test_rev37_visual_dispatch_boundary
           -v
 
+      - name: Run Rev3.7 read-only probe and Android-driver D-G3 barrier tests
+        run: >-
+          python -m unittest
+          tests.test_rev37_frame_latency_probe
+          tests.test_rev37_driver_visual_gate
+          -v
+
       - name: Run Rev3.7 Sprint 1A offline fixture gates
         run: |
           python scripts/v07/check-frame-freshness.py
