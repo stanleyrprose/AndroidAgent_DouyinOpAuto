@@ -68,7 +68,22 @@ def validate_frame_guard(
     _required(locator.get("frame_id") == frame_id, "LOCATOR_FRAME_MISMATCH")
     _required(locator.get("locator_contract_version") == expected_locator_contract_version, "LOCATOR_FRAME_MISMATCH")
     _required(isinstance(locator.get("target_identity"), str) and bool(locator["target_identity"]), "LOCATOR_AMBIGUOUS")
-    _required(bool(locator.get("bounds") or locator.get("semantic_target")), "LOCATOR_AMBIGUOUS")
+    bounds = locator.get("bounds")
+    target = locator.get("semantic_target")
+    if bounds is not None:
+        _required(
+            isinstance(bounds, (list, tuple)) and len(bounds) == 4
+            and all(type(v) is int for v in bounds),
+            "LOCATOR_AMBIGUOUS",
+        )
+        x1, y1, x2, y2 = bounds
+        _required(
+            0 <= x1 < x2 <= frame["width"]
+            and 0 <= y1 < y2 <= frame["height"],
+            "LOCATOR_AMBIGUOUS",
+        )
+    else:
+        _required(isinstance(target, str) and bool(target.strip()), "LOCATOR_AMBIGUOUS")
     _required(locator.get("ambiguous") is not True, "LOCATOR_AMBIGUOUS")
 
     _required(current.get("boot_id") == frame["observed_boot_id"], "FRAME_BOOT_MISMATCH")

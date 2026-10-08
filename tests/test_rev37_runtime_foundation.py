@@ -123,6 +123,24 @@ class FrameGuardTests(unittest.TestCase):
             self.verify(now=2201)
         self.assertEqual(stale.exception.failure_stage, "FRAME_FRESHNESS")
 
+    def test_invalid_visual_bounds_cannot_dispatch(self):
+        for bad in (
+            [-1, 100, 250, 300],
+            [100, 100, 2000, 300],
+            [100, 100, 50, 300],
+            [100, 100, 250, 5000],
+            ["100", 100, 250, 300],
+            [True, 100, 250, 300],
+        ):
+            self.assert_blocked("LOCATOR_AMBIGUOUS", locator={
+                **LOCATOR, "bounds": bad
+            })
+
+    def test_valid_semantic_target_without_bounds(self):
+        locator = {**LOCATOR, "semantic_target": "com.example:id/close"}
+        del locator["bounds"]
+        self.assertEqual(self.verify(locator=locator)["frame_id"], FRAME["frame_id"])
+
     def test_route_contract_cannot_be_relaxed(self):
         self.assert_blocked("FRAME_UNAVAILABLE", max_age=5000)
         self.assert_blocked("FRAME_UNAVAILABLE", frame={**FRAME, "max_age_ms": 99999})
