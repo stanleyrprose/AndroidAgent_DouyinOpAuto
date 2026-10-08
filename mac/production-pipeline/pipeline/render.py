@@ -52,7 +52,9 @@ def render(job_dir: Path) -> dict:
         "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-shortest", str(out),
     ]
-    run(args, timeout=240)
+    # Long-form source clips can legitimately exceed four minutes to encode at
+    # the production contract's 1080x1920 medium-quality settings.
+    run(args, timeout=1800)
 
     caption = prod / "caption.my.txt"
     caption.write_text(loc["caption_my"].strip() + "\n", encoding="utf-8")

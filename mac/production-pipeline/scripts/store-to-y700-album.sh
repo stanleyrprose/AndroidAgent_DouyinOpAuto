@@ -79,7 +79,7 @@ if [ "$status" != "STORED_IN_ALBUM" ] || [ "$note_saved" != "true" ]; then
 fi
 
 bash "$PIPELINE_CMD" mark-album-stored "$JOB_ID" --album "$ALBUM" --device-path "$device_path" >/dev/null
-notify_json="$(bash "$TG_NOTIFY" ALBUM_STORED "$JOB_ID" --detail "视频已保存到 Y700 / Movies/$ALBUM；缅语 Caption 已存入 ZUI 便签；未启动 TikTok" || true)"
+notify_json="$(bash "$TG_NOTIFY" ALBUM_STORED "$JOB_ID" --detail "视频已保存到 Y700 / Movies/${ALBUM}；缅语 Caption 已存入 ZUI 便签；未启动 TikTok" || true)"
 python3 - "$RECEIPT" "$JOB_ID" "$ALBUM" "$device_path" "$notify_json" <<'PY'
 import json,os,sys,time
 path,job,album,device,raw=sys.argv[1:]
