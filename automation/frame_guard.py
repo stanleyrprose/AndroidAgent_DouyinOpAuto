@@ -15,7 +15,11 @@ class FrameGuardError(ValueError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
-        self.failure_stage = "FRAME_FRESHNESS"
+        self.failure_stage = (
+            "TARGET_LOCALIZATION" if code == "LOCATOR_AMBIGUOUS"
+            else "FRAME_ACQUISITION" if code == "FRAME_UNAVAILABLE"
+            else "FRAME_FRESHNESS"
+        )
         self.action_attempts = 0
         self.retry_class = "REOBSERVE_ONLY"
 

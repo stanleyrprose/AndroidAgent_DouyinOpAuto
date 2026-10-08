@@ -112,6 +112,17 @@ class FrameGuardTests(unittest.TestCase):
     def test_ambiguous_locator_blocks(self):
         self.assert_blocked("LOCATOR_AMBIGUOUS", locator={**LOCATOR, "ambiguous": True})
 
+    def test_stage_diagnostics_are_not_a_single_health_flag(self):
+        with self.assertRaises(FrameGuardError) as bad_locator:
+            self.verify(locator={**LOCATOR, "ambiguous": True})
+        self.assertEqual(bad_locator.exception.failure_stage, "TARGET_LOCALIZATION")
+        with self.assertRaises(FrameGuardError) as bad_frame:
+            self.verify(frame={**FRAME, "max_age_ms": 0})
+        self.assertEqual(bad_frame.exception.failure_stage, "FRAME_ACQUISITION")
+        with self.assertRaises(FrameGuardError) as stale:
+            self.verify(now=2201)
+        self.assertEqual(stale.exception.failure_stage, "FRAME_FRESHNESS")
+
     def test_route_contract_cannot_be_relaxed(self):
         self.assert_blocked("FRAME_UNAVAILABLE", max_age=5000)
         self.assert_blocked("FRAME_UNAVAILABLE", frame={**FRAME, "max_age_ms": 99999})
