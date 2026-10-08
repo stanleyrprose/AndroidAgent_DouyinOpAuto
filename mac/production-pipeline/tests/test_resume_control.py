@@ -47,6 +47,13 @@ class WorkflowIntentTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "cannot backfill"):
             set_workflow_intent(job, "AUTO_PUBLISH")
 
+    def test_direct_download_intent_is_supported_and_immutable(self) -> None:
+        job = FakeJob({"job_id": "dd-1", "state": "EXPORTED"})
+        out = set_workflow_intent(job, "DIRECT_DOWNLOAD")
+        self.assertEqual(out["workflow_intent"], "DIRECT_DOWNLOAD")
+        with self.assertRaisesRegex(RuntimeError, "workflow intent is immutable"):
+            set_workflow_intent(job, "STORE_ALBUM")
+
 
 class ResumeScriptTests(unittest.TestCase):
     def _base(self, td: Path, *, state: str, intent: str | None, expires: int = 9999999999):
@@ -74,9 +81,12 @@ class ResumeScriptTests(unittest.TestCase):
         album = td / "album.sh"
         album.write_text(f'#!/bin/bash\nprintf "album %s\\n" "$*" >> "{log}"\necho \'{{"status":"STORED_IN_ALBUM"}}\'\n', encoding="utf-8")
         album.chmod(0o755)
+        direct = td / "direct.sh"
+        direct.write_text(f'#!/bin/bash\nprintf "direct %s\\n" "$*" >> "{log}"\necho \'{{"status":"DIRECT_DOWNLOADED"}}\'\n', encoding="utf-8")
+        direct.chmod(0o755)
         pipeline = td / "pipeline.sh"
         pipeline.write_text(
-            f'''#!/bin/bash\nprintf "pipeline %s\\n" "$*" >> "{log}"\nif [ "$1" = export ]; then\n  python3 - "$Y700_PIPE_RUNTIME_ROOT/jobs/$2/export/handoff.json" <<'PY2'\nimport json,sys\np=sys.argv[1]\nd=json.load(open(p))\nd['expires_at']=9999999999\nopen(p,'w').write(json.dumps(d))\nPY2\nfi\nexit 0\n''',
+            f'''#!/bin/bash\nprintf "pipeline %s\\n" "$*" >> "{log}"\nif [ "$1" = export ] || [ "$1" = direct-export ]; then\n  python3 - "$Y700_PIPE_RUNTIME_ROOT/jobs/$2/export/handoff.json" <<'PY2'\nimport json,sys\np=sys.argv[1]\nd=json.load(open(p))\nd['expires_at']=9999999999\nopen(p,'w').write(json.dumps(d))\nPY2\nfi\nexit 0\n''',
             encoding="utf-8",
         )
         pipeline.chmod(0o755)
@@ -85,6 +95,7 @@ class ResumeScriptTests(unittest.TestCase):
             "Y700_PIPE_RUNTIME_ROOT": str(runtime),
             "Y700_PIPELINE_CMD": str(pipeline),
             "Y700_ALBUM_STORE_CMD": str(album),
+            "Y700_DIRECT_DOWNLOAD_CMD": str(direct),
             "Y700_CLOSURE_START_CMD": str(closure),
             "Y700_TG_NOTIFY": str(notify),
             "Y700_RESUME_NOW_EPOCH": "1000",
@@ -112,6 +123,27 @@ class ResumeScriptTests(unittest.TestCase):
             self.assertIn("pipeline export dy-1", calls)
             self.assertIn("album dy-1 Y700Agent", calls)
             self.assertNotIn("closure ", calls)
+
+    def test_direct_download_resume_from_downloaded_exports_without_redownload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job, env, log = self._base(Path(tmp), state="DOWNLOADED", intent="DIRECT_DOWNLOAD", expires=900)
+            p = subprocess.run([str(RESUME), job], env=env, text=True, capture_output=True)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            calls = log.read_text()
+            self.assertIn("pipeline direct-export dy-1", calls)
+            self.assertIn("direct dy-1 Y700Agent", calls)
+            self.assertNotIn("album dy-1", calls)
+
+    def test_direct_download_resume_refreshes_capability_and_uses_direct_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job, env, log = self._base(Path(tmp), state="EXPORTED", intent="DIRECT_DOWNLOAD", expires=900)
+            p = subprocess.run([str(RESUME), job], env=env, text=True, capture_output=True)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            calls = log.read_text()
+            self.assertIn("pipeline direct-export dy-1", calls)
+            self.assertIn("direct dy-1 Y700Agent", calls)
+            self.assertNotIn("album dy-1", calls)
+            self.assertNotIn("closure dy-1", calls)
 
     def test_auto_publish_commit_manifest_never_replays_commit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -155,6 +187,9 @@ class ResumeScriptTests(unittest.TestCase):
         self.assertIn("取消任务<sep><job_id>", soul)
         self.assertIn("Automatic Publish<sep><Douyin share text or URL>", soul)
         self.assertIn("Save to Album<sep><Douyin share text or URL>", soul)
+        self.assertIn("直接下载<sep><Douyin share text or URL>", soul)
+        self.assertIn("Direct Download<sep><Douyin share text or URL>", soul)
+        self.assertIn("DIRECT_DOWNLOAD", soul)
         self.assertIn("Resume Task<sep><job_id>", soul)
         self.assertIn("Task Status<sep><job_id>", soul)
         self.assertIn("Cancel Task<sep><job_id>", soul)
