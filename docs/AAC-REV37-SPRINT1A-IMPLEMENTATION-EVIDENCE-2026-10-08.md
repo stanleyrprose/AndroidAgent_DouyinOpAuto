@@ -23,6 +23,10 @@ Implemented within authorized Sprint 1/1A:
 4. **No production deployment until acceptance**. Existing immutable Y700 runtime release and dirty legacy workspace must remain untouched.
 5. D-G1/D-G2/D-G5 production obligations are not satisfied by freeze-contract fixture checks. D-G4 is reserved for later PATCH_SAFE auto-activation.
 
+## Y700 read-only capture latency baseline (2026-10-08)
+
+A 3-sample Android host `screencap -p` benchmark discarded all screenshot bytes to `/dev/null`. Measured capture durations: **328 ms, 364 ms, 320 ms** (all exit code 0). This samples only screenshot capture, not OCR/locator or action-dispatch latency, and does **not** calibrate or approve a route `max_frame_age_ms`. Real latency p95/p99 and end-to-end D-G3 remain OPEN.
+
 ## Reproduction
 
 ```sh

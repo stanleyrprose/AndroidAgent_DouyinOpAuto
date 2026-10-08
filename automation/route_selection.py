@@ -29,6 +29,7 @@ def select_execution_route(
     host_primitive_ready: bool,
     action_class: str = "LOCAL_UI_MUTATION",
     dg3_accepted: bool = False,
+    vision_attempted: bool = False,
 ) -> dict[str, Any]:
     """Return a frozen-schema route; evidence flags are trusted internal facts.
 
@@ -50,7 +51,7 @@ def select_execution_route(
     ):
         raise RouteContractError("CAPABILITY_REQUEST_INVALID")
     if any(type(v) is not bool for v in (
-        target_proven, semantic_resolved, vision_guard_passed, host_primitive_ready, dg3_accepted
+        target_proven, semantic_resolved, vision_guard_passed, host_primitive_ready, dg3_accepted, vision_attempted
     )):
         raise RouteContractError("CAPABILITY_REQUEST_INVALID")
 
@@ -63,6 +64,10 @@ def select_execution_route(
         and action_class != "EXTERNAL_IRREVERSIBLE"
     ):
         route_class = "VISION_ASSISTED_UI"
+    elif vision_attempted:
+        # An attempted but unavailable/stale vision path must not silently
+        # escape to an unrelated host primitive (unsafe transparent fallback).
+        route_class = "BLOCKED"
     elif host_primitive_ready and bool(contract.get("host_primitive_allowed", False)):
         route_class = "HOST_PRIMITIVE"
     else:

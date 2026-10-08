@@ -152,6 +152,17 @@ class RouteSelectionTests(unittest.TestCase):
         disabled = {**ROUTES, "host_primitive_allowed": False}
         self.assertEqual(select_execution_route(contract=disabled, **{**FACTS, "host_primitive_ready": True})["route_class"], "BLOCKED")
 
+    def test_failed_vision_attempt_cannot_silently_fallback_to_host(self):
+        self.assertEqual(
+            self.select(vision_attempted=True, host_primitive_ready=True)["route_class"],
+            "BLOCKED",
+        )
+        self.assertEqual(
+            self.select(vision_attempted=True, vision_guard_passed=True,
+                        host_primitive_ready=True, dg3_accepted=False)["route_class"],
+            "BLOCKED",
+        )
+
     def test_contract_schema_is_stable(self):
         got = self.select()
         self.assertEqual(set(got), {"route_version", "route_id", "route_class", "selected_for"})
