@@ -1,10 +1,10 @@
 # Y700 Vision Locator — Sprint V3 Hybrid Vision & Recovery
 
-Status: **PASS / FROZEN — Gate V3 accepted on real Y700 (2026-10-07)**
+Status: **ENGINEERING EVIDENCE ONLY — PRODUCTION HYBRID ROUTING NOT AUTHORIZED**
 
-Baseline: Sprint V2 PASS / FROZEN on real Y700. V3 is explicitly authorized by the user on 2026-10-07 (user local date).
+Baseline: Sprint V2 PASS / FROZEN on real Y700. The 2026-10-07 V3 gate run is retained as engineering evidence only; it does not constitute user authorization to enable multi-candidate hybrid routing in production.
 
-## Frozen scope
+## Engineering-test scope
 
 Implement only the PRD V3 scope:
 
@@ -47,7 +47,7 @@ Acceptance must prove on the real Y700:
 - Vision evidence records route attempts/recovery without persisting unnecessary
   full screenshots on normal success.
 
-## Final real-Y700 acceptance
+## Historical real-Y700 engineering gate
 
 Accepted result:
 

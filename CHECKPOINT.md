@@ -729,10 +729,15 @@ Current-production V2 revalidation on 2026-10-07: **PASS**.
   `/opt/y700/runtime/ocr-v2/current-revalidation-20261007/current-production-v2-revalidation-summary.json`;
 - detailed record: `docs/VISION-V2-REVALIDATION-2026-10-07.md`.
 
-## Vision Locator PRD v0.3 Sprint V3 — PASS / FROZEN
+## Vision Locator PRD v0.3 Sprint V3 — ENGINEERING EVIDENCE ONLY / PRODUCTION DISABLED
 
-Accepted on the real Y700 on 2026-10-07. Gate code baseline: `7d73357` on
-`feat/vision-locator-v3`, with `origin/main` as an ancestor.
+A real-Y700 V3 engineering gate was run on 2026-10-07 at code baseline `7d73357` on
+`feat/vision-locator-v3`, with `origin/main` as an ancestor. Authorization review on
+2026-10-08 found no explicit user authorization for production multi-candidate hybrid
+routing. The gate evidence remains historical engineering evidence only. Production
+must remain on the authorized V2 boundary: semantic-first plus at most one explicit
+Vision fallback candidate. Multi-candidate Vision fallback is fail-closed in both the
+host request validator and Android driver until separately authorized.
 
 Implemented/frozen V3 behavior:
 
@@ -802,7 +807,7 @@ Frozen post-V3 capability state:
 Semantic Locator = primary
 Template Vision = READY fallback
 OCR Vision = READY fallback
-Hybrid semantic -> template -> OCR routing = READY when explicitly requested
+Hybrid semantic -> template -> OCR routing = DISABLED / NOT AUTHORIZED
 global/default Vision routing = OFF
 OCR default = OFF unless explicitly enabled in Vision policy
 known popup recovery = READY, package/context bound

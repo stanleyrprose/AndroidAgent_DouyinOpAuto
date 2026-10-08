@@ -47,6 +47,51 @@ class VisionEvidenceQuotaTest(unittest.TestCase):
         with self.assertRaisesRegex(ui_job.UiJobError, "evidence_max_bytes"):
             ui_job.validate_request(req)
 
+    def test_request_accepts_single_v1_v2_vision_fallback(self):
+        req = {
+            "protocol_version": 1,
+            "job_id": "vision-single-fallback",
+            "actions": [{
+                "action": "click",
+                "selector": {
+                    "text": "Close",
+                    "fallback": [{
+                        "type": "vision_template",
+                        "template": "common/close.png",
+                    }],
+                },
+            }],
+            "vision": {"enabled": True, "mode": "fallback"},
+        }
+        ui_job.validate_request(req)
+
+    def test_request_rejects_unauthorized_multi_candidate_vision_fallback(self):
+        req = {
+            "protocol_version": 1,
+            "job_id": "vision-hybrid-blocked",
+            "actions": [{
+                "action": "click",
+                "selector": {
+                    "text": "Close",
+                    "fallback": [
+                        {"type": "vision_template", "template": "common/close.png"},
+                        {"type": "vision_text", "pattern": "Close"},
+                    ],
+                },
+            }],
+            "vision": {
+                "enabled": True,
+                "mode": "fallback",
+                "template_enabled": True,
+                "ocr_enabled": True,
+            },
+        }
+        with self.assertRaisesRegex(
+            ui_job.UiJobError,
+            "multi-candidate Vision fallback is not authorized",
+        ):
+            ui_job.validate_request(req)
+
     def test_route_summary_is_metadata_only_and_keeps_hybrid_trace(self):
         result = {
             "actions": [

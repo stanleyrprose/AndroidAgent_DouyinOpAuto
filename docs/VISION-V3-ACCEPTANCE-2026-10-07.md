@@ -2,7 +2,9 @@
 
 Date: 2026-10-07 (user local time)
 
-Status: **PASS / FROZEN**
+Status: **ENGINEERING GATE PASS / PRODUCTION NOT AUTHORIZED**
+
+> Authorization correction (2026-10-08): no explicit production authorization for Sprint V3 multi-candidate hybrid routing is recorded. The evidence below remains valid as an engineering test result only. Production must reject multi-candidate Vision fallback until separately authorized.
 
 ## Scope
 
@@ -17,7 +19,7 @@ Sprint V3 closes the hybrid Vision and recovery scope from PRD v0.3:
 
 No second workflow engine, daemon, MQ/socket transport, object detector, VLM or per-frame Bridge IPC was introduced.
 
-## Accepted real-Y700 result
+## Historical real-Y700 engineering result
 
 ```text
 /opt/y700/runtime/vision-v3/vision-v3-20261006-185335.json

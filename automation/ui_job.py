@@ -154,6 +154,26 @@ def validate_request(req: dict[str, Any]) -> None:
                 "JOB_PAYLOAD_INVALID: vision.evidence_max_bytes out of range"
             )
 
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        selector = action.get("selector")
+        if not isinstance(selector, dict):
+            continue
+        fallback = selector.get("fallback")
+        if not isinstance(fallback, list):
+            continue
+        vision_candidates = [
+            item
+            for item in fallback
+            if isinstance(item, dict)
+            and item.get("type") in {"vision_template", "vision_text"}
+        ]
+        if len(vision_candidates) > 1:
+            raise UiJobError(
+                "JOB_PAYLOAD_INVALID: multi-candidate Vision fallback is not authorized"
+            )
+
 
 def bridge_submit(command: str, bridge_id: str, timeout_sec: int) -> str:
     try:
