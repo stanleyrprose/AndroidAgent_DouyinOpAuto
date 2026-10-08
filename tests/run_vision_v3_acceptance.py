@@ -18,6 +18,10 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 RUNTIME = Path(os.environ.get("Y700_VISION_V3_RUNTIME", "/opt/y700/runtime/vision-v3"))
+GLOBAL_ACCEPTANCE_LOCK = Path(os.environ.get(
+    "Y700_VISION_V3_ACCEPTANCE_LOCK",
+    "/opt/y700/runtime/vision-v3-acceptance.lock",
+))
 UI_JOBS = RUNTIME / "ui-jobs"
 REQUESTS = RUNTIME / "requests"
 os.environ.setdefault("Y700_UI_JOBS", str(UI_JOBS))
@@ -205,7 +209,8 @@ def main() -> int:
     UI_JOBS.mkdir(parents=True, exist_ok=True)
     REQUESTS.mkdir(parents=True, exist_ok=True)
 
-    lock_file = (RUNTIME / ".acceptance.lock").open("a+")
+    GLOBAL_ACCEPTANCE_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = GLOBAL_ACCEPTANCE_LOCK.open("a+")
     try:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
