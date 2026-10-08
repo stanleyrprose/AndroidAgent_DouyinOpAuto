@@ -729,15 +729,15 @@ Current-production V2 revalidation on 2026-10-07: **PASS**.
   `/opt/y700/runtime/ocr-v2/current-revalidation-20261007/current-production-v2-revalidation-summary.json`;
 - detailed record: `docs/VISION-V2-REVALIDATION-2026-10-07.md`.
 
-## Vision Locator PRD v0.3 Sprint V3 — AUTHORIZED / CLEAN REVALIDATION IN PROGRESS
+## Vision Locator PRD v0.3 Sprint V3 — PASS / FROZEN / PRODUCTION AUTHORIZED
 
 A real-Y700 V3 engineering gate was run on 2026-10-07 at code baseline `7d73357` on
 `feat/vision-locator-v3`, with `origin/main` as an ancestor. On 2026-10-08 the user
-explicitly authorized Sprint V3 production hybrid routing. The historical gate remains
-valid supporting evidence. Current-main real-Y700 revalidation on 2026-10-08
-passed 20/20 cold-start mixed workflows with zero duplicate target/commit actions.
-Production promotion is accepted. The authorization enables bounded multi-candidate
-Vision fallback when explicitly requested; global/default Vision routing remains OFF.
+explicitly authorized Sprint V3 production hybrid routing. A clean device-global-lock
+serialized current-main revalidation then passed 20/20 cold-start mixed workflows with
+zero duplicate target actions and zero duplicate commit actions. Production promotion
+is accepted. The authorization enables bounded multi-candidate Vision fallback when
+explicitly requested; global/default Vision routing remains OFF.
 
 Implemented/frozen V3 behavior:
 
@@ -800,6 +800,29 @@ suite itself may provide routing/evidence proof; the >=19/20 threshold and compl
 `mixed_pass()` route/postcondition contract were not weakened. The final accepted
 run did not require that fallback because the representative mixed sample also
 passed.
+
+Final production-authorization revalidation on 2026-10-08:
+
+```text
+/opt/y700/runtime/vision-v3-production-final/vision-v3-20261008-034238.json
+status = PASS
+cold-start mixed workflows = 20/20 PASS (100%)
+semantic-only no-regression = PASS
+template -> OCR fallback = PASS
+known semantic popup recovery = PASS
+known bounded-template popup recovery = PASS
+stale-target pre-action re-resolution = PASS
+external irreversible Vision = BLOCKED
+metadata-only route evidence = PASS
+duplicate target actions = 0
+duplicate commit actions = 0
+P50 = 6040.7 ms
+P95 = 7002.2 ms
+max = 7010.9 ms
+```
+
+This rerun was serialized by the device-global Vision V3 acceptance lock; no second
+acceptance process operated the UI concurrently.
 
 Frozen post-V3 capability state:
 

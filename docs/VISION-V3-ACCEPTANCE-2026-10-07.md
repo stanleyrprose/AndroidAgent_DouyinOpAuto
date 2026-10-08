@@ -2,9 +2,9 @@
 
 Date: 2026-10-07 (user local time)
 
-Status: **HISTORICAL ENGINEERING GATE PASS / PRODUCTION AUTHORIZED / CLEAN REVALIDATION PENDING**
+Status: **HISTORICAL ENGINEERING GATE PASS / SUPERSEDED BY 2026-10-08 PRODUCTION ACCEPTANCE**
 
-> Authorization update (2026-10-08): the user explicitly authorized Sprint V3 production hybrid routing. Current-main real-Y700 revalidation subsequently passed; see `VISION-V3-PRODUCTION-ACCEPTANCE-2026-10-08.md`.
+> Authorization update (2026-10-08): the user explicitly authorized Sprint V3 production hybrid routing. A clean serialized current-main revalidation subsequently passed 20/20 under the device-global acceptance lock; see `VISION-V3-PRODUCTION-ACCEPTANCE-2026-10-08.md`.
 
 ## Scope
 

@@ -1,8 +1,8 @@
 # Y700 Vision Locator — Sprint V3 Hybrid Vision & Recovery
 
-Status: **PRODUCTION HYBRID ROUTING AUTHORIZED — CLEAN REVALIDATION IN PROGRESS**
+Status: **PASS / FROZEN — PRODUCTION HYBRID ROUTING AUTHORIZED**
 
-Baseline: Sprint V2 PASS / FROZEN on real Y700. Sprint V3 production hybrid routing was explicitly authorized by the user on 2026-10-08. Current-main real-Y700 revalidation passed on 2026-10-08; production promotion is accepted.
+Baseline: Sprint V2 PASS / FROZEN on real Y700. Sprint V3 production hybrid routing was explicitly authorized by the user on 2026-10-08. After hardening the acceptance harness with a device-global lock, one clean serialized current-main real-Y700 revalidation passed and production promotion is accepted.
 
 ## Authorized production scope
 
@@ -121,18 +121,21 @@ test = 38566b77fa65afc24bf0eea5d58ad04205ece265b326639ac0d16dd9bf6f877f
 
 ## Production authorization rerun — 2026-10-08
 
-Durable result:
+Final durable result:
 
 ```text
-/opt/y700/runtime/vision-v3-current-main/vision-v3-20261008-033237.json
+/opt/y700/runtime/vision-v3-production-final/vision-v3-20261008-034238.json
 ```
 
-Result: **PASS**. The current-main rerun completed 20/20 cold-start mixed
-workflows, preserved semantic-only behavior, passed template -> OCR routing,
-known-popup recovery and stale-target re-resolution, kept external irreversible
-Vision blocked, persisted metadata-only route evidence, and recorded zero duplicate
-target actions and zero duplicate commit actions.
+Result: **PASS**. The clean serialized rerun completed 20/20 cold-start mixed
+workflows, preserved semantic-only behavior, passed template -> OCR routing, known
+popup recovery and stale-target re-resolution, kept external irreversible Vision
+blocked, persisted metadata-only route evidence, and recorded zero duplicate target
+actions and zero duplicate commit actions.
 
-Latency on this rerun: P50 10610.95 ms / P95 11192.30 ms / max 11620.10 ms.
+Latency: P50 6040.7 ms / P95 7002.2 ms / max 7010.9 ms.
+
+The device-global acceptance lock prevented concurrent V3 acceptance runs from
+sharing the physical UI during this final gate.
 
 See `docs/VISION-V3-PRODUCTION-ACCEPTANCE-2026-10-08.md`.

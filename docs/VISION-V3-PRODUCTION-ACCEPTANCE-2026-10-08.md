@@ -19,19 +19,12 @@ global/default Vision routing = OFF
 external irreversible / COMMIT Vision = DENY by default
 ```
 
-## Current-main real-Y700 gate
+## Clean serialized current-main real-Y700 gate
 
-Gate code baseline:
-
-```text
-feat/vision-locator-v3 = 36ec11618bb1bdf1aa9d68f7b2bb4bb98a4aaa27
-origin/main baseline   = 120a0265492b724541f4746fb7fb46394571a0a4
-```
-
-Durable result:
+Final durable result:
 
 ```text
-/opt/y700/runtime/vision-v3-current-main/vision-v3-20261008-033237.json
+/opt/y700/runtime/vision-v3-production-final/vision-v3-20261008-034238.json
 ```
 
 Accepted results:
@@ -54,18 +47,17 @@ duplicate_commit_actions = 0
 target_click_count_proved_by_postcondition = true
 ```
 
-Cold-start end-to-end latency on this production-authorization rerun:
+Cold-start end-to-end latency:
 
 ```text
-P50 = 10610.95 ms
-P95 = 11192.30 ms
-max = 11620.10 ms
+P50 = 6040.7 ms
+P95 = 7002.2 ms
+max = 7010.9 ms
 ```
 
-The slower latency versus the historical 2026-10-07 engineering gate does not
-change the frozen correctness threshold; the PRD V3 acceptance threshold is
-workflow correctness (>=95% PASS) with zero duplicate commit action and no
-semantic-only regression.
+This final gate ran after the acceptance harness was hardened to use one
+device-global lock across all runtime output directories. No other Vision V3
+acceptance process operated the physical Y700 UI concurrently.
 
 ## Candidate artifact identity
 
@@ -95,6 +87,4 @@ test = 38566b77fa65afc24bf0eea5d58ad04205ece265b326639ac0d16dd9bf6f877f
 
 ## Production decision
 
-Gate V3 is accepted for production promotion. Hybrid routing may be used only
-when a workflow explicitly enables Vision and supplies bounded Vision fallback
-candidates.
+Gate V3 is accepted for production promotion. Hybrid routing may be used only when a workflow explicitly enables Vision and supplies bounded Vision fallback candidates. Global/default Vision remains OFF and external irreversible / COMMIT Vision remains denied by default.
