@@ -49,6 +49,7 @@ jobs:
           tests.test_rev37_android_jit_source
           tests.test_rev37_live_physical_jit_source
           tests.test_rev37_state_sot_readonly
+          tests.test_rev37_overlay_window_facts_source
           tests.test_rev37_driver_visual_gate
           -v
 

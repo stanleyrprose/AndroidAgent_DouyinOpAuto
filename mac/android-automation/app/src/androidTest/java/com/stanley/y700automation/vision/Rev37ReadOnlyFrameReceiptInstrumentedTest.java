@@ -3,6 +3,8 @@ package com.stanley.y700automation.vision;
 import static org.junit.Assert.assertFalse;
 
 import android.app.Instrumentation;
+import android.accessibilityservice.AccessibilityServiceInfo;
+import android.app.UiAutomation;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -10,6 +12,7 @@ import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.view.accessibility.AccessibilityWindowInfo;
 import android.os.ParcelFileDescriptor;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -614,6 +617,95 @@ public final class Rev37ReadOnlyFrameReceiptInstrumentedTest {
         }
         assertFalse(report.optBoolean("production_dg3_passed", true));
         assertFalse(report.optBoolean("visual_dispatch_allowed", true));
+        org.junit.Assert.assertEquals(0, report.getInt("action_attempts"));
+    }
+
+
+    /**
+     * Raw top-level Android accessibility window FACTS ONLY.
+     * A visible second window is not automatically a blocking overlay.
+     * No window content, text, package or pixel is exported. Classification
+     * requires separate versioned action-specific policy; remain unavailable.
+     */
+    @Test
+    public void readOnlyOverlayWindowFacts() throws Exception {
+        Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        JSONObject report = alwaysClosedReport()
+                .put("probe", "rev37-overlay-window-facts-readonly-v1")
+                .put("status", "READ_ONLY_WINDOW_FACTS_UNAVAILABLE")
+                .put("blocking_overlay_classification_available", false)
+                .put("authoritative_overlay_clear", false)
+                .put("window_pixels_persisted", false);
+        UiAutomation automation = instrumentation.getUiAutomation();
+        AccessibilityServiceInfo serviceInfo = null;
+        int priorFlags = -1;
+        try {
+            serviceInfo = automation.getServiceInfo();
+            if (serviceInfo != null) {
+                priorFlags = serviceInfo.flags;
+                serviceInfo.flags = priorFlags
+                        | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+                automation.setServiceInfo(serviceInfo);
+            }
+            List<AccessibilityWindowInfo> windows = automation.getWindows();
+            if (windows != null && !windows.isEmpty()) {
+                int application = 0;
+                int inputMethod = 0;
+                int system = 0;
+                int accessibilityOverlay = 0;
+                int other = 0;
+                int focused = 0;
+                int active = 0;
+                for (AccessibilityWindowInfo window : windows) {
+                    if (window == null) continue;
+                    switch (window.getType()) {
+                        case AccessibilityWindowInfo.TYPE_APPLICATION:
+                            application++;
+                            break;
+                        case AccessibilityWindowInfo.TYPE_INPUT_METHOD:
+                            inputMethod++;
+                            break;
+                        case AccessibilityWindowInfo.TYPE_SYSTEM:
+                            system++;
+                            break;
+                        case AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY:
+                            accessibilityOverlay++;
+                            break;
+                        default:
+                            other++;
+                    }
+                    if (window.isFocused()) focused++;
+                    if (window.isActive()) active++;
+                }
+                report.put("window_count", windows.size())
+                        .put("application_windows", application)
+                        .put("input_method_windows", inputMethod)
+                        .put("system_windows", system)
+                        .put("accessibility_overlay_windows", accessibilityOverlay)
+                        .put("other_windows", other)
+                        .put("focused_window_count", focused)
+                        .put("active_window_count", active)
+                        .put("status", "READ_ONLY_WINDOW_FACTS_OBSERVED");
+            }
+        } catch (Exception failure) {
+            report.put("status", "READ_ONLY_WINDOW_FACTS_UNAVAILABLE")
+                    .put("error_kind", failure.getClass().getSimpleName());
+        } finally {
+            if (serviceInfo != null && priorFlags >= 0) {
+                try {
+                    serviceInfo.flags = priorFlags;
+                    automation.setServiceInfo(serviceInfo);
+                    report.put("ui_automation_window_flags_restored", true);
+                } catch (Exception failure) {
+                    report.put("status", "READ_ONLY_WINDOW_FLAGS_RESTORE_FAILED");
+                    report.put("ui_automation_window_flags_restored", false);
+                }
+            }
+            emit(instrumentation, report);
+        }
+        assertFalse(report.optBoolean("production_dg3_passed", true));
+        assertFalse(report.optBoolean("visual_dispatch_allowed", true));
+        assertFalse(report.optBoolean("authoritative_overlay_clear", true));
         org.junit.Assert.assertEquals(0, report.getInt("action_attempts"));
     }
 
