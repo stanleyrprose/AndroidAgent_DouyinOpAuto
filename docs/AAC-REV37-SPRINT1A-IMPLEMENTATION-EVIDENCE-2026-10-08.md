@@ -116,6 +116,12 @@ Two actual Y700 executions of the isolated method:
 
 Added `tests/test_rev37_live_physical_jit_source.py` and CI entry. This is **real Android hardware/timing denial proof**, but still not the production Java Driver's action boundary or actual trusted semantic/overlay/foreground-activity JIT observation. No auto-click or publishing permission. PR #41 remains Draft and D-G3 OPEN.
 
+## Authoritative Debian State Integrity SOT read-only availability probe (2026-10-09)
+
+Added `scripts/v07/probe-state-sot-readonly.py` as a **one-shot read-only** probe of the existing authoritative `/opt/y700/runtime/ui-state/device-state.json`; uses `os.open(O_RDONLY|O_NOFOLLOW)`, `fstat` file type/owner=UID0/mode=0600/size checks, bounded JSON parsing with duplicate key denial, validates `state_version=1`, `state_epoch` format, revision integer and `fingerprint_version=semantic-v1`. Re-opens to detect concurrent atomic replace. It explicitly does **not** invoke `state_integrity.load_state()`, which could create initial state, and never mutates or repairs the SOT. Also reads `CLOCK_BOOTTIME` and Linux boot ID; emits only 12-char digests, validation booleans, revision and observed time, not raw boot ID or epoch. Fixed CLI path, no production bypass flags, no daemon or public cache.
+
+`tests/test_rev37_state_sot_readonly.py` checks no file creation/change, symlink rejection, root-only permission and owner rules, duplicate/malformed JSON, invalid version/epoch/revision, invalid boot ID, and size limits; Mac uses an injected **test clock only**, while real CLI requires `CLOCK_BOOTTIME`. The output always includes `dg3_status=OPEN`, `production_dispatch_authorized=false`, `action_attempts=0`. A real consistent SOT observation is **not a trusted live Android Driver dispatch receipt**: the Android Instrumentation does not have a validated owner-protected fresh state-reading channel, and SOT confirmation cannot be turned into action authority. No Android package changes or production mutation were made.
+
 ## What still blocks enablement / merge
 
 1. **D-G3 real Y700 acceptance**: integrate trusted device capture + locator result with JIT live Android state reader and real route-versioned, measured `max_frame_age_ms`. There is no production provider today, and the Android driver refuses visual mutation unconditionally in interactive v2 until its own trusted verifier exists. Capture and locator latency, age at locator and dispatch, recapture metrics must come from real device; no hardcoded acceptance from fixture timings.
