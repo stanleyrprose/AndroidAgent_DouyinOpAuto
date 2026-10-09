@@ -68,6 +68,17 @@ class RealPixelReadOnlySourceTests(unittest.TestCase):
         self.assertIn('extendsFrom(configurations.getByName("debugImplementation"))', gradle)
         self.assertIn('applicationId = "com.stanley.y700automation"', gradle)
 
+    def test_bounded_same_frame_candidates_preserve_ambiguity_threshold(self):
+        self.assertIn("List<Rect> patches = new ArrayList<>();", self.src)
+        self.assertIn("All retries are on the SAME immutable captured frame.", self.src)
+        self.assertIn("for (Rect patch : patches)", self.src)
+        self.assertIn("VisionV0Harness.ERR_TEMPLATE_AMBIGUOUS", self.src)
+        self.assertIn("0.90, 8.0, 0.03", self.src)
+        self.assertIn('.put("locator_attempts", attempts)', self.src)
+        self.assertIn('.put("ambiguous_candidate_count", ambiguousCount)', self.src)
+        self.assertIn("screen_interactive_before_capture", self.src)
+        self.assertIn("keyguard_unlocked_before_capture", self.src)
+
     def test_driver_mutation_gate_still_hard_closed(self):
         self.assertIn("VISION_DRIVER_GATE_CLOSED", self.driver)
         self.assertIn("interactiveVisionMutationRequiresDg3(action)", self.driver)

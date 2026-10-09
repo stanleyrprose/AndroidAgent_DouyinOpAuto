@@ -19,6 +19,8 @@ import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -110,6 +112,8 @@ public final class Rev37ReadOnlyFrameReceiptInstrumentedTest {
         Bitmap template = null;
 
         try {
+            report.put("screen_interactive_before_capture", pm != null && pm.isInteractive())
+                    .put("keyguard_unlocked_before_capture", km != null && !km.isKeyguardLocked());
             System.loadLibrary("opencv_java4");
             long captureStartNs = SystemClock.elapsedRealtimeNanos();
             try (VisionV0Harness.Frame frame =
@@ -126,14 +130,20 @@ public final class Rev37ReadOnlyFrameReceiptInstrumentedTest {
                     // Choose a non-flat patch strictly inside the current frame.
                     // All pixels remain in-memory; only the patch and a bounded
                     // search ROI are passed to the existing OpenCV matcher.
-                    Rect patch = null;
-                    double bestVariance = 0.0;
+                    // Try at most nine independent, non-flat patches. Never
+                    // suppress the matcher's confidence or ambiguity rules.
+                    // All retries are on the SAME immutable captured frame.
+                    List<Rect> patches = new ArrayList<>();
                     int[][] centers = {
                             {frame.width / 2, frame.height / 2},
                             {frame.width / 3, frame.height / 3},
                             {frame.width * 2 / 3, frame.height / 3},
                             {frame.width / 3, frame.height * 2 / 3},
-                            {frame.width * 2 / 3, frame.height * 2 / 3}
+                            {frame.width * 2 / 3, frame.height * 2 / 3},
+                            {frame.width / 2, frame.height / 4},
+                            {frame.width / 2, frame.height * 3 / 4},
+                            {frame.width / 4, frame.height / 2},
+                            {frame.width * 3 / 4, frame.height / 2}
                     };
                     for (int[] center : centers) {
                         int left = Math.max(0, Math.min(frame.width - PATCH,
@@ -144,37 +154,66 @@ public final class Rev37ReadOnlyFrameReceiptInstrumentedTest {
                                 frame.bitmap, left, top, PATCH, PATCH);
                         try {
                             double variance = VisionV0Harness.bitmapVariance(candidate, false);
-                            if (Double.isFinite(variance) && variance > bestVariance) {
-                                bestVariance = variance;
-                                patch = new Rect(left, top, left + PATCH, top + PATCH);
+                            if (Double.isFinite(variance) && variance >= 8.0) {
+                                patches.add(new Rect(left, top, left + PATCH, top + PATCH));
                             }
                         } finally {
                             candidate.recycle();
                         }
                     }
-
-                    if (patch == null || bestVariance < 8.0) {
+                    report.put("eligible_patch_count", patches.size());
+                    if (patches.isEmpty()) {
                         report.put("status", "READ_ONLY_LOW_INFORMATION");
                     } else {
-                        template = Bitmap.createBitmap(
-                                frame.bitmap, patch.left, patch.top, patch.width(), patch.height());
-                        int left = Math.max(0, patch.left - SEARCH_RADIUS);
-                        int top = Math.max(0, patch.top - SEARCH_RADIUS);
-                        int right = Math.min(frame.width, patch.right + SEARCH_RADIUS);
-                        int bottom = Math.min(frame.height, patch.bottom + SEARCH_RADIUS);
-                        Rect roi = new Rect(left, top, right, bottom);
                         long locatorStartNs = SystemClock.elapsedRealtimeNanos();
-                        try {
-                            VisionV0Harness.VisionTarget target =
-                                    VisionV0Harness.matchTemplate(
-                                            frame, template, roi, false, 0.90, 8.0, 0.03);
-                            long locatorEndNs = SystemClock.elapsedRealtimeNanos();
-                            // A locator result may only be associated with this
-                            // receipt in the same test invocation, never a later
-                            // capture or an unverified caller-provided frame id.
+                        VisionV0Harness.VisionTarget target = null;
+                        Rect selectedPatch = null;
+                        VisionV0Harness.VisionFailure rejected = null;
+                        int ambiguousCount = 0;
+                        int attempts = 0;
+                        for (Rect patch : patches) {
+                            attempts++;
+                            template = Bitmap.createBitmap(
+                                    frame.bitmap, patch.left, patch.top,
+                                    patch.width(), patch.height());
+                            try {
+                                Rect roi = new Rect(
+                                        Math.max(0, patch.left - SEARCH_RADIUS),
+                                        Math.max(0, patch.top - SEARCH_RADIUS),
+                                        Math.min(frame.width, patch.right + SEARCH_RADIUS),
+                                        Math.min(frame.height, patch.bottom + SEARCH_RADIUS));
+                                target = VisionV0Harness.matchTemplate(
+                                        frame, template, roi, false, 0.90, 8.0, 0.03);
+                                selectedPatch = patch;
+                                break;
+                            } catch (VisionV0Harness.VisionFailure failure) {
+                                rejected = failure;
+                                if (VisionV0Harness.ERR_TEMPLATE_AMBIGUOUS.equals(failure.code)) {
+                                    ambiguousCount++;
+                                } else if (!VisionV0Harness.ERR_TEMPLATE_NOT_FOUND.equals(failure.code)) {
+                                    break;
+                                }
+                            } finally {
+                                template.recycle();
+                                template = null;
+                            }
+                        }
+
+                        long locatorEndNs = SystemClock.elapsedRealtimeNanos();
+                        report.put("locator_attempts", attempts)
+                                .put("ambiguous_candidate_count", ambiguousCount)
+                                .put("locator_latency_ms",
+                                        (locatorEndNs - locatorStartNs) / NS_PER_MS)
+                                .put("frame_age_at_locator_ms",
+                                        (locatorEndNs - captureStartNs) / NS_PER_MS);
+                        if (target == null) {
+                            report.put("status", "READ_ONLY_LOCATOR_BLOCKED")
+                                    .put("error_code", rejected == null
+                                            ? "VISION_TEMPLATE_NOT_FOUND" : rejected.code);
+                        } else {
                             String locatorFrameId = receipt.frameId;
                             boolean exact = exactFrameBinding(receipt, locatorFrameId, target);
-                            boolean correctPatch = patch.equals(target.bbox);
+                            boolean correctPatch = selectedPatch.equals(target.bbox);
                             boolean screenInteractive = pm != null && pm.isInteractive();
                             boolean keyguardUnlocked = km != null && !km.isKeyguardLocked();
                             boolean packageUnchanged = receipt.packageName != null
@@ -185,12 +224,7 @@ public final class Rev37ReadOnlyFrameReceiptInstrumentedTest {
                                     receipt.width == device.getDisplayWidth()
                                     && receipt.height == device.getDisplayHeight();
                             long observedNs = SystemClock.elapsedRealtimeNanos();
-
-                            report.put("locator_latency_ms",
-                                    (locatorEndNs - locatorStartNs) / NS_PER_MS)
-                                    .put("frame_age_at_locator_ms",
-                                            (locatorEndNs - captureStartNs) / NS_PER_MS)
-                                    .put("frame_age_at_observation_ms",
+                            report.put("frame_age_at_observation_ms",
                                             (observedNs - captureStartNs) / NS_PER_MS)
                                     .put("locator_exact_frame_id", exact)
                                     .put("locator_expected_patch", correctPatch)
@@ -205,9 +239,6 @@ public final class Rev37ReadOnlyFrameReceiptInstrumentedTest {
                                             && keyguardUnlocked
                                             ? "READ_ONLY_PIXEL_LOCATED"
                                             : "READ_ONLY_CONTEXT_NOT_VERIFIED");
-                        } catch (VisionV0Harness.VisionFailure failure) {
-                            report.put("status", "READ_ONLY_LOCATOR_BLOCKED")
-                                    .put("error_code", failure.code);
                         }
                     }
                 }
