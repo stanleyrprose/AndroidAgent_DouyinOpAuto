@@ -38,6 +38,7 @@ import org.junit.runner.RunWith;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -136,6 +137,11 @@ public class AutomationInstrumentedTest {
                 return;
             }
 
+            if (request.optBoolean("interactive_core_v2", false)) {
+                runInteractiveCoreV2(request, result, workflowStart);
+                return;
+            }
+
             JSONArray actions = request.optJSONArray("actions");
             if (actions == null || actions.length() == 0) {
                 result.put("status", "FAILED");
@@ -231,6 +237,202 @@ public class AutomationInstrumentedTest {
             attachVisionMetrics(result);
             emitResult(result);
         }
+    }
+
+
+
+    private void writeJsonAtomic(File path, JSONObject value) throws Exception {
+        File parent = path.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IllegalStateException("cannot create control dir: " + parent);
+        }
+        File tmp = new File(path.getAbsolutePath() + ".tmp");
+        byte[] raw = (value.toString() + "\n").getBytes(StandardCharsets.UTF_8);
+        try (FileOutputStream out = new FileOutputStream(tmp, false)) {
+            out.write(raw);
+            out.flush();
+            out.getFD().sync();
+        }
+        if (path.exists() && !path.delete()) {
+            throw new IllegalStateException("cannot replace control file: " + path);
+        }
+        if (!tmp.renameTo(path)) {
+            throw new IllegalStateException("cannot publish control file: " + path);
+        }
+    }
+
+    private JSONObject readJsonFile(File path) throws Exception {
+        try (FileInputStream in = new FileInputStream(path)) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) >= 0) {
+                if (n > 0) out.write(buf, 0, n);
+            }
+            return new JSONObject(new String(out.toByteArray(), StandardCharsets.UTF_8));
+        }
+    }
+
+    private void runInteractiveCoreV2(
+            JSONObject request,
+            JSONObject result,
+            long workflowStart) throws Exception {
+        String controlId = request.optString("interactive_control_id", "");
+        if (!controlId.matches("[A-Za-z0-9._-]{1,64}")) {
+            throw new ActionFailure(
+                    "JOB_PAYLOAD_INVALID",
+                    "invalid interactive_control_id",
+                    false,
+                    "BLOCKED");
+        }
+
+        File root = new File(context.getFilesDir(), "core-v2/" + controlId);
+        if (!root.exists() && !root.mkdirs()) {
+            throw new IllegalStateException("cannot create interactive control dir");
+        }
+
+        JSONObject preflight;
+        try {
+            preflight = ensureUiPreflight(request);
+        } catch (ActionFailure failure) {
+            JSONObject ready = new JSONObject();
+            ready.put("status", failure.status);
+            ready.put("error", error(
+                    failure.code,
+                    failure.getMessage(),
+                    failure.retryable));
+            writeJsonAtomic(new File(root, "ready.json"), ready);
+            throw failure;
+        }
+
+        JSONObject ready = new JSONObject();
+        ready.put("status", "PASS");
+        ready.put("job_id", jobId);
+        ready.put("session_id", sessionId);
+        ready.put("driver_version", DRIVER_VERSION);
+        ready.put("protocol_version", PROTOCOL_VERSION);
+        ready.put("preflight", preflight);
+        writeJsonAtomic(new File(root, "ready.json"), ready);
+
+        int sequence = 0;
+        int totalActions = 0;
+        JSONArray aggregate = new JSONArray();
+        boolean failed = false;
+        JSONObject terminalError = null;
+        long requestedMax = request.optLong("max_duration_ms", MAX_DURATION_MS);
+        long deadline = workflowStart + Math.min(
+                MAX_DURATION_MS,
+                Math.max(1000L, requestedMax));
+
+        while (SystemClock.elapsedRealtime() <= deadline) {
+            File finish = new File(root, "finish.json");
+            if (finish.isFile()) {
+                break;
+            }
+
+            File commandFile = new File(
+                    root,
+                    String.format(Locale.US, "command-%03d.json", sequence));
+            if (!commandFile.isFile()) {
+                SystemClock.sleep(50L);
+                continue;
+            }
+
+            JSONObject envelope = readJsonFile(commandFile);
+            JSONArray actions = envelope.optJSONArray("actions");
+            JSONObject response = new JSONObject();
+            JSONArray rows = new JSONArray();
+            response.put("sequence", sequence);
+            response.put("preflight", preflight);
+
+            if (actions == null || actions.length() == 0 || actions.length() > MAX_ACTIONS) {
+                response.put("status", "FAILED");
+                response.put(
+                        "error",
+                        error(
+                                "JOB_PAYLOAD_INVALID",
+                                "interactive command actions must contain 1.." + MAX_ACTIONS,
+                                false));
+            } else {
+                String status = "PASS";
+                JSONObject responseError = null;
+                for (int i = 0; i < actions.length(); i++) {
+                    if (SystemClock.elapsedRealtime() > deadline) {
+                        status = "TIMEOUT";
+                        responseError = error(
+                                "WORKFLOW_TIMEOUT",
+                                "interactive workflow deadline exceeded",
+                                false);
+                        break;
+                    }
+                    JSONObject action = actions.getJSONObject(i);
+                    int actionIndex = totalActions++;
+                    emitHeartbeat(
+                            actionIndex,
+                            action.optString("action", "unknown"),
+                            "STARTED");
+                    // Defense in depth: the interactive v2 driver has no
+                    // D-G3 frame-id/locator/boot/revision verifier yet.
+                    // Even if the host were to accept stale evidence, refuse
+                    // ANY mutating action that may invoke visual localization
+                    // before executeWithRetry/executeAction can click.
+                    JSONObject one;
+                    if (interactiveVisionMutationRequiresDg3(action)) {
+                        one = new JSONObject()
+                                .put("action_id", action.optString("action_id",
+                                        "action-" + actionIndex))
+                                .put("action", action.optString("action", ""))
+                                .put("status", "BLOCKED")
+                                .put("attempts", 0)
+                                .put("error", error("VISION_DRIVER_GATE_CLOSED",
+                                        "driver-side D-G3 visual dispatch not accepted",
+                                        false));
+                    } else {
+                        one = executeWithRetry(action, actionIndex);
+                    }
+                    rows.put(one);
+                    aggregate.put(one);
+                    emitHeartbeat(
+                            actionIndex,
+                            action.optString("action", "unknown"),
+                            one.optString("status", "FAILED"));
+                    if (!"PASS".equals(one.optString("status"))) {
+                        status = one.optString("status", "FAILED");
+                        if (one.has("error")) {
+                            responseError = one.optJSONObject("error");
+                        }
+                        failed = true;
+                        terminalError = responseError;
+                        break;
+                    }
+                }
+                response.put("status", status);
+                if (responseError != null) response.put("error", responseError);
+            }
+
+            response.put("actions", rows);
+            writeJsonAtomic(
+                    new File(
+                            root,
+                            String.format(Locale.US, "result-%03d.json", sequence)),
+                    response);
+            sequence++;
+        }
+
+        JSONObject done = new JSONObject();
+        done.put("status", failed ? "FAILED" : "PASS");
+        done.put("job_id", jobId);
+        done.put("session_id", sessionId);
+        done.put("driver_version", DRIVER_VERSION);
+        done.put("protocol_version", PROTOCOL_VERSION);
+        done.put("actions", aggregate);
+        if (terminalError != null) done.put("error", terminalError);
+        done.put(
+                "duration_ms",
+                SystemClock.elapsedRealtime() - workflowStart);
+        attachVisionMetrics(done);
+        writeJsonAtomic(new File(root, "done.json"), done);
+        emitResult(done);
     }
 
 
@@ -459,6 +661,70 @@ public class AutomationInstrumentedTest {
         }
     }
 
+    /**
+     * Sprint 1A: interactive v2 has not yet completed the real-device D-G3
+     * receipt and live mutation-boundary validation. No workflow-provided
+     * boolean, vision_enabled, or frame metadata can open this gate.
+     * Legacy benchmark/read-only flows keep their separate contracts.
+     */
+    private boolean interactiveVisionMutationRequiresDg3(JSONObject action) {
+        if (!isMutationAction(action.optString("action", ""))) return false;
+        if ("VISION_ASSISTED_UI".equals(action.optString("route_class", ""))) return true;
+        if (action.has("vision_recovery")) return true;
+        JSONObject selector = action.optJSONObject("selector");
+        if (selector == null) return false;
+        String type = selector.optString("type", "");
+        if ("vision_template".equals(type) || "vision_text".equals(type)) return true;
+        JSONArray fallback = selector.optJSONArray("fallback");
+        if (fallback == null) return false;
+        for (int i = 0; i < fallback.length(); i++) {
+            JSONObject candidate = fallback.optJSONObject(i);
+            if (candidate == null) continue;
+            String candidateType = candidate.optString("type", "");
+            if ("vision_template".equals(candidateType) ||
+                    "vision_text".equals(candidateType)) return true;
+        }
+        return false;
+    }
+
+    private boolean isMutationAction(String name) {
+        switch (name) {
+            case "click":
+            case "tapObserved":
+            case "appForceStop":
+            case "appLaunch":
+            case "longClick":
+            case "inputText":
+            case "clearText":
+            case "swipe":
+            case "scroll":
+            case "pressBack":
+            case "pressHome":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private String mutationPostconditionKind(JSONObject action, String name) {
+        JSONObject expect = action.optJSONObject("expect");
+        if (expect != null && expect.length() > 0) {
+            return "EXPLICIT_EXPECTATION";
+        }
+        switch (name) {
+            case "inputText":
+            case "clearText":
+            case "appForceStop":
+            case "appLaunch":
+                return "INTRINSIC_VERIFICATION";
+            case "pressBack":
+            case "pressHome":
+                return "UI_IDLE_OBSERVED";
+            default:
+                return "DRIVER_DISPATCH_ACK";
+        }
+    }
+
     private long retryBackoffMs(JSONObject action, int attempt) {
         JSONArray arr = action.optJSONArray("retry_backoff_ms");
         if (arr != null && arr.length() > 0) {
@@ -502,6 +768,15 @@ public class AutomationInstrumentedTest {
                 case "click":
                     out.put("data", click(action));
                     break;
+                case "tapObserved":
+                    out.put("data", tapObserved(action));
+                    break;
+                case "appForceStop":
+                    out.put("data", appForceStop(action));
+                    break;
+                case "appLaunch":
+                    out.put("data", appLaunch(action));
+                    break;
                 case "longClick":
                     out.put("data", longClick(action));
                     break;
@@ -528,12 +803,20 @@ public class AutomationInstrumentedTest {
                     break;
                 case "pressBack":
                     device.pressBack();
-                    out.put("data", new JSONObject().put("pressed", "BACK"));
+                    device.waitForIdle(1000L);
+                    out.put("data", new JSONObject()
+                            .put("pressed", "BACK")
+                            .put("current_package", nullableString(device.getCurrentPackageName()))
+                            .put("display_rotation", device.getDisplayRotation()));
                     verifyExpectation(action.optJSONObject("expect"), action.optLong("timeout_ms", 10000L));
                     break;
                 case "pressHome":
                     device.pressHome();
-                    out.put("data", new JSONObject().put("pressed", "HOME"));
+                    device.waitForIdle(1000L);
+                    out.put("data", new JSONObject()
+                            .put("pressed", "HOME")
+                            .put("current_package", nullableString(device.getCurrentPackageName()))
+                            .put("display_rotation", device.getDisplayRotation()));
                     verifyExpectation(action.optJSONObject("expect"), action.optLong("timeout_ms", 10000L));
                     break;
                 default:
@@ -541,6 +824,13 @@ public class AutomationInstrumentedTest {
                     out.put("error", error("JOB_PAYLOAD_INVALID", "unsupported action: " + name, false));
                     out.put("latency_ms", SystemClock.elapsedRealtime() - started);
                     return out;
+            }
+            if (isMutationAction(name)) {
+                JSONObject data = out.optJSONObject("data");
+                if (data == null) data = new JSONObject();
+                data.put("postcondition_passed", true);
+                data.put("postcondition_kind", mutationPostconditionKind(action, name));
+                out.put("data", data);
             }
             out.put("status", "PASS");
         } catch (ActionFailure t) {
@@ -657,6 +947,9 @@ public class AutomationInstrumentedTest {
         caps.put("find");
         caps.put("findAll");
         caps.put("click");
+        caps.put("tapObserved");
+        caps.put("appForceStop");
+        caps.put("appLaunch");
         caps.put("longClick");
         caps.put("inputText");
         caps.put("clearText");
@@ -1167,6 +1460,82 @@ public class AutomationInstrumentedTest {
         }
 
         return clickVisionCascade(action, selector, candidates, semanticAvailable);
+    }
+
+    private JSONObject tapObserved(JSONObject action) throws Exception {
+        JSONObject selector = action.optJSONObject("selector");
+        if (selector == null || selector.length() == 0) {
+            throw new ActionFailure("JOB_PAYLOAD_INVALID", "tapObserved requires selector", false);
+        }
+        validateSelectorKeys(selector);
+        int ordinal = action.optInt("ordinal", -1);
+        if (ordinal < 0) {
+            throw new ActionFailure("JOB_PAYLOAD_INVALID", "tapObserved requires ordinal >= 0", false);
+        }
+        List<UiObject2> matches = findObjects(selector);
+        matches.sort((left, right) -> {
+            Rect a = left.getVisibleBounds();
+            Rect b = right.getVisibleBounds();
+            int top = Integer.compare(a.top, b.top);
+            return top != 0 ? top : Integer.compare(a.left, b.left);
+        });
+        if (ordinal >= matches.size()) {
+            throw new ActionFailure("STALE_STATE_HASH", "tapObserved ordinal no longer exists", false);
+        }
+        UiObject2 target = matches.get(ordinal);
+        JSONObject resolved = elementJson(target);
+        target.click();
+        verifyExpectation(action.optJSONObject("expect"), action.optLong("timeout_ms", 15000L));
+        return new JSONObject()
+                .put("locator_source", "semantic-observed-ordinal")
+                .put("ordinal", ordinal)
+                .put("matched_count", matches.size())
+                .put("resolved_element", resolved);
+    }
+
+    private String mutationPackage(JSONObject action) throws ActionFailure {
+        String packageName = action.optString("package", "");
+        if (!packageName.matches("[A-Za-z0-9_.]{3,160}")) {
+            throw new ActionFailure("JOB_PAYLOAD_INVALID", "invalid mutation package", false);
+        }
+        return packageName;
+    }
+
+    private JSONObject appForceStop(JSONObject action) throws Exception {
+        String packageName = mutationPackage(action);
+        shell("am force-stop " + packageName);
+        long deadline = SystemClock.elapsedRealtime() + action.optLong("timeout_ms", 10000L);
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (!packageName.equals(device.getCurrentPackageName())) {
+                return new JSONObject().put("package", packageName).put("stopped", true);
+            }
+            SystemClock.sleep(200L);
+        }
+        throw new ActionFailure("POSTCONDITION_FAILED", "package remained foreground after force-stop", false);
+    }
+
+    private JSONObject appLaunch(JSONObject action) throws Exception {
+        String packageName = mutationPackage(action);
+        String activity = action.optString("activity", "");
+        if (!activity.isEmpty() && !activity.matches("[A-Za-z0-9_.$]{1,200}")) {
+            throw new ActionFailure("JOB_PAYLOAD_INVALID", "invalid appLaunch activity", false);
+        }
+        if (activity.isEmpty()) {
+            shell("monkey -p " + packageName + " -c android.intent.category.LAUNCHER 1");
+        } else {
+            shell("am start -n " + packageName + "/" + activity);
+        }
+        long deadline = SystemClock.elapsedRealtime() + action.optLong("timeout_ms", 30000L);
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (packageName.equals(device.getCurrentPackageName())) {
+                return new JSONObject()
+                        .put("package", packageName)
+                        .put("activity", activity.isEmpty() ? JSONObject.NULL : activity)
+                        .put("launched", true);
+            }
+            SystemClock.sleep(250L);
+        }
+        throw new ActionFailure("POSTCONDITION_FAILED", "package did not become foreground", false);
     }
 
     private JSONObject clickVisionCascade(

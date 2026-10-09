@@ -11,6 +11,9 @@ from publisher import publish_job
 
 class PublishRoutingTests(unittest.TestCase):
     def setUp(self) -> None:
+        # Routing tests must not acquire the real Linux android_ui resource;
+        # secure unlock ownership is verified by its dedicated tests.
+        self.enterContext(mock.patch.object(publish_job, "ensure_device_unlocked", return_value=None))
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.ready = Path(self.tmp.name) / "ready"

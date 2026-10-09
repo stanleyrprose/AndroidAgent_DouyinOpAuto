@@ -16,6 +16,10 @@ try:
 except ImportError:
     from job_contract import load_manifest, write_json_atomic
 
+if str(Path(__file__).resolve().parents[1]) not in __import__("sys").path:
+    __import__("sys").path.insert(0, str(Path(__file__).resolve().parents[1]))
+from automation import resource_arbiter, state_integrity
+
 ROOT = Path(__file__).resolve().parents[1]
 READY = Path(os.environ.get("Y700_READY_ROOT", "/opt/y700/media/ready"))
 STATE = Path(os.environ.get("Y700_ALBUM_STORE_STATE", "/opt/y700/runtime/state/album-store.json"))
@@ -192,9 +196,28 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
     })
 
     write_state("UNLOCKING_FOR_ALBUM_STORE", job_id, album=album, initial_power_state=initial)
+    try:
+        claim_cm = resource_arbiter.acquire_android_ui(
+            owner_kind="LEGACY",
+            owner_id=f"legacy:store-album:{job_id}",
+            backend_type="store-album",
+            backend_job_id=job_id,
+            request_sha256=resource_arbiter.request_identity(
+                {"intent": "STORE_ALBUM", "job_id": job_id, "album": album}
+            ),
+            timeout_sec=30.0,
+        )
+        claim_cm.__enter__()
+    except resource_arbiter.ResourceError as exc:
+        raise AlbumStoreError(str(exc)) from exc
+
     result = None
     error = None
     try:
+        # STORE_ALBUM is still a legacy UI workflow. Before its first raw UI
+        # mutation, invalidate all prior state tokens while holding the same
+        # canonical android_ui ownership used by Core v2.
+        state_integrity.bump_epoch(f"LEGACY_STORE_ALBUM_UI:{job_id}")
         run(["bash", SECURE_UNLOCK], timeout=45)
         write_state("STORING_IN_ALBUM", job_id, album=album, initial_power_state=initial)
 
@@ -280,6 +303,8 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
             if result is not None and error is None:
                 # Storage truth remains successful; power restore is observational.
                 pass
+        finally:
+            claim_cm.__exit__(None, None, None)
 
 
 def main() -> int:

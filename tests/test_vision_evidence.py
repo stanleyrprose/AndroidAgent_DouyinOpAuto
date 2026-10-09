@@ -49,7 +49,9 @@ class VisionEvidenceQuotaTest(unittest.TestCase):
 
     def test_request_accepts_single_v1_v2_vision_fallback(self):
         req = {
-            "protocol_version": 1,
+            "protocol_version": 2,
+            "resource_guard": {"resource": "android_ui", "claim_id": "fixture-claim", "owner_id": "legacy:vision"},
+            "state_guard": {"mode": "AUTO"},
             "job_id": "vision-single-fallback",
             "actions": [{
                 "action": "click",
@@ -67,7 +69,9 @@ class VisionEvidenceQuotaTest(unittest.TestCase):
 
     def test_request_accepts_authorized_multi_candidate_vision_fallback(self):
         req = {
-            "protocol_version": 1,
+            "protocol_version": 2,
+            "resource_guard": {"resource": "android_ui", "claim_id": "fixture-claim", "owner_id": "legacy:vision"},
+            "state_guard": {"mode": "AUTO"},
             "job_id": "vision-hybrid-authorized",
             "actions": [{
                 "action": "click",
@@ -90,7 +94,9 @@ class VisionEvidenceQuotaTest(unittest.TestCase):
 
     def test_request_rejects_more_than_eight_fallback_candidates(self):
         req = {
-            "protocol_version": 1,
+            "protocol_version": 2,
+            "resource_guard": {"resource": "android_ui", "claim_id": "fixture-claim", "owner_id": "legacy:vision"},
+            "state_guard": {"mode": "AUTO"},
             "job_id": "vision-hybrid-too-many",
             "actions": [{
                 "action": "click",
@@ -113,6 +119,11 @@ class VisionEvidenceQuotaTest(unittest.TestCase):
             ui_job.UiJobError,
             "fallback contains more than 8 vision candidates",
         ):
+            ui_job.validate_request(req)
+
+    def test_direct_v1_vision_mutation_requires_protocol_v2(self):
+        req = {"protocol_version": 1, "job_id": "v1-blocked", "actions": [{"action": "click", "selector": {"text": "Close"}}]}
+        with self.assertRaisesRegex(ui_job.UiJobError, "PROTOCOL_V2_REQUIRED_FOR_MUTATION"):
             ui_job.validate_request(req)
 
     def test_route_summary_is_metadata_only_and_keeps_hybrid_trace(self):

@@ -12,8 +12,8 @@ V1_HASH="sha256:074e74b0f725954b789fea7d905715c7e096c4ab159029a1c6c8ef8a6b610b66
 V2={"cardinality":1,"element":{"checked":True,"clickable":True,"enabled":True,"selected":False},"fingerprint_version":"semantic-v1","foreground":{"activity":"com.android.settings.Settings","package":"com.android.settings"},"scope":"ELEMENT","screen":{"blocking_overlay_class":None,"blocking_overlay_owner_package":None,"blocking_overlay_present":False,"interactive":True,"keyguard_locked":False},"selector":{"resource_id":"android:id/switch_widget"}}
 V2_HASH="sha256:6bab7e2cd22bb7e2804f75638edfda2546f73802003c57fde3ecbdd322f32fd4"
 
-def result(name:str, ok:bool, gate:str, details:dict[str,Any], reasons:list[str]|None=None):
-    return {"schema_version":1,"phase":"0B","check":name,"status":"PASS" if ok else "FAIL","gate":gate,"reasons":reasons or [],"details":details}
+def result(name:str, ok:bool, gate:str, details:dict[str,Any], reasons:list[str]|None=None, phase:str="0B"):
+    return {"schema_version":1,"phase":phase,"check":name,"status":"PASS" if ok else "FAIL","gate":gate,"reasons":reasons or [],"details":details}
 
 def emit(obj:dict[str,Any]):
     print(json.dumps(obj,ensure_ascii=False,indent=2,sort_keys=True))

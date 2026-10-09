@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import inspect
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from publisher import publish_job
 
@@ -23,6 +26,42 @@ class LockscreenPublisherContractTests(unittest.TestCase):
         self.assertIn("timeout=45", source)
         self.assertIn('update("UNLOCKING", job_id)', source)
         self.assertIn("secure unlock failed before preflight/staging", source)
+
+    def test_secure_unlock_holds_canonical_claim_and_invalidates_epoch_first(self) -> None:
+        events: list[str] = []
+
+        @contextmanager
+        def fake_claim(**kwargs):
+            events.append("claim_enter")
+            try:
+                yield SimpleNamespace()
+            finally:
+                events.append("claim_exit")
+
+        def fake_run(cmd, **kwargs):
+            events.append("run")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with (
+            patch.object(publish_job, "update", side_effect=lambda *a, **k: {}),
+            patch.object(
+                publish_job.resource_arbiter,
+                "acquire_android_ui",
+                side_effect=fake_claim,
+            ),
+            patch.object(
+                publish_job.state_integrity,
+                "bump_epoch",
+                side_effect=lambda reason: events.append("epoch") or {},
+            ),
+            patch.object(publish_job, "run", side_effect=fake_run),
+        ):
+            publish_job.ensure_device_unlocked("job-1")
+
+        self.assertEqual(
+            events,
+            ["claim_enter", "epoch", "run", "claim_exit"],
+        )
 
     def test_stage_media_queries_use_bounded_bridge_timeout(self) -> None:
         source = (ROOT / "publisher" / "stage_job.py").read_text()

@@ -26,15 +26,14 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertEqual(by_id["home-create"]["selector"], expected)
         self.assertNotIn("resource_id", by_id["wait-cold-home"]["selector"])
 
-    def test_cold_launch_recovers_keyguard_with_secure_unlock_capability(self) -> None:
+    def test_cold_launch_fails_closed_on_keyguard_without_raw_unlock(self) -> None:
         import inspect
         source = inspect.getsource(controller._cold_launch)
-        self.assertIn("_ensure_device_unlocked()", source)
         self.assertIn("KEYGUARD_BLOCKING", source)
-        helper = inspect.getsource(controller._ensure_device_unlocked)
-        self.assertIn("secure-unlock.sh", str(controller.SECURE_UNLOCK))
-        self.assertIn('["bash", str(SECURE_UNLOCK)]', helper)
-        self.assertNotIn("device_unlock.pin", helper)
+        self.assertIn("SCREEN_OFF", source)
+        self.assertIn("interactive and unlocked", source)
+        self.assertNotIn("_ensure_device_unlocked", source)
+        self.assertFalse(hasattr(controller, "SECURE_UNLOCK"))
 
     def test_cold_launch_waits_for_splash_to_exit_before_ui_workflow(self) -> None:
         import inspect
@@ -45,7 +44,8 @@ class TikTokGenericCoreTests(unittest.TestCase):
         self.assertIn(".stdout.strip()", source)
         self.assertIn("check=False", source)
         self.assertIn("MainActivity", source)
-        self.assertIn("am start -n", source)
+        self.assertIn("_launch_tiktok(", source)
+        self.assertNotIn("am start -n", source)
         self.assertIn("stable_main >= 2", source)
         self.assertIn("stable_home_ui >= 2", source)
         self.assertIn("cold-launch-home-probe", source)
