@@ -53,7 +53,22 @@ Implemented within authorized Sprint 1/1A:
 - Latest Y700 run of `#readOnlyPixelBoundLocator`: Android JUnit **OK (1 test)**; `eligible_patch_count=4`, `locator_attempts=1`, `ambiguous_candidate_count=0`, `locator_exact_frame_id=true`, `locator_expected_patch=true`; capture **507 ms**, locator **16 ms**, frame age at locator **561 ms** and observation **562 ms**. **Still** `screen_interactive_before_capture=false`, `keyguard_unlocked_before_capture=false`, `READ_ONLY_CONTEXT_NOT_VERIFIED`; no UI actions or retained pixels. These are individual samples, not latency calibration.
 - One synthetic `#frameIdMismatchCannotValidate` test ran successfully on actual Y700 without any action. All D-G3 production authority gates remain hard closed.
 
-**Remaining**: once the user physically unlocks Y700 and leaves a stable foreground UI, rerun the isolated read-only method to validate context. Then move to an independent preexisting target/template (rather than self-crop), authoritative epoch/revision & boot ID, overlay/activity and JIT frame-age acceptance in the Android Driver. Never use the mutating legacy benchmark. Staging packages remain installed for isolated testing; no production merge/switch.
+**Follow-up**: the previously missing unlocked foreground context was obtained in the 2026-10-09 replay below. Remaining engineering gaps: independent preexisting target/template (rather than self-crop), authoritative epoch/revision & boot ID, overlay/activity and JIT frame-age acceptance in the Android Driver. Never use the mutating legacy benchmark. Staging packages remain installed for isolated testing; no production merge/switch.
+
+## Unlocked foreground TikTok real-device replay (2026-10-09)
+
+The user physically unlocked the Y700. A read-only Android shell check immediately before the first run reported `mWakefulness=Awake`, `mInputRestricted=false` and `topResumedActivity=com.zhiliaoapp.musically/com.ss.android.ugc.aweme.main.MainActivity` (TikTok). The existing isolated instrumentation package (`com.stanley.y700automation.dg3probe.test`) was used unchanged; no app install or production job was performed in this replay.
+
+Four **successive** real-device invocations of ONLY `Rev37ReadOnlyFrameReceiptInstrumentedTest#readOnlyPixelBoundLocator` each returned Android JUnit `OK (1 test)`, JSON `status=READ_ONLY_PIXEL_LOCATED`, frame-ID match `true`, patch match `true`, `screen_interactive_before_capture=true`, `keyguard_unlocked_before_capture=true`, `screen_interactive=true`, `keyguard_unlocked=true`, stable package/rotation/geometry, `action_attempts=0` and `production_dg3_passed=false`.
+
+| Run | Capture (ms) | Locator (ms) | Age at locator (ms) | Age at read-only post-locator observation (ms) | Eligible patches | Attempts | Ambiguous |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 471 | 24 | 528 | 530 | 9 | 1 | 0 |
+| 2 | 498 | 18 | 546 | 547 | 9 | 1 | 0 |
+| 3 | 500 | 20 | 557 | 558 | 9 | 1 | 0 |
+| 4 | 497 | 20 | 550 | 551 | 7 | 1 | 0 |
+
+Independently, `Rev37ReadOnlyFrameReceiptInstrumentedTest#frameIdMismatchCannotValidate` passed on the unlocked actual device (`OK (1 test)`), rejecting synthetic inconsistent frame IDs with no UI actions. The exact-match patch in all positive tests is **self-cropped from the same real screenshot**: this validates real pixel capture/locator binding and observable foreground stability, **not** an independently prepared TikTok button template or semantic correctness. Four samples are not a production max-age calibration; no actual driver dispatch/JIT proof, authoritative boot/epoch/revision, full foreground activity or blocking overlay comparison exists. `DG3=OPEN`, `visual_dispatch_allowed=false`, `pixel_persisted=false`. The PR remains Draft; no merge or production visual mutation.
 
 ## What still blocks enablement / merge
 
