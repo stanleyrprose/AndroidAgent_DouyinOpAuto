@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -176,8 +177,14 @@ def cmd_submit(args) -> int:
         atomic_json(job.dir / "source" / "douzy-result.json", result)
         video = _find_video(job.dir / "source")
         job = _canonicalize(job, args.url, video, result, allow_duplicate=args.allow_duplicate)
-        analysis = analyze(Path(read_json(job.dir / "source" / "source.json")["video_path"]), job.dir / "analysis")
-        job.write_state("ANALYZED", route=analysis["route"])
+        source_video = Path(read_json(job.dir / "source" / "source.json")["video_path"])
+        analysis = analyze(source_video, job.dir / "analysis")
+        subtitle_mode = "dynamic_v04" if (args.dynamic_subtitles or
+            os.environ.get("Y700_SUBTITLE_MODE", "").lower() == "dynamic_v04") else "legacy"
+        if subtitle_mode == "dynamic_v04":
+            from .subtitle_analyze import analyze_dynamic
+            analysis = analyze_dynamic(source_video, job.dir / "analysis", analysis)
+        job.write_state("ANALYZED", route=analysis["route"], subtitle_mode=subtitle_mode)
         index_job(job, aweme_id=job.state().get("aweme_id"), url_key=key)
         print(json.dumps({
             "status": "ANALYZED",
@@ -185,7 +192,10 @@ def cmd_submit(args) -> int:
             "route": analysis["route"],
             "contact_sheet": str(job.dir / "analysis" / "frames" / "contact-sheet.jpg"),
             "transcript": str(job.dir / "analysis" / "transcript.zh.json"),
-            "localization_request": str(job.dir / "analysis" / "localization_request.json"),
+            "localization_request": str(job.dir / "analysis" / (
+                "translation_requests.json" if subtitle_mode == "dynamic_v04"
+                else "localization_request.json")),
+            "subtitle_mode": subtitle_mode,
         }, ensure_ascii=False))
         return 0
     except DouzyError as e:
@@ -224,7 +234,42 @@ def refresh_index(job: Job) -> None:
 def cmd_localize(args) -> int:
     job = get_job(args.job_id)
     data = json.load(open(args.file, encoding="utf-8"))
-    loc = save_localization(job.dir, data)
+    if job.state().get("subtitle_mode") == "dynamic_v04":
+        from .subtitle_localization import build_timeline
+        from .localize import validate
+        from .subtitle_quality import evaluate
+        from .subtitle_notify import notify_if_blocked
+        ledger = read_json(job.dir / "analysis" / "fused_events.zh.json")
+        if not ledger:
+            raise RuntimeError("missing fused dynamic events; never fallback to legacy")
+        try:
+            timeline, projection = build_timeline(ledger, data)
+        except (ValueError, TypeError, KeyError) as error:
+            from .subtitle_events import digest
+            from .subtitle_notify import notify_if_blocked
+            from .subtitle_localization import TranslationContractError
+            report = {
+                "schema_version": 1, "job_id": job.job_id,
+                "revision": digest([job.job_id, str(error), "translation-contract"])[:16],
+                "quality_stage": "Q1_TRANSLATION", "status": "BLOCKED",
+                "codes": ["BLOCKED_TRANSLATION_CONTRACT"],
+                "details": [{"reason": type(error).__name__}],
+                "next_action": "Inspect translation IDs/schema and regenerate a valid batch",
+            }
+            atomic_json(job.dir / "production" / "quality_report.json", report)
+            notify_if_blocked(job.dir, report)
+            raise
+        projection_validated = validate(projection, timeline["duration_s"])
+        projection_validated["dynamic_timeline_hash"] = projection["dynamic_timeline_hash"]
+        atomic_json(job.dir / "localization" / "subtitle_timeline.json", timeline)
+        atomic_json(job.dir / "localization" / "localization.json", projection_validated)
+        qa = evaluate(job.dir)
+        notify_if_blocked(job.dir, qa)
+        if qa["status"] == "BLOCKED":
+            raise RuntimeError("dynamic localization BLOCKED: " + ",".join(qa["codes"]))
+        loc = projection_validated
+    else:
+        loc = save_localization(job.dir, data)
     job.write_state("LOCALIZED", content_type=loc["content_type"], visibility=loc["visibility"])
     refresh_index(job)
     print(json.dumps({"status": "LOCALIZED", "job_id": job.job_id, "content_type": loc["content_type"]}, ensure_ascii=False))
@@ -233,7 +278,11 @@ def cmd_localize(args) -> int:
 
 def cmd_render(args) -> int:
     job = get_job(args.job_id)
-    result = render(job.dir)
+    if job.state().get("subtitle_mode") == "dynamic_v04":
+        from .subtitle_render import render_dynamic
+        result = render_dynamic(job.dir)
+    else:
+        result = render(job.dir)
     job.write_state("RENDERED", video_sha256=result["sha256"]["video"])
     refresh_index(job)
     print(json.dumps({"status": "RENDERED", "job_id": job.job_id, **result}, ensure_ascii=False))
@@ -242,6 +291,9 @@ def cmd_render(args) -> int:
 
 def cmd_export(args) -> int:
     job = get_job(args.job_id)
+    if job.state().get("subtitle_mode") == "dynamic_v04":
+        from .subtitle_quality import require_pass
+        require_pass(job.dir)
     result = export_job(job.dir, ttl_seconds=args.ttl)
     job.write_state("EXPORTED", visibility=result["visibility"], expires_at=result["expires_at"])
     refresh_index(job)
@@ -350,6 +402,59 @@ def cmd_register_published(args) -> int:
     return 0
 
 
+def cmd_quality_queue(args) -> int:
+    from .subtitle_quality import list_quality_queue
+    statuses = {x.strip() for x in args.status.split(",") if x.strip()}
+    print(json.dumps(list_quality_queue(JOBS, statuses), ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_quality_resend(args) -> int:
+    from .subtitle_notify import send_pending
+    job = get_job(args.job_id)
+    print(json.dumps(send_pending(job.dir, explicit_resend=True), ensure_ascii=False))
+    return 0
+
+
+def cmd_quality_check(args) -> int:
+    from .subtitle_quality import evaluate
+    from .subtitle_notify import notify_if_blocked
+    job = get_job(args.job_id)
+    if job.state().get("subtitle_mode") != "dynamic_v04":
+        raise RuntimeError("quality-check applies to dynamic_v04 only")
+    report = evaluate(job.dir, after_render=(job.dir / "production" / "render-result.json").exists())
+    notify_if_blocked(job.dir, report)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0 if report["status"] == "PASS" else 20
+
+
+def cmd_quality_review(args) -> int:
+    from .subtitle_quality import approve_review, evaluate
+    job = get_job(args.job_id)
+    if job.state().get("subtitle_mode") != "dynamic_v04":
+        raise RuntimeError("review is only for dynamic_v04 jobs")
+    approve_review(job.dir, code=args.code, reviewer=args.reviewer, reason=args.reason)
+    report = evaluate(job.dir, after_render=(job.dir / "production" / "render-result.json").exists())
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0 if report["status"] == "PASS" else 20
+
+
+def cmd_layout_set(args) -> int:
+    from .subtitle_localization import revise_layout
+    from .subtitle_quality import evaluate
+    from .subtitle_notify import notify_if_blocked
+    job = get_job(args.job_id)
+    if job.state().get("subtitle_mode") != "dynamic_v04" or job.state().get("state") != "LOCALIZED":
+        raise RuntimeError("layout-set only allowed for unpublished LOCALIZED dynamic job")
+    timeline = revise_layout(job.dir, event_id=args.event_id, mode=args.mode,
+                             verification_frame_refs=args.evidence_frame)
+    report = evaluate(job.dir)
+    notify_if_blocked(job.dir, report)
+    print(json.dumps({"event_id": args.event_id, "mode": args.mode,
+                      "status": report["status"]}, ensure_ascii=False))
+    return 0 if report["status"] != "BLOCKED" else 20
+
+
 def cmd_status(args) -> int:
     job = get_job(args.job_id)
     out = {"state": job.state()}
@@ -357,6 +462,8 @@ def cmd_status(args) -> int:
         "source/source.json",
         "analysis/analysis.json",
         "localization/localization.json",
+        "localization/subtitle_timeline.json",
+        "production/quality_report.json",
         "production/render-result.json",
         "export/export-result.json",
         "album-store-closure.json",
@@ -386,6 +493,8 @@ def main() -> int:
     p = sp.add_parser("submit")
     p.add_argument("url")
     p.add_argument("--allow-duplicate", action="store_true")
+    p.add_argument("--dynamic-subtitles", action="store_true",
+                   help="Enable dynamic_v04; legacy is default")
     p.set_defaults(func=cmd_submit)
 
     p = sp.add_parser("localize")
@@ -441,6 +550,32 @@ def main() -> int:
     p.add_argument("--source-url")
     p.add_argument("--verified", action="store_true")
     p.set_defaults(func=cmd_register_published)
+
+    p = sp.add_parser("quality-queue")
+    p.add_argument("--status", default="pending,failed,blocked")
+    p.set_defaults(func=cmd_quality_queue)
+
+    p = sp.add_parser("quality-resend")
+    p.add_argument("job_id")
+    p.set_defaults(func=cmd_quality_resend)
+
+    p = sp.add_parser("quality-check")
+    p.add_argument("job_id")
+    p.set_defaults(func=cmd_quality_check)
+
+    p = sp.add_parser("quality-review")
+    p.add_argument("job_id")
+    p.add_argument("--code", required=True)
+    p.add_argument("--reviewer", required=True)
+    p.add_argument("--reason", required=True)
+    p.set_defaults(func=cmd_quality_review)
+
+    p = sp.add_parser("layout-set")
+    p.add_argument("job_id")
+    p.add_argument("event_id")
+    p.add_argument("--mode", choices=["avoid_original", "cover_and_replace", "retain_original"], required=True)
+    p.add_argument("--evidence-frame", action="append", default=[])
+    p.set_defaults(func=cmd_layout_set)
 
     p = sp.add_parser("status")
     p.add_argument("job_id")

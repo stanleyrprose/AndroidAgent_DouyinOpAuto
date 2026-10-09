@@ -7,6 +7,8 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -q -r requirements.txt
 mkdir -p runtime/bin runtime/jobs runtime/tmp
 swiftc scripts/render_text.swift -o runtime/bin/render_text
+swiftc scripts/render_text_batch.swift -o runtime/bin/render_text_batch
+swiftc scripts/vision_ocr.swift -o runtime/bin/vision_ocr
 echo "BOOTSTRAP_PASS"
 .venv/bin/python - <<'PY'
 from faster_whisper import WhisperModel
