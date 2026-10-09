@@ -31,7 +31,9 @@ class RealPixelReadOnlySourceTests(unittest.TestCase):
     def test_no_android_input_wake_unlock_or_screenshot_storage(self):
         self.assertNotRegex(self.src, r"\bdevice\.(click|swipe|pressBack|pressHome|wakeUp)\s*\(")
         self.assertNotIn("dismiss-keyguard", self.src)
-        self.assertNotIn("executeShellCommand", self.src)
+        # Single allowed shell read is Android kernel boot_id; no UI command.
+        self.assertEqual(self.src.count("executeShellCommand("), 1)
+        self.assertIn('executeShellCommand("cat /proc/sys/kernel/random/boot_id")', self.src)
         self.assertNotIn("FileOutputStream", self.src)
         self.assertNotIn(".compress(", self.src)
         self.assertNotIn("Intent(", self.src)
@@ -78,6 +80,24 @@ class RealPixelReadOnlySourceTests(unittest.TestCase):
         self.assertIn('.put("ambiguous_candidate_count", ambiguousCount)', self.src)
         self.assertIn("screen_interactive_before_capture", self.src)
         self.assertIn("keyguard_unlocked_before_capture", self.src)
+
+    def test_cross_frame_tiktok_target_probe_is_no_input_and_non_authoritative(self):
+        self.assertIn("void readOnlyTikTokCreateCrossFrameLocator()", self.src)
+        self.assertIn("void readOnlyBootIdentity()", self.src)
+        self.assertIn('device.findObjects(By.desc("创建"))', self.src)
+        self.assertIn('device.findObjects(By.text("创建"))', self.src)
+        self.assertIn("Bitmap.createBitmap(", self.src)
+        self.assertIn("VisionV0Harness.Frame captureA", self.src)
+        self.assertIn("VisionV0Harness.Frame captureB", self.src)
+        self.assertIn("captureB, reference, roi, false,", self.src)
+        self.assertIn("captureA.generation != captureB.generation", self.src)
+        self.assertIn("semanticConsistent", self.src)
+        self.assertIn('executeShellCommand("cat /proc/sys/kernel/random/boot_id")', self.src)
+        self.assertIn('.put("boot_id_consistent", bootSame)', self.src)
+        self.assertIn('.put("reference_template_persisted", false)', self.src)
+        self.assertIn('READ_ONLY_CROSS_FRAME_TARGET_LOCATED', self.src)
+        self.assertIn('READ_ONLY_CROSS_FRAME_CONTEXT_NOT_VERIFIED', self.src)
+        self.assertIn('assertFalse(report.optBoolean("production_dg3_passed", true))', self.src)
 
     def test_driver_mutation_gate_still_hard_closed(self):
         self.assertIn("VISION_DRIVER_GATE_CLOSED", self.driver)

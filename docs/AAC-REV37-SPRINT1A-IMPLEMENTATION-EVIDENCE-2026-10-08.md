@@ -70,6 +70,25 @@ Four **successive** real-device invocations of ONLY `Rev37ReadOnlyFrameReceiptIn
 
 Independently, `Rev37ReadOnlyFrameReceiptInstrumentedTest#frameIdMismatchCannotValidate` passed on the unlocked actual device (`OK (1 test)`), rejecting synthetic inconsistent frame IDs with no UI actions. The exact-match patch in all positive tests is **self-cropped from the same real screenshot**: this validates real pixel capture/locator binding and observable foreground stability, **not** an independently prepared TikTok button template or semantic correctness. Four samples are not a production max-age calibration; no actual driver dispatch/JIT proof, authoritative boot/epoch/revision, full foreground activity or blocking overlay comparison exists. `DG3=OPEN`, `visual_dispatch_allowed=false`, `pixel_persisted=false`. The PR remains Draft; no merge or production visual mutation.
 
+## TikTok Create cross-frame real-device target (2026-10-09)
+
+**Independent target basis (qualified):** Y700 foreground `com.zhiliaoapp.musically` has one read-only accessibility node `content-desc="创建"` with class `android.widget.Button`. Device XML was observed transiently and discarded immediately without logging other UI contents. The new `Rev37ReadOnlyFrameReceiptInstrumentedTest#readOnlyTikTokCreateCrossFrameLocator` reads its bound using UiAutomator, captures screenshot **A**, creates a 96x96 reference in memory from A, then captures independent screenshot **B** and matches the reference **against B** through the existing OpenCV template matcher (`confidence=0.90, variance>=8, second-best delta>=0.03`). After matching, it independently re-reads the same accessibility target and verifies the matched center lies in the current target bound, with boot identity pre/post, app, rotation, geometry, screen interactive and keyguard checks. No click, wake, upload or screenshot persistence. The temporary template is not prepackaged/immutable/versioned; this is **cross-frame and accessibility-anchored**, not yet production vision-only localization.
+
+**Isolated build and device gate:** Only `dg3ProbeAndroidTest` was rebuilt/re-installed under `com.stanley.y700automation.dg3probe.test`, leaving production `com.stanley.y700automation` and its test package untouched. A first test invocation while the screen was asleep returned `READ_ONLY_FOREGROUND_OR_LOCKED`, `cross_frame_locator_attempted=false`, zero action attempts, and JUnit OK. This demonstrates **JUnit success alone is not target acceptance**. A new `scripts/v07/run-y700-create-readonly.py` strictly parses the receipt and returns BLOCKED on locked/incomplete/ambiguous evidence rather than treating JUnit OK as acceptance. Unit tests in `tests/test_rev37_tiktok_crossframe_receipt.py` exercise that policy.
+
+**Android BOOT identity:** Isolated `#readOnlyBootIdentity` invoked on Y700 while locked: `READ_ONLY_BOOT_STABLE` with `boot_id_readable=true`, `boot_id_consistent=true`, JUnit `OK (1 test)`. Only equality is returned, never raw kernel boot ID.
+
+**Unlocked actual TikTok Create control replay:** Following Y700 foreground/unlocked recovery (`mWakefulness=Awake`, `mInputRestricted=false`, TikTok MainActivity), four successive **cross-frame** invocations returned `READ_ONLY_CROSS_FRAME_TARGET_LOCATED`, JUnit OK, `semantic_candidate_count=1`, `distinct_frame_generations=true`, `locator_exact_frame_id=true`, `semantic_target_consistent=true`, `boot_id_consistent=true`, stable TikTok package/rotation/geometry/keyguard, `action_attempts=0`, `pixel_persisted=false`.
+
+| Run | Reference capture A (ms) | Capture B (ms) | B locator (ms) | B frame age at post-locator observation (ms) |
+|---|---:|---:|---:|---:|
+| 1 | 81 | 21 | 37 | 67 |
+| 2 | 53 | 26 | 47 | 93 |
+| 3 | 52 | 36 | 52 | 99 |
+| 4 | 80 | 35 | 62 | 109 |
+
+The lower screenshot latency compared with previous probes reflects **observed execution variability**, not an accepted calibrated threshold. No irreversible actions or mutation attempts occurred. All structured receipts keep `dg3_status=OPEN`, `production_dg3_passed=false`, `visual_dispatch_allowed=false`, `frame_token_authoritative=false`, `semantic_epoch_revision_verified=false`, `blocking_overlay_verified=false`, and `route_age_calibrated=false`. **Next blockers**: independent versioned/prepared target template across restarts and TikTok UI versions; authoritative semantic epoch/revision; complete blocking overlay & foreground activity proofs; exact Android Driver dispatch-time JIT check and stale-age calibration. The production vision click path remains disabled.
+
 ## What still blocks enablement / merge
 
 1. **D-G3 real Y700 acceptance**: integrate trusted device capture + locator result with JIT live Android state reader and real route-versioned, measured `max_frame_age_ms`. There is no production provider today, and the Android driver refuses visual mutation unconditionally in interactive v2 until its own trusted verifier exists. Capture and locator latency, age at locator and dispatch, recapture metrics must come from real device; no hardcoded acceptance from fixture timings.

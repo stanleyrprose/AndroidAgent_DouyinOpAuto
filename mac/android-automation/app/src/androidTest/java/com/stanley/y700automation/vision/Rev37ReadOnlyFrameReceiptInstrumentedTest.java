@@ -10,10 +10,13 @@ import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.os.ParcelFileDescriptor;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.uiautomator.UiDevice;
+import androidx.test.uiautomator.By;
+import androidx.test.uiautomator.UiObject2;
 
 import org.json.JSONObject;
 import org.junit.Test;
@@ -22,6 +25,9 @@ import org.junit.runner.RunWith;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.io.BufferedReader;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
 
 /**
  * Rev3.7 Sprint 1A read-only, real-pixel Frame->Locator timing probe.
@@ -255,6 +261,200 @@ public final class Rev37ReadOnlyFrameReceiptInstrumentedTest {
                 report.optBoolean("production_dg3_passed", true));
         assertFalse("read-only receipt cannot authorize dispatch",
                 report.optBoolean("visual_dispatch_allowed", true));
+    }
+
+
+    /**
+     * Cross-frame TikTok CREATE target probe (no Android input).
+     *
+     * A reference patch is cropped from capture A using an INDEPENDENT
+     * accessibility bound for the verified "创建" button. That patch is then
+     * matched against capture B, not A. Current accessibility bounds, package,
+     * rotation, interactive/keyguard and boot observations are independently
+     * re-read after matching. This is a read-only diagnostic, not an approved
+     * prepackaged/template-versioned production locator.
+     */
+    @Test
+    public void readOnlyTikTokCreateCrossFrameLocator() throws Exception {
+        Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        UiDevice device = UiDevice.getInstance(instrumentation);
+        Context context = instrumentation.getTargetContext();
+        PowerManager power = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        KeyguardManager keyguard = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+        JSONObject report = alwaysClosedReport()
+                .put("probe", "rev37-tiktok-create-cross-frame-readonly-v1")
+                .put("target_identity", "TIKTOK_CREATE_ACCESSIBILITY_ANCHOR")
+                .put("reference_template_persisted", false)
+                .put("cross_frame_locator_attempted", false)
+                .put("boot_id_readable", false)
+                .put("boot_id_consistent", false);
+        Bitmap reference = null;
+        try {
+            if (!"com.zhiliaoapp.musically".equals(device.getCurrentPackageName())
+                    || power == null || !power.isInteractive()
+                    || keyguard == null || keyguard.isKeyguardLocked()) {
+                report.put("status", "READ_ONLY_FOREGROUND_OR_LOCKED");
+            } else {
+                List<UiObject2> candidates = device.findObjects(By.desc("创建"));
+                if (candidates.size() == 0) {
+                    candidates = device.findObjects(By.text("创建"));
+                }
+                report.put("semantic_candidate_count", candidates.size());
+                if (candidates.size() != 1) {
+                    report.put("status", "READ_ONLY_SEMANTIC_TARGET_UNAVAILABLE");
+                } else {
+                    Rect beforeBounds = candidates.get(0).getVisibleBounds();
+                    String bootBefore = readBootId(instrumentation);
+                    report.put("boot_id_readable", bootBefore != null);
+                    System.loadLibrary("opencv_java4");
+                    long startA = SystemClock.elapsedRealtimeNanos();
+                    try (VisionV0Harness.Frame captureA =
+                                 VisionV0Harness.capture(instrumentation, device, null, 0L)) {
+                        long endA = SystemClock.elapsedRealtimeNanos();
+                        report.put("reference_capture_ms", (endA - startA) / NS_PER_MS);
+                        if (captureA.width <= 0 || captureA.height <= 0
+                                || beforeBounds.width() < 96 || beforeBounds.height() < 96
+                                || beforeBounds.centerX() - 48 < 0
+                                || beforeBounds.centerY() - 48 < 0
+                                || beforeBounds.centerX() + 48 > captureA.width
+                                || beforeBounds.centerY() + 48 > captureA.height) {
+                            report.put("status", "READ_ONLY_TARGET_GEOMETRY_UNAVAILABLE");
+                        } else {
+                            // Image A is the reference; image B is never used
+                            // to construct this reference template.
+                            reference = Bitmap.createBitmap(
+                                    captureA.bitmap,
+                                    beforeBounds.centerX() - 48,
+                                    beforeBounds.centerY() - 48,
+                                    96, 96);
+                            double variance = VisionV0Harness.bitmapVariance(reference, false);
+                            if (!Double.isFinite(variance) || variance < 8.0) {
+                                report.put("status", "READ_ONLY_REFERENCE_LOW_INFORMATION");
+                            } else {
+                                long startB = SystemClock.elapsedRealtimeNanos();
+                                try (VisionV0Harness.Frame captureB =
+                                             VisionV0Harness.capture(instrumentation, device, null, 0L)) {
+                                    long endB = SystemClock.elapsedRealtimeNanos();
+                                    report.put("target_capture_ms", (endB - startB) / NS_PER_MS)
+                                            .put("capture_to_capture_start_ms", (startB - startA) / NS_PER_MS)
+                                            .put("distinct_frame_generations", captureA.generation != captureB.generation)
+                                            .put("cross_frame_locator_attempted", true);
+                                    String frameIdB = "frame-" + UUID.randomUUID();
+                                    Receipt bReceipt = new Receipt(frameIdB, startB, captureB);
+                                    Rect roi = new Rect(
+                                            Math.max(0, beforeBounds.left - 120),
+                                            Math.max(0, beforeBounds.top - 120),
+                                            Math.min(captureB.width, beforeBounds.right + 120),
+                                            Math.min(captureB.height, beforeBounds.bottom + 120));
+                                    long locateStart = SystemClock.elapsedRealtimeNanos();
+                                    try {
+                                        VisionV0Harness.VisionTarget target =
+                                                VisionV0Harness.matchTemplate(
+                                                        captureB, reference, roi, false,
+                                                        0.90, 8.0, 0.03);
+                                        long locateEnd = SystemClock.elapsedRealtimeNanos();
+                                        List<UiObject2> currentNodes = device.findObjects(By.desc("创建"));
+                                        if (currentNodes.size() == 0) {
+                                            currentNodes = device.findObjects(By.text("创建"));
+                                        }
+                                        String bootAfter = readBootId(instrumentation);
+                                        boolean bootSame = bootBefore != null && bootBefore.equals(bootAfter);
+                                        boolean frameSame = exactFrameBinding(bReceipt, frameIdB, target);
+                                        boolean distinctFrames = captureA.generation != captureB.generation;
+                                        boolean packageSame = "com.zhiliaoapp.musically".equals(
+                                                device.getCurrentPackageName())
+                                                && "com.zhiliaoapp.musically".equals(captureA.packageName)
+                                                && "com.zhiliaoapp.musically".equals(captureB.packageName);
+                                        boolean rotationSame = captureA.rotation == captureB.rotation
+                                                && captureB.rotation == device.getDisplayRotation();
+                                        boolean geometrySame = captureA.width == captureB.width
+                                                && captureA.height == captureB.height
+                                                && captureB.width == device.getDisplayWidth()
+                                                && captureB.height == device.getDisplayHeight();
+                                        boolean semanticConsistent = false;
+                                        if (currentNodes.size() == 1) {
+                                            Rect currentBounds = currentNodes.get(0).getVisibleBounds();
+                                            semanticConsistent = currentBounds.contains(
+                                                    target.centerX, target.centerY)
+                                                    && Math.abs(currentBounds.centerX() - target.centerX) <= 48
+                                                    && Math.abs(currentBounds.centerY() - target.centerY) <= 48;
+                                        }
+                                        boolean awake = power.isInteractive();
+                                        boolean unlocked = !keyguard.isKeyguardLocked();
+                                        long checkedNs = SystemClock.elapsedRealtimeNanos();
+                                        report.put("locator_latency_ms", (locateEnd - locateStart) / NS_PER_MS)
+                                                .put("frame_age_at_locator_ms", (locateEnd - startB) / NS_PER_MS)
+                                                .put("frame_age_at_observation_ms", (checkedNs - startB) / NS_PER_MS)
+                                                .put("locator_exact_frame_id", frameSame)
+                                                .put("semantic_target_consistent", semanticConsistent)
+                                                .put("distinct_frame_generations", distinctFrames)
+                                                .put("boot_id_consistent", bootSame)
+                                                .put("package_unchanged", packageSame)
+                                                .put("rotation_unchanged", rotationSame)
+                                                .put("geometry_unchanged", geometrySame)
+                                                .put("screen_interactive", awake)
+                                                .put("keyguard_unlocked", unlocked)
+                                                .put("status", frameSame && semanticConsistent
+                                                        && distinctFrames && bootSame
+                                                        && packageSame && rotationSame
+                                                        && geometrySame && awake && unlocked
+                                                        ? "READ_ONLY_CROSS_FRAME_TARGET_LOCATED"
+                                                        : "READ_ONLY_CROSS_FRAME_CONTEXT_NOT_VERIFIED");
+                                    } catch (VisionV0Harness.VisionFailure failure) {
+                                        report.put("status", "READ_ONLY_CROSS_FRAME_LOCATOR_BLOCKED")
+                                                .put("error_code", failure.code);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception failure) {
+            report.put("status", "READ_ONLY_CROSS_FRAME_UNAVAILABLE")
+                    .put("error_kind", failure.getClass().getSimpleName());
+        } finally {
+            if (reference != null && !reference.isRecycled()) reference.recycle();
+            emit(instrumentation, report);
+        }
+        assertFalse(report.optBoolean("production_dg3_passed", true));
+        assertFalse(report.optBoolean("visual_dispatch_allowed", true));
+    }
+
+    private static String readBootId(Instrumentation instrumentation) {
+        // Reads Android kernel boot identity in shell context; never logs the
+        // value, does not write it to disk, and fails closed if inaccessible.
+        try (ParcelFileDescriptor fd = instrumentation.getUiAutomation()
+                .executeShellCommand("cat /proc/sys/kernel/random/boot_id")) {
+            if (fd == null) return null;
+            try (BufferedReader input = new BufferedReader(new InputStreamReader(
+                    new FileInputStream(fd.getFileDescriptor())))) {
+                String value = input.readLine();
+                if (value == null || !value.matches("[0-9a-fA-F-]{36}")) return null;
+                return value;
+            }
+        } catch (Exception failure) {
+            return null;
+        }
+    }
+
+
+    /** Isolated kernel boot identity diagnostic; safe even while locked. */
+    @Test
+    public void readOnlyBootIdentity() throws Exception {
+        Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        JSONObject report = alwaysClosedReport()
+                .put("probe", "rev37-readonly-boot-id")
+                .put("status", "READ_ONLY_BOOT_UNAVAILABLE");
+        String before = readBootId(instrumentation);
+        String after = readBootId(instrumentation);
+        boolean verified = before != null && before.equals(after);
+        report.put("boot_id_readable", before != null)
+                .put("boot_id_consistent", verified)
+                .put("status", verified ? "READ_ONLY_BOOT_STABLE" : "READ_ONLY_BOOT_UNAVAILABLE");
+        emit(instrumentation, report);
+        assertFalse(report.optBoolean("production_dg3_passed", true));
+        assertFalse(report.optBoolean("visual_dispatch_allowed", true));
     }
 
     /** No Android input. Synthetic frame-id mismatch must never validate. */
