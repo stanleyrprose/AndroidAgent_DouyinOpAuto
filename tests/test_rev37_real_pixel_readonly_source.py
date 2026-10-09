@@ -56,6 +56,18 @@ class RealPixelReadOnlySourceTests(unittest.TestCase):
         self.assertNotRegex(self.src, r'\.put\("frame_fingerprint"')
         self.assertNotRegex(self.src, r'\.put\("target_bounds"')
 
+    def test_staging_android_variant_does_not_override_debug_app(self):
+        gradle = (ROOT / "mac/android-automation/app/build.gradle.kts").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('create("dg3Probe")', gradle)
+        self.assertIn('applicationIdSuffix = ".dg3probe"', gradle)
+        self.assertIn('providers.gradleProperty("rev37Probe")', gradle)
+        self.assertIn('testBuildType = "dg3Probe"', gradle)
+        self.assertIn('java.srcDir("src/debug/java")', gradle)
+        self.assertIn('extendsFrom(configurations.getByName("debugImplementation"))', gradle)
+        self.assertIn('applicationId = "com.stanley.y700automation"', gradle)
+
     def test_driver_mutation_gate_still_hard_closed(self):
         self.assertIn("VISION_DRIVER_GATE_CLOSED", self.driver)
         self.assertIn("interactiveVisionMutationRequiresDg3(action)", self.driver)
