@@ -44,6 +44,7 @@ jobs:
           python -m unittest
           tests.test_rev37_frame_latency_probe
           tests.test_rev37_frame_context_probe
+          tests.test_rev37_real_pixel_readonly_source
           tests.test_rev37_driver_visual_gate
           -v
 
