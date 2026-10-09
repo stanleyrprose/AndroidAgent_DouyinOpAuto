@@ -457,6 +457,166 @@ public final class Rev37ReadOnlyFrameReceiptInstrumentedTest {
         assertFalse(report.optBoolean("visual_dispatch_allowed", true));
     }
 
+
+    /**
+     * Real-screen negative JIT proof: current physical fields are reread
+     * independently. Debian authoritative epoch/revision and overlay
+     * classification are UNAVAILABLE, so this can never authorize a click.
+     * Only the delayed-frame branch injects explicit fixture-only fields.
+     */
+    @Test
+    public void readOnlyLivePhysicalJitFailClosed() throws Exception {
+        Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        UiDevice device = UiDevice.getInstance(instrumentation);
+        Context context = instrumentation.getTargetContext();
+        PowerManager power = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        KeyguardManager keyguard = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+        JSONObject report = alwaysClosedReport()
+                .put("probe", "rev37-real-physical-jit-readonly-v1")
+                .put("status", "READ_ONLY_PHYSICAL_UNAVAILABLE")
+                .put("semantic_sot_readable", false)
+                .put("overlay_classification_verified", false)
+                .put("foreground_activity_verified", false)
+                .put("fixture_fields_not_authority", true)
+                .put("pixel_locator_verified", false)
+                .put("target_identity", "SYNTHETIC_CENTRE_REGION_NOT_SEMANTIC");
+        final int fixtureMaxAgeMs = 600; // synthetic-only, NOT a calibrated route contract
+        try {
+            if (power == null || !power.isInteractive()
+                    || keyguard == null || keyguard.isKeyguardLocked()
+                    || device.getCurrentPackageName() == null) {
+                report.put("status", "READ_ONLY_FOREGROUND_OR_LOCKED");
+            } else {
+                if (device.getDisplayWidth() < 160 || device.getDisplayHeight() < 160) {
+                    report.put("status", "READ_ONLY_DISPLAY_TOO_SMALL");
+                } else {
+                    Rect rect = new Rect(device.getDisplayWidth() / 2 - 48,
+                            device.getDisplayHeight() / 2 - 48,
+                            device.getDisplayWidth() / 2 + 48,
+                            device.getDisplayHeight() / 2 + 48);
+                    String initialBoot = readBootId(instrumentation);
+                    long frameStartNs = SystemClock.elapsedRealtimeNanos();
+                    try (VisionV0Harness.Frame pixels =
+                                 VisionV0Harness.capture(instrumentation, device, null, 0L)) {
+                        long frameEndNs = SystemClock.elapsedRealtimeNanos();
+                        if (initialBoot == null || rect.isEmpty()
+                                || rect.left < 0 || rect.top < 0
+                                || rect.right > pixels.width || rect.bottom > pixels.height
+                                || pixels.packageName == null
+                                || !pixels.packageName.equals(device.getCurrentPackageName())) {
+                            report.put("status", "READ_ONLY_CAPTURE_CONTEXT_INVALID");
+                        } else {
+                            String frameId = "frame-" + UUID.randomUUID();
+                            JSONObject foregroundFixture = new JSONObject()
+                                    .put("package", pixels.packageName)
+                                    .put("activity", "fixture-activity-UNVERIFIED");
+                            JSONObject tokenFixture = new JSONObject()
+                                    .put("frame_token_version", 1)
+                                    .put("frame_id", frameId)
+                                    .put("source", "SCREENSHOT")
+                                    .put("observed_boot_id", initialBoot)
+                                    .put("captured_boottime_ms", frameStartNs / NS_PER_MS)
+                                    .put("state_epoch", "epoch-fixture-NOT-SOT")
+                                    .put("revision", 0)
+                                    .put("display_id", 0)
+                                    .put("rotation", pixels.rotation)
+                                    .put("width", pixels.width)
+                                    .put("height", pixels.height)
+                                    .put("foreground", foregroundFixture)
+                                    .put("max_age_ms", fixtureMaxAgeMs);
+                            JSONObject locatorFixture = new JSONObject()
+                                    .put("frame_id", frameId)
+                                    .put("locator_contract_version", "readonly-hardware-fixture-v1")
+                                    .put("target_identity", "synthetic-center-region-only")
+                                    .put("ambiguous", false)
+                                    .put("bounds", new org.json.JSONArray()
+                                            .put(rect.left).put(rect.top)
+                                            .put(rect.right).put(rect.bottom));
+                            JSONObject live = new JSONObject()
+                                    .put("boot_id", readBootId(instrumentation))
+                                    .put("display_id", 0)
+                                    .put("rotation", device.getDisplayRotation())
+                                    .put("width", device.getDisplayWidth())
+                                    .put("height", device.getDisplayHeight())
+                                    .put("foreground", new JSONObject()
+                                            .put("package", device.getCurrentPackageName())
+                                            .put("activity", "fixture-activity-UNVERIFIED"))
+                                    .put("screen_interactive", power.isInteractive())
+                                    .put("keyguard_locked", keyguard.isKeyguardLocked());
+                            // Epoch/revision and overlay are deliberately
+                            // MISSING, not self-attested or supplied by caller.
+                            long clock = SystemClock.elapsedRealtimeNanos() / NS_PER_MS;
+                            Rev37JitFrameGuard.Verdict withoutSot =
+                                    Rev37JitFrameGuard.compareFixtureReadOnly(
+                                            tokenFixture, locatorFixture, live,
+                                            "readonly-hardware-fixture-v1",
+                                            fixtureMaxAgeMs, clock);
+                            org.junit.Assert.assertFalse(withoutSot.readOnlyMatched());
+                            Rev37JitFrameGuard.Verdict wrongFrame =
+                                    Rev37JitFrameGuard.compareFixtureReadOnly(
+                                            tokenFixture,
+                                            new JSONObject(locatorFixture.toString())
+                                                    .put("frame_id", "frame-invalid"),
+                                            live, "readonly-hardware-fixture-v1",
+                                            fixtureMaxAgeMs, clock);
+                            org.junit.Assert.assertEquals(
+                                    Rev37JitFrameGuard.LOCATOR_MISMATCH, wrongFrame.code);
+                            // Actually wait for this specific captured frame
+                            // to expire on the device monotonic clock.
+                            SystemClock.sleep(fixtureMaxAgeMs + 180L);
+                            JSONObject later = new JSONObject(live.toString())
+                                    .put("boot_id", readBootId(instrumentation))
+                                    .put("rotation", device.getDisplayRotation())
+                                    .put("width", device.getDisplayWidth())
+                                    .put("height", device.getDisplayHeight())
+                                    .put("screen_interactive", power.isInteractive())
+                                    .put("keyguard_locked", keyguard.isKeyguardLocked())
+                                    .put("foreground", new JSONObject()
+                                            .put("package", device.getCurrentPackageName())
+                                            .put("activity", "fixture-activity-UNVERIFIED"))
+                                    // Test fixture only: NOT independent
+                                    // trusted state or classified overlay.
+                                    .put("state_epoch", "epoch-fixture-NOT-SOT")
+                                    .put("revision", 0)
+                                    .put("blocking_overlay_present", false);
+                            long laterClock = SystemClock.elapsedRealtimeNanos() / NS_PER_MS;
+                            Rev37JitFrameGuard.Verdict stale =
+                                    Rev37JitFrameGuard.compareFixtureReadOnly(
+                                            tokenFixture, locatorFixture, later,
+                                            "readonly-hardware-fixture-v1",
+                                            fixtureMaxAgeMs, laterClock);
+                            org.junit.Assert.assertFalse(stale.readOnlyMatched());
+                            org.junit.Assert.assertFalse(
+                                    Rev37JitFrameGuard.verifyForProductionDispatch(
+                                            tokenFixture, locatorFixture, later).readOnlyMatched());
+                            long age = laterClock - frameStartNs / NS_PER_MS;
+                            org.junit.Assert.assertTrue(age > fixtureMaxAgeMs);
+                            report.put("capture_latency_ms", (frameEndNs - frameStartNs) / NS_PER_MS)
+                                    .put("real_elapsed_frame_age_ms", age)
+                                    .put("live_boot_observed", live.optString("boot_id").length() == 36)
+                                    .put("missing_sot_jit_verdict", withoutSot.code)
+                                    .put("frame_mismatch_jit_verdict", wrongFrame.code)
+                                    .put("expired_real_clock_jit_verdict", stale.code)
+                                    .put("status", Rev37JitFrameGuard.STALE.equals(withoutSot.code)
+                                            && Rev37JitFrameGuard.STALE.equals(stale.code)
+                                            && Rev37JitFrameGuard.LOCATOR_MISMATCH.equals(wrongFrame.code)
+                                            ? "READ_ONLY_REAL_JIT_REFUSAL_VERIFIED"
+                                            : "READ_ONLY_REAL_CONTEXT_DRIFT_BLOCKED");
+                        }
+                    }
+                }
+            }
+        } catch (Exception failure) {
+            report.put("status", "READ_ONLY_REAL_JIT_UNAVAILABLE")
+                    .put("error_kind", failure.getClass().getSimpleName());
+        } finally {
+            emit(instrumentation, report);
+        }
+        assertFalse(report.optBoolean("production_dg3_passed", true));
+        assertFalse(report.optBoolean("visual_dispatch_allowed", true));
+        org.junit.Assert.assertEquals(0, report.getInt("action_attempts"));
+    }
+
     /** No Android input. Synthetic frame-id mismatch must never validate. */
     @Test
     public void frameIdMismatchCannotValidate() {

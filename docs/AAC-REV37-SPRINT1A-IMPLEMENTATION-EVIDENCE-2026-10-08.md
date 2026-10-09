@@ -103,6 +103,19 @@ The lower screenshot latency compared with previous probes reflects **observed e
 
 **Open prerequisites for production D-G3:** live Android JIT evidence from independent Android UI observer + authoritative state epoch/revision, blocking overlay classification, versioned/prepared stable locator target (the current TikTok screenshot A reference is ephemeral), calibrated route-age evidence and dispatch-boundary zero-action stale/revision/foreground proof. Android Instrumentation fixture JUnit results are **not** production D-G3 acceptance.
 
+## Real Y700 physical-clock JIT refusal (2026-10-09)
+
+Added `Rev37ReadOnlyFrameReceiptInstrumentedTest#readOnlyLivePhysicalJitFailClosed` as an **isolated, application-independent, zero-input AndroidTest**. It captures one real screenshot on the presently unlocked Y700, anchors time at `SystemClock.elapsedRealtimeNanos()` **before** capture, reads actual boot identity via Android shell, and independently reobserves current package, rotation, display geometry, screen wakefulness and keyguard after capture. The target bounds are an explicitly labeled **synthetic center-region fixture**, not a real pixel/semantic locator; activity proof, blocking overlay classification, and authoritative Debian `state_epoch/revision` remain unavailable. The test does not record pixels or authorize any mutation.
+
+Two negative checks use real hardware evidence: exact frame-ID mismatch is rejected; missing authoritative semantic state/overlay proof is rejected. A third check **actually delays more than 600 ms** using Android's monotonic clock and re-reads physical state; to isolate the time-age branch, it uses test-only `epoch/revision/overlay` fixture placeholders, explicitly not authority. The **600 ms limit is synthetic and uncalibrated**, not a default or production max-age. A deliberate stale frame or changed context must be rejected; only the exact expected `FRAME_STALE`, `LOCATOR_FRAME_MISMATCH` set returns the named verified status.
+
+Two actual Y700 executions of the isolated method:
+- Initial: Android JUnit `OK (1 test)`, status `READ_ONLY_REAL_JIT_REFUSAL_VERIFIED`, real capture **67 ms**, real frame age **875 ms**, no SOT `FRAME_STALE`, wrong frame `LOCATOR_FRAME_MISMATCH`, expired frame `FRAME_STALE`, `action_attempts=0`.
+- Final tightened build: Android JUnit `OK (1 test)`, status `READ_ONLY_REAL_JIT_REFUSAL_VERIFIED`, capture **58 ms**, frame age **850 ms**; identical three refusal codes, `action_attempts=0`, `pixel_persisted=false`, `production_dg3_passed=false`, `dg3_status=OPEN`. The test uses the current Android foreground (on one check ZUI Launcher), so it does not disturb user navigation to force TikTok.
+- The final AndroidTest APK was installed **only** into the existing isolated package `com.stanley.y700automation.dg3probe.test`; Mac/Y700 artifact SHA256 agreed: `35df6e1d27338135f85f8afdb8695c86e5bad899dc140a44af876b2a4fb423d8`. Original app/test packages remain independently installed.
+
+Added `tests/test_rev37_live_physical_jit_source.py` and CI entry. This is **real Android hardware/timing denial proof**, but still not the production Java Driver's action boundary or actual trusted semantic/overlay/foreground-activity JIT observation. No auto-click or publishing permission. PR #41 remains Draft and D-G3 OPEN.
+
 ## What still blocks enablement / merge
 
 1. **D-G3 real Y700 acceptance**: integrate trusted device capture + locator result with JIT live Android state reader and real route-versioned, measured `max_frame_age_ms`. There is no production provider today, and the Android driver refuses visual mutation unconditionally in interactive v2 until its own trusted verifier exists. Capture and locator latency, age at locator and dispatch, recapture metrics must come from real device; no hardcoded acceptance from fixture timings.
