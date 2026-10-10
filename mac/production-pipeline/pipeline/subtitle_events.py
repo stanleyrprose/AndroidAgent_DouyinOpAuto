@@ -16,6 +16,7 @@ VERSION = "subtitle-events-v0.4"
 EXCLUSION_REASONS = frozenset({
     "WATERMARK_OR_ACCOUNT", "DUPLICATE_EQUIVALENT",
     "NON_SEMANTIC_DECORATION", "UNRELATED_UI_TEXT",
+    "HUMAN_CONFIRMED_FALSE_POSITIVE",
 })
 DISPOSITIONS = frozenset({"translate_target", "excluded_with_reason", "review_required"})
 

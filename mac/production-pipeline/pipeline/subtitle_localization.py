@@ -261,3 +261,44 @@ def check_projection(timeline: dict, projection: dict) -> bool:
             and projection.get("cues") == expected
             and projection.get("caption_my") == timeline.get("caption_my")
             and projection.get("visibility") == timeline.get("visibility"))
+
+
+def dual_translation_request(ledger: dict) -> dict:
+    """Two independent Burmese styles; identical locked event/timing evidence."""
+    targets = translation_targets(ledger)
+    return {
+        "schema_version": 1,
+        "canonical_lock": ledger["canonical_lock"],
+        "fused_events_sha256": digest(ledger),
+        "target_events": [{"event_id": e["event_id"], "text_zh": e["text_zh"],
+                           "source_refs": e["source_refs"]} for e in targets],
+        "variants": ["normal", "funny"],
+        "requirements": {
+            "normal": "Faithfully translate every important Chinese event into natural Burmese; do not add information.",
+            "funny": "Produce humorous, locally natural Burmese for every same event; retain names, facts, negations and timing; no fabricated scene details.",
+            "identical_event_ids_and_times": True,
+            "must_translate_punctuation_and_short_callouts": True,
+            "must_preserve_source_provenance": True,
+            "Myanmar_native_human_review_required_before_public_release": True,
+        },
+    }
+
+
+def build_dual_timelines(ledger: dict, pair: dict) -> dict:
+    """Only accept TWO independently complete bundles; no partial one-tone render."""
+    if not isinstance(pair, dict) or set(pair) != {"normal", "funny"}:
+        raise TranslationContractError("both normal and funny bundles are required")
+    timelines = {}
+    for variant, preset in (("normal", "dynamic_clean"), ("funny", "dynamic_fun")):
+        bundle = pair[variant]
+        if not isinstance(bundle, dict) or bundle.get("render_preset") != preset:
+            raise TranslationContractError("incorrect variant render preset")
+        timeline, projection = build_timeline(ledger, bundle)
+        if any(e["localization"]["status"] != "translated" for e in timeline["events"]
+               if e["fact_disposition"] == "translate_target"):
+            raise TranslationContractError("untranslated important event")
+        timelines[variant] = {"timeline": timeline, "projection": projection}
+    ids = [{e["event_id"] for e in timelines[k]["timeline"]["events"]} for k in ("normal", "funny")]
+    if ids[0] != ids[1]:
+        raise TranslationContractError("tone variants have different target events")
+    return timelines
