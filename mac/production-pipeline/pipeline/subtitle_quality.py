@@ -82,6 +82,8 @@ def evaluate(job_dir: Path, *, after_render: bool = False) -> dict:
             eid = e.get("event_id")
             if e.get("fact_disposition") == "review_required" or e.get("review_flags"):
                 codes.append("REVIEW_REQUIRED_OCR")
+                if "UNVERIFIED_LOW_CONFIDENCE_SINGLE_FRAME" in e.get("review_flags", []):
+                    codes.append("REVIEW_REQUIRED_UNVERIFIED_LOW_CONFIDENCE_TEXT")
                 detail.append({"event_id": eid, "review_flags": e.get("review_flags", [])})
             if e.get("fact_disposition") == "translate_target" and not e.get("localization", {}).get("text_my"):
                 codes.append("BLOCKED_UNRESOLVED_EVENT")

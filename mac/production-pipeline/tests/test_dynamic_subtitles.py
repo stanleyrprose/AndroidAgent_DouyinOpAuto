@@ -10,6 +10,7 @@ from pipeline.subtitle_events import (
     EventRules, bbox_iou, fuse_events, match_text, speech_events,
     track_ocr, verify_ledger,
 )
+from pipeline.subtitle_localization import translation_targets
 from pipeline.subtitle_localization import (
     TranslationContractError, TranslationExhaustedError,
     TranslationNetworkError, build_timeline, retry_translator,
@@ -90,6 +91,51 @@ class TextTrackTests(unittest.TestCase):
         self.assertEqual(events[0]["fact_disposition"], "translate_target")
         self.assertIn("SHORT_EVENT_REVIEW", events[0]["review_flags"])
         self.assertEqual(len(translation_request(ledger)["target_events"]), 1)
+
+    def test_low_conf_nonhan_single_frame_is_audited_and_held(self):
+        raw = [
+            {"frame_ts": .25, "text_zh_raw": "POV：当你忽然想把",
+             "bbox_norm": [.2, .5, .8, .6], "ocr_confidence": 1.0},
+            {"frame_ts": .75, "text_zh_raw": "POV：当你忽然想把",
+             "bbox_norm": [.2, .5, .8, .6], "ocr_confidence": .8},
+            {"frame_ts": 2.75, "text_zh_raw": "STAI",
+             "bbox_norm": [.1, .04, .2, .06], "ocr_confidence": .3},
+            {"frame_ts": 3.25, "text_zh_raw": "••..••",
+             "bbox_norm": [.4, .62, .5, .64], "ocr_confidence": .3},
+            {"frame_ts": 3.75, "text_zh_raw": "TEA BMA電",
+             "bbox_norm": [.5, .04, .6, .06], "ocr_confidence": .3},
+        ]
+        tracked = track_ocr(raw, 5)
+        ledger = fuse_events([], tracked, source_sha256="a" * 64, duration=5)
+        self.assertFalse(verify_ledger(ledger))
+        self.assertEqual(len(ledger["source_events"]), 4)
+        self.assertEqual(len(ledger["canonical_events"]), 4)
+        held = [e for e in ledger["canonical_events"] if e["fact_disposition"] == "review_required"]
+        self.assertEqual({e["text_zh"] for e in held}, {"STAI", "••..••", "TEA BMA電"})
+        self.assertTrue(all(e["exclude_reason"] is None for e in held))
+        self.assertTrue(all("UNVERIFIED_LOW_CONFIDENCE_SINGLE_FRAME" in e["review_flags"] for e in held))
+        self.assertEqual([e["text_zh"] for e in translation_targets(ledger)],
+                         ["POV：当你忽然想把"])
+
+    def test_real_one_frame_nonhan_is_not_silently_deleted(self):
+        observations = [
+            {"frame_ts": .5, "text_zh_raw": "STOP",
+             "bbox_norm": [.2, .7, .5, .8], "ocr_confidence": .9},
+            {"frame_ts": 1.0, "text_zh_raw": "SOS",
+             "bbox_norm": [.2, .7, .5, .8], "ocr_confidence": .3},
+            {"frame_ts": 2.0, "text_zh_raw": "不",
+             "bbox_norm": [.2, .7, .5, .8], "ocr_confidence": .3},
+            {"frame_ts": 2.5, "text_zh_raw": "100",
+             "bbox_norm": [.2, .7, .5, .8], "ocr_confidence": .3},
+        ]
+        ledger = fuse_events([], track_ocr(observations, 4),
+                             source_sha256="a" * 64, duration=4)
+        by_text = {e["text_zh"]: e for e in ledger["canonical_events"]}
+        self.assertEqual(by_text["STOP"]["fact_disposition"], "translate_target")
+        self.assertEqual(by_text["不"]["fact_disposition"], "translate_target")
+        self.assertEqual(by_text["SOS"]["fact_disposition"], "review_required")
+        self.assertEqual(by_text["100"]["fact_disposition"], "review_required")
+        self.assertEqual(len(ledger["source_events"]), 4)
 
     def test_bbox(self):
         self.assertAlmostEqual(bbox_iou([0, 0, 1, 1], [0, 0, 1, 1]), 1)

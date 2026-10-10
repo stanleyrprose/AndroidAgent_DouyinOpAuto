@@ -100,6 +100,14 @@ def run_manifest(path: Path, outpath: Path, backend: str) -> dict:
             "ocr_calls": result["diagnostics"].get("ocr_calls"),
             "budget_exhausted": result["diagnostics"].get("budget_exhausted"),
             "detected_event_count": len(events),
+            "auto_translation_candidates": sum(
+                "UNVERIFIED_LOW_CONFIDENCE_SINGLE_FRAME" not in e.get("review_flags", [])
+                for e in events
+            ),
+            "held_non_han_candidates": sum(
+                "UNVERIFIED_LOW_CONFIDENCE_SINGLE_FRAME" in e.get("review_flags", [])
+                for e in events
+            ),
             "status": "FEASIBILITY_MEASURED",
         }
         gt_path = sample.get("gt_path")

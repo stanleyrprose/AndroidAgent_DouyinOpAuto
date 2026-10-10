@@ -26,6 +26,7 @@ class EventRules:
     text_similarity: float = 0.85
     adjacent_gap_s: float = 1.5
     min_stable_observations: int = 2
+    uncorroborated_noise_max_confidence: float = 0.35
     decoration_allowlist: tuple[str, ...] = ("✨", "🌟", "💫", "⭐")
 
     def fingerprint(self) -> str:
@@ -166,7 +167,20 @@ def track_ocr(observations: list[dict], duration: float,
             "source_refs": ["analysis/ocr_observations.zh.json#" + oid for oid in track["observations"]],
             "track_observation_ids": track["observations"],
             "track_stable": stable,
-            "review_flags": [] if stable else ["SHORT_EVENT_REVIEW"],
+            # Preserve uncertain observations in the ledger but do not auto-translate
+            # uncorroborated, very-low-confidence non-Han noise. A real English/
+            # numerical one-frame callout may still exist: human review is mandatory.
+            "review_flags": (
+                ([] if stable else ["SHORT_EVENT_REVIEW"]) +
+                (["UNVERIFIED_LOW_CONFIDENCE_SINGLE_FRAME"]
+                 if (not stable
+                     and track["best_confidence"] <= rules.uncorroborated_noise_max_confidence
+                     and (han_count(track["text_zh"]) == 0 or
+                          (han_count(track["text_zh"]) == 1 and
+                           sum(ch.isascii() and ch.isalpha()
+                               for ch in track["text_zh"]) >= 4)))
+                 else [])
+            ),
             "boundary_uncertainty_s": 0.25,
         }
         out.append(row)
@@ -241,9 +255,11 @@ def fuse_events(speech: list[dict], visual: list[dict], *, source_sha256: str,
         if v["source_id"] in chosen_visual:
             continue
         account = _looks_like_account(v)
-        # Uncertain OCR remains a translation target with explicit review flags.
-        # Dropping it from translation would silently erase a possible punchline.
-        status = "excluded_with_reason" if account else "translate_target"
+        # Do not invent a "decoration" exclusion for a possible OCR hallucination.
+        # Keep uncertain candidates in the ledger for human fact adjudication.
+        uncertain_low_confidence = "UNVERIFIED_LOW_CONFIDENCE_SINGLE_FRAME" in v.get("review_flags", [])
+        status = ("review_required" if uncertain_low_confidence else
+                  "excluded_with_reason" if account else "translate_target")
         canonical.append({
             "event_id": "evt-" + digest([v["source_id"]])[:16],
             "source_kind": "visual_text",
@@ -256,7 +272,8 @@ def fuse_events(speech: list[dict], visual: list[dict], *, source_sha256: str,
             "decision_at_utc": at, "pipeline_version": VERSION,
             "rule_set_version": rules.fingerprint(),
             "fact_disposition": status,
-            "exclude_reason": "WATERMARK_OR_ACCOUNT" if account else None,
+            "exclude_reason": ("WATERMARK_OR_ACCOUNT"
+                               if status == "excluded_with_reason" else None),
             "ocr_bbox_norm": v["bbox_norm"],
             "review_flags": v.get("review_flags", []),
         })
