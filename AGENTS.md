@@ -43,6 +43,15 @@ This repository is the canonical Git SOT for the Y700 Android automation node pl
 - A failed or ambiguous COMMIT is reconciled from durable state/profile evidence before any retry.
 - PUBLIC is the default visibility for the production publish workflow. A different visibility requires an explicit user request.
 
+## R0 engineering hold (user-approved sequence)
+
+While R0 human review or related code changes remain unfinished, make code changes
+only on a separate local Mac development branch and **commit locally only**.
+Do not run tests, push branches, create PRs, trigger CI, merge or deploy the
+new code until the user explicitly confirms the human/code phase is complete
+and authorizes validation. Reading evidence and reviewing static diffs is
+permitted. Keep existing production, Mac release aliases and Y700 untouched.
+
 ## Git SOT rule
 
 - `main` on GitHub is canonical for code/config/docs.
