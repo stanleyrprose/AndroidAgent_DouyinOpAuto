@@ -27,7 +27,7 @@ class OCRConfig:
     scan_fps: float = 2.0
     baseline_fps: float = 1.0
     change_threshold: float = 18.0
-    max_ocr_calls_per_minute: int = 90
+    max_ocr_calls_per_minute: int = 120
     max_duration_s: float = 600.0
     scan_width: int = 180
     scan_height: int = 320
@@ -63,10 +63,32 @@ def _video_frames(video: Path, cfg: OCRConfig, duration: float):
             proc.communicate()
 
 
+def _spread_times(times: list[float], quota: int) -> list[float]:
+    """Pick distinct candidates spread across their time span, not first-N frames.
+
+    Retains every candidate when capacity permits. This is deterministic, and
+    never invents additional sampled frames outside the candidate set.
+    """
+    available = sorted(set(times))
+    if quota <= 0:
+        return []
+    if len(available) <= quota:
+        return available
+    first, last = available[0], available[-1]
+    selected: list[float] = []
+    for slot in range(quota):
+        target = first + (last - first) * ((slot + 0.5) / quota)
+        nearest = min(range(len(available)),
+                      key=lambda idx: (abs(available[idx] - target), available[idx]))
+        selected.append(available.pop(nearest))
+    return sorted(selected)
+
+
 def select_candidate_times(video: Path, duration: float, cfg: OCRConfig) -> tuple[list[float], dict]:
     if not 0 < duration <= cfg.max_duration_s:
         return [], {"coverage_incomplete": True, "reason": "DURATION_LIMIT", "unscanned": [[0, duration]]}
-    chosen: list[float] = []
+    baseline_times: list[float] = []
+    motion_times: list[float] = []
     prev = None
     last_base = -10.0
     last_extra = -10.0
@@ -78,8 +100,7 @@ def select_candidate_times(video: Path, duration: float, cfg: OCRConfig) -> tupl
         changed = False
         if prev is not None:
             # Quadrants are not used; sample horizontal bands across full frame.
-            # Avoid global-scene-movement triggering full OCR for every frame:
-            # change must be significant in at least one region and bounded by budget.
+            # A change can propose an extra OCR time but is not proof of text.
             differences = np.abs(frame.astype(np.int16) - prev.astype(np.int16))
             band_scores = [float(x.mean()) for x in np.array_split(differences, 4, axis=0)]
             changed = any(score > cfg.change_threshold for score in band_scores)
@@ -89,30 +110,58 @@ def select_candidate_times(video: Path, duration: float, cfg: OCRConfig) -> tupl
         if changed:
             changes += 1
         if baseline or (changed and ts - last_extra >= 0.5):
-            chosen.append(round(ts, 3))
+            if baseline:
+                baseline_times.append(round(ts, 3))
+            else:
+                motion_times.append(round(ts, 3))
             if changed:
                 last_extra = ts
-    chosen = sorted(set(chosen))
-    # Preserve broad coverage if rapid scene-motion consumed too much of the budget.
+
+    # Reserve the entire minute's 1-fps baseline before allocating any extra
+    # motion slots. If even the baseline exceeds the configured cap, distribute
+    # surviving baseline frames across the minute rather than truncating its tail.
     per_minute_limit = max(1, cfg.max_ocr_calls_per_minute)
-    retained: list[float] = []
+    per_minute: dict[int, dict[str, list[float]]] = {}
+    for label, times in (("baseline", baseline_times), ("motion", motion_times)):
+        for ts in times:
+            per_minute.setdefault(int(ts // 60), {"baseline": [], "motion": []})[label].append(ts)
+
+    retained_baseline: list[float] = []
+    retained_motion: list[float] = []
     discarded: list[float] = []
-    minute_counts: dict[int, int] = {}
-    for ts in chosen:
-        minute = int(ts // 60)
-        if minute_counts.get(minute, 0) < per_minute_limit:
-            retained.append(ts)
-            minute_counts[minute] = minute_counts.get(minute, 0) + 1
-        else:
-            discarded.append(ts)
+    dropped_baseline = 0
+    for minute in sorted(per_minute):
+        candidates = per_minute[minute]
+        base = sorted(set(candidates["baseline"]))
+        motion = sorted(set(candidates["motion"]))
+        kept_base = _spread_times(base, per_minute_limit)
+        kept_motion = _spread_times(motion, per_minute_limit - len(kept_base))
+        kept_base_set, kept_motion_set = set(kept_base), set(kept_motion)
+        retained_baseline.extend(kept_base)
+        retained_motion.extend(kept_motion)
+        discarded.extend(t for t in base if t not in kept_base_set)
+        discarded.extend(t for t in motion if t not in kept_motion_set)
+        dropped_baseline += len(base) - len(kept_base)
+
+    retained = sorted(set(retained_baseline + retained_motion))
+    discarded.sort()
+    chosen = sorted(set(baseline_times + motion_times))
     return retained, {
         "scan_frames": scan_count, "change_frames": changes, "candidate_frames": len(chosen),
         "ocr_calls_planned": len(retained), "ocr_budget_limit_per_minute": per_minute_limit,
+        "sampling_strategy": "baseline_first_temporally_spread_motion_v1",
+        "baseline_candidates": len(baseline_times),
+        "baseline_retained": len(retained_baseline),
+        "baseline_discarded": dropped_baseline,
+        "motion_candidates": len(motion_times),
+        "motion_retained": len(retained_motion),
+        "motion_discarded": len(motion_times) - len(retained_motion),
         "budget_exhausted": bool(discarded),
         "coverage_incomplete": bool(discarded) or scan_count == 0 or not retained,
         "coverage_reason": "SCAN_EMPTY" if scan_count == 0 or not retained else (
             "OCR_BUDGET_EXHAUSTED" if discarded else None),
-        "unscanned": [[round(max(0, t - 0.25), 3), round(min(duration, t + .25), 3)] for t in discarded[:80]],
+        "unscanned": [[round(max(0, t - 0.25), 3), round(min(duration, t + 0.25), 3)]
+                      for t in discarded[:80]],
         "unscanned_count": len(discarded),
         "scan_budget": asdict(cfg),
     }
@@ -163,7 +212,7 @@ def run_video_ocr(video: Path, analysis_dir: Path, duration: float,
                   *, cfg: OCRConfig | None = None) -> dict:
     cfg = cfg or OCRConfig(
         backend=os.getenv("Y700_DYNAMIC_OCR_BACKEND", "vision"),
-        max_ocr_calls_per_minute=int(os.getenv("Y700_DYNAMIC_OCR_CALLS_PER_MIN", "90")),
+        max_ocr_calls_per_minute=int(os.getenv("Y700_DYNAMIC_OCR_CALLS_PER_MIN", "120")),
     )
     if cfg.backend not in ("vision", "paddle"):
         raise ValueError(f"unsupported OCR backend: {cfg.backend}")
