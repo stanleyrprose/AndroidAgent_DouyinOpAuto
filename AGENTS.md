@@ -43,20 +43,27 @@ This repository is the canonical Git SOT for the Y700 Android automation node pl
 - A failed or ambiguous COMMIT is reconciled from durable state/profile evidence before any retry.
 - PUBLIC is the default visibility for the production publish workflow. A different visibility requires an explicit user request.
 
-## Default development workflow (user-approved, all future work)
+## Default development workflow (aligned with user Personalization)
 
-- For new development, inspect project rules, the current local Git branch and
-  relevant PRD/CI triggers first, without triggering any CI workflows.
-- Implement on a separate **local Mac development branch**. During development,
-  permit static inspection and code review only; **do not run tests**.
-- Make incremental **local Git commits** as implementation progresses.
-  **Do not git push, create PRs, invoke CI, merge or deploy by default.**
-- When human reviews and requested code changes are finished, still wait for
-  **explicit user authorization** before running tests or any remote Git action.
-  Permission for tests is not permission for push, PR, CI or merge; each remote
-  operation requires separate explicit authorization.
-- Keep secrets and source media outside Git. Preserve current Mac release aliases,
-  runtime and Y700/TikTok publishing boundaries unless separately authorized.
+- Before implementation, inspect the current Git branch, repository rules,
+  applicable PRD, and **all GitHub workflow triggers**. Confirm a push to the
+  intended development branch **will not trigger CI**; if this cannot be verified,
+  do not push until the trigger configuration is safely resolved.
+- Implement on a separate Mac **development branch**. During development,
+  perform code changes and necessary static inspections only: **do not run tests,
+  create a PR, invoke CI, merge or deploy**.
+- **Commit locally and push the development branch to GitHub as the development
+  source of truth (SOT)** throughout implementation. Never push unfinished code
+  directly to `main`. Recheck CI triggers before pushing if workflows or branch
+  rules have changed. Do not create a PR just to synchronize code.
+- **Only after all requested code work and human reviews are complete**, enter
+  the concentrated verification and closure phase: run affected-path tests,
+  fix failures, validate results, then create a PR, run CI, and merge after
+  checks pass. Do not start this phase early.
+- GitHub development branches are the SOT for work in progress; GitHub `main`
+  remains the canonical SOT for accepted code. Keep secrets and runtime media
+  outside Git, and leave Mac release aliases, Y700 and TikTok publishing
+  untouched unless separately authorized.
 
 ## Git SOT rule
 
