@@ -23,6 +23,7 @@ do {
         throw NSError(domain: "BurmeseBatch", code: 3,
                       userInfo: [NSLocalizedDescriptionKey: "Noto Sans Myanmar font unavailable"])
     }
+    let preset = root["render_preset"] as? String ?? "dynamic_clean"
     var assets: [[String: String]] = []
     for event in events {
         guard let localization = event["localization"] as? [String: Any],
@@ -45,9 +46,6 @@ do {
         NSRect(origin: .zero, size: size).fill()
         let role = event["role"] as? String ?? "primary_subtitle"
         let fontSize: CGFloat = role == "callout" ? 38 : 42
-        NSColor(calibratedWhite: 0.04, alpha: 0.76).setFill()
-        NSBezierPath(roundedRect: NSRect(x: 8, y: 8, width: 884, height: 244),
-                     xRadius: 20, yRadius: 20).fill()
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineBreakMode = .byWordWrapping
@@ -59,15 +57,33 @@ do {
             .paragraphStyle: paragraph,
         ]
         let text = NSAttributedString(string: txt, attributes: attributes)
-        let bounds = NSRect(x: 32, y: 36, width: 836, height: 192)
-        let needed = text.boundingRect(with: bounds.size,
+        let available = NSSize(width: 780, height: 190)
+        let needed = text.boundingRect(with: available,
                                        options: [.usesLineFragmentOrigin, .usesFontLeading])
-        if needed.height > bounds.height || needed.width > bounds.width {
+        if needed.height > available.height || needed.width > available.width {
             NSGraphicsContext.restoreGraphicsState()
             throw NSError(domain: "BurmeseBatch", code: 6,
                           userInfo: [NSLocalizedDescriptionKey: "Myanmar caption exceeds box: \(eventID)"])
         }
-        text.draw(in: bounds)
+        // Small, content-aware capsule rather than an always-large black rectangle.
+        let naturalWidth = (txt as NSString).size(withAttributes: attributes).width
+        let contentWidth = min(780, max(180, naturalWidth))
+        let contentHeight = min(190, max(50, needed.height))
+        let panelWidth = min(880, max(268, contentWidth + 72))
+        let panelHeight = min(230, max(92, contentHeight + 40))
+        let px = (size.width - panelWidth) / 2
+        let py = (size.height - panelHeight) / 2
+        let funAccent = preset == "dynamic_fun" && role == "callout"
+        if funAccent {
+            NSColor(calibratedRed: 0.32, green: 0.23, blue: 0.09, alpha: 0.74).setFill()
+        } else {
+            NSColor(calibratedWhite: 0.04, alpha: 0.65).setFill()
+        }
+        NSBezierPath(roundedRect: NSRect(x: px, y: py, width: panelWidth, height: panelHeight),
+                     xRadius: 20, yRadius: 20).fill()
+        let textRect = NSRect(x: px + 30, y: py + (panelHeight - contentHeight) / 2,
+                              width: panelWidth - 60, height: contentHeight)
+        text.draw(in: textRect)
         context?.flushGraphics()
         NSGraphicsContext.restoreGraphicsState()
         guard let png = bitmap.representation(using: .png, properties: [:]) else {

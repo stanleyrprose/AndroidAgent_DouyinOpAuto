@@ -109,7 +109,9 @@ def select_candidate_times(video: Path, duration: float, cfg: OCRConfig) -> tupl
         "scan_frames": scan_count, "change_frames": changes, "candidate_frames": len(chosen),
         "ocr_calls_planned": len(retained), "ocr_budget_limit_per_minute": per_minute_limit,
         "budget_exhausted": bool(discarded),
-        "coverage_incomplete": bool(discarded),
+        "coverage_incomplete": bool(discarded) or scan_count == 0 or not retained,
+        "coverage_reason": "SCAN_EMPTY" if scan_count == 0 or not retained else (
+            "OCR_BUDGET_EXHAUSTED" if discarded else None),
         "unscanned": [[round(max(0, t - 0.25), 3), round(min(duration, t + .25), 3)] for t in discarded[:80]],
         "unscanned_count": len(discarded),
         "scan_budget": asdict(cfg),

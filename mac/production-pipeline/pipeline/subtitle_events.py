@@ -78,11 +78,11 @@ def match_text(a: str, b: str, rules: EventRules) -> bool:
     if short:
         return bool(x) and x == y
     # Guard semantic reversals even when a long OCR string mostly agrees.
-    if any(t in (x + y) for t in ("不", "没", "无", "否")):
-        a_tokens = re.findall(r"不|没|无|否|\d+|[０-９]+", x)
-        b_tokens = re.findall(r"不|没|无|否|\d+|[０-９]+", y)
-        if a_tokens != b_tokens:
-            return False
+    # Even in long captions, one changed number or negation reverses meaning.
+    a_tokens = re.findall(r"不|没|无|否|\d+|[０-９]+", x)
+    b_tokens = re.findall(r"不|没|无|否|\d+|[０-９]+", y)
+    if a_tokens != b_tokens:
+        return False
     return similarity(x, y) >= rules.text_similarity
 
 
@@ -241,9 +241,9 @@ def fuse_events(speech: list[dict], visual: list[dict], *, source_sha256: str,
         if v["source_id"] in chosen_visual:
             continue
         account = _looks_like_account(v)
-        status = "excluded_with_reason" if account else (
-            "review_required" if v.get("review_flags") else "translate_target"
-        )
+        # Uncertain OCR remains a translation target with explicit review flags.
+        # Dropping it from translation would silently erase a possible punchline.
+        status = "excluded_with_reason" if account else "translate_target"
         canonical.append({
             "event_id": "evt-" + digest([v["source_id"]])[:16],
             "source_kind": "visual_text",

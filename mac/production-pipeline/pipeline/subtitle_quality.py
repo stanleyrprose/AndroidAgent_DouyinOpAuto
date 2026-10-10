@@ -19,7 +19,7 @@ REVIEW = "REVIEW_REQUIRED"
 def review_status(codes: list[str]) -> str:
     if any(c.startswith("BLOCKED_") for c in codes):
         return BLOCKED
-    if any(c.startswith("REVIEW_REQUIRED") or c in ("OCR_BUDGET_EXHAUSTED", "OCR_UNAVAILABLE")
+    if any(c.startswith("REVIEW_REQUIRED") or c in ("OCR_BUDGET_EXHAUSTED", "OCR_UNAVAILABLE", "OCR_COVERAGE_INCOMPLETE")
            for c in codes):
         return REVIEW
     return "PASS"
@@ -46,7 +46,7 @@ def evaluate(job_dir: Path, *, after_render: bool = False) -> dict:
             detail.append({"ledger_error": err})
     ocr = analysis.get("dynamic_ocr", {})
     if ocr.get("budget_exhausted") or ocr.get("coverage_incomplete"):
-        codes.append("OCR_BUDGET_EXHAUSTED")
+        codes.append("OCR_BUDGET_EXHAUSTED" if ocr.get("budget_exhausted") else "OCR_COVERAGE_INCOMPLETE")
         has_reliable_asr = bool(analysis.get("meaningful_speech"))
         if not has_reliable_asr:
             codes.append("BLOCKED_OCR_COVERAGE_VISUAL")
@@ -126,10 +126,18 @@ def evaluate(job_dir: Path, *, after_render: bool = False) -> dict:
             codes.append("BLOCKED_ARTIFACT_MISMATCH")
         if not result.get("source_to_output_affine_matrix"):
             codes.append("BLOCKED_ARTIFACT_MISMATCH")
+        if result.get("timeline_sha256") != digest(timeline):
+            codes.append("BLOCKED_ARTIFACT_MISMATCH")
+        caption_path = job_dir / "production" / "caption.my.txt"
+        if (not caption_path.is_file() or
+            result.get("sha256", {}).get("caption") != sha256_file(caption_path) or
+            caption_path.read_text(encoding="utf-8").strip() != timeline.get("caption_my")):
+            codes.append("BLOCKED_ARTIFACT_MISMATCH")
     codes = sorted(set(codes))
     evidence_revision = digest({
         "source_sha": ledger.get("source_video_sha256"),
         "fused_lock": ledger.get("canonical_lock"), "timeline_sha": digest(timeline),
+        "ocr_diagnostics_sha": digest(ocr),
     })[:20]
     review_record = read_json(job_dir / "production" / "quality-approvals.json", {}) or {}
     approvals = [x for x in review_record.get("approvals", [])
@@ -143,10 +151,11 @@ def evaluate(job_dir: Path, *, after_render: bool = False) -> dict:
             c.startswith("REVIEW_REQUIRED") for c in approved_codes
         ):
             remaining.remove("OCR_BUDGET_EXHAUSTED")
-        if "OCR_UNAVAILABLE" in remaining and any(
-            c.startswith("REVIEW_REQUIRED") for c in approved_codes
-        ):
-            remaining.remove("OCR_UNAVAILABLE")
+        for warning in ("OCR_UNAVAILABLE", "OCR_COVERAGE_INCOMPLETE"):
+            if warning in remaining and any(
+                c.startswith("REVIEW_REQUIRED") for c in approved_codes
+            ):
+                remaining.remove(warning)
     codes = remaining
     report = {
         "schema_version": 1,

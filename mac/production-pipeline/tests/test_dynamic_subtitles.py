@@ -29,6 +29,29 @@ def make_speech():
     }, 7.0)
 
 
+class VisualOnlyInputTests(unittest.TestCase):
+    def test_dynamic_analysis_accepts_video_without_audio_track(self):
+        from pipeline.analyze import analyze
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            location = Path(tmp)
+            no_audio_probe = {
+                "format": {"duration": "3.0"},
+                "streams": [{"codec_type": "video", "width": 540, "height": 960}],
+            }
+            with patch("pipeline.analyze.ffprobe", return_value=no_audio_probe):
+                with patch("pipeline.analyze.keyframes", return_value=[]):
+                    with patch("pipeline.analyze.extract_audio") as extract:
+                        with patch("pipeline.analyze.transcribe") as transcribe:
+                            result = analyze(location / "silent.mp4", location / "analysis",
+                                             allow_no_audio=True)
+                            self.assertFalse(result["meaningful_speech"])
+                            self.assertEqual(result["route"], "visual_review")
+                            self.assertFalse(result["transcript"]["segments"])
+                            extract.assert_not_called()
+                            transcribe.assert_not_called()
+
+
 class TextTrackTests(unittest.TestCase):
     def test_short_exact_does_not_merge_numbers_negation_or_punctuation(self):
         rules = EventRules()
@@ -55,6 +78,18 @@ class TextTrackTests(unittest.TestCase):
         }], 2.0)
         self.assertEqual(len(events), 1)
         self.assertIn("SHORT_EVENT_REVIEW", events[0]["review_flags"])
+
+    def test_uncertain_short_flash_still_has_translation_target(self):
+        visual = track_ocr([{
+            "frame_ts": 1.0, "text_zh_raw": "不",
+            "bbox_norm": [.1, .7, .4, .8], "ocr_confidence": .75,
+        }], 3.0)
+        ledger = fuse_events([], visual, source_sha256="a" * 64, duration=3.0)
+        events = ledger["canonical_events"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["fact_disposition"], "translate_target")
+        self.assertIn("SHORT_EVENT_REVIEW", events[0]["review_flags"])
+        self.assertEqual(len(translation_request(ledger)["target_events"]), 1)
 
     def test_bbox(self):
         self.assertAlmostEqual(bbox_iou([0, 0, 1, 1], [0, 0, 1, 1]), 1)
@@ -122,6 +157,16 @@ class LockedTranslationTests(unittest.TestCase):
         self.assertEqual(len(projection["cues"]), 3)
 
 
+class RenderDurationTests(unittest.TestCase):
+    def test_looped_png_inputs_have_hard_output_time_limit(self):
+        from pipeline.subtitle_render import duration_limit_args
+        self.assertEqual(duration_limit_args(6.0), ["-t", "6.000"])
+        with self.assertRaises(ValueError):
+            duration_limit_args(0)
+        with self.assertRaises(ValueError):
+            duration_limit_args(float("inf"))
+
+
 class QualityGateTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -163,6 +208,21 @@ class QualityGateTests(unittest.TestCase):
         source = self.job / "source" / "source.mp4"
         source.write_bytes(b"changed")
         report = evaluate(self.job)
+        self.assertEqual(report["status"], "BLOCKED")
+        self.assertIn("BLOCKED_ARTIFACT_MISMATCH", report["codes"])
+
+    def test_post_render_rejects_stale_timeline_artifact(self):
+        from pipeline.subtitle_events import digest
+        video = self.job / "production" / "video.my.mp4"
+        video.write_bytes(b"synthetic mock render")
+        caption = self.job / "production" / "caption.my.txt"
+        caption.write_text("မြန်မာစာ\n", encoding="utf-8")
+        atomic_json(self.job / "production" / "render-result.json", {
+            "sha256": {"video": sha256_file(video), "caption": sha256_file(caption)},
+            "source_to_output_affine_matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            "timeline_sha256": "stale-timeline",
+        })
+        report = evaluate(self.job, after_render=True)
         self.assertEqual(report["status"], "BLOCKED")
         self.assertIn("BLOCKED_ARTIFACT_MISMATCH", report["codes"])
 

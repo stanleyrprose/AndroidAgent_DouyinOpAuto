@@ -178,9 +178,10 @@ def cmd_submit(args) -> int:
         video = _find_video(job.dir / "source")
         job = _canonicalize(job, args.url, video, result, allow_duplicate=args.allow_duplicate)
         source_video = Path(read_json(job.dir / "source" / "source.json")["video_path"])
-        analysis = analyze(source_video, job.dir / "analysis")
         subtitle_mode = "dynamic_v04" if (args.dynamic_subtitles or
             os.environ.get("Y700_SUBTITLE_MODE", "").lower() == "dynamic_v04") else "legacy"
+        analysis = analyze(source_video, job.dir / "analysis",
+                           allow_no_audio=(subtitle_mode == "dynamic_v04"))
         if subtitle_mode == "dynamic_v04":
             from .subtitle_analyze import analyze_dynamic
             analysis = analyze_dynamic(source_video, job.dir / "analysis", analysis)
@@ -235,6 +236,8 @@ def cmd_localize(args) -> int:
     job = get_job(args.job_id)
     data = json.load(open(args.file, encoding="utf-8"))
     if job.state().get("subtitle_mode") == "dynamic_v04":
+        if job.state().get("state") not in ("ANALYZED", "LOCALIZED"):
+            raise RuntimeError("cannot relocalize an exported/published dynamic job")
         from .subtitle_localization import build_timeline
         from .localize import validate
         from .subtitle_quality import evaluate
@@ -279,6 +282,8 @@ def cmd_localize(args) -> int:
 def cmd_render(args) -> int:
     job = get_job(args.job_id)
     if job.state().get("subtitle_mode") == "dynamic_v04":
+        if job.state().get("state") not in ("LOCALIZED", "RENDERED"):
+            raise RuntimeError("cannot render an exported/published dynamic job")
         from .subtitle_render import render_dynamic
         result = render_dynamic(job.dir)
     else:

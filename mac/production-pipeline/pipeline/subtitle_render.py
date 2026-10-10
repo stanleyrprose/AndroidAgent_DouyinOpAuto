@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from pathlib import Path
 
@@ -32,6 +33,13 @@ def _transform(width: int, height: int) -> dict:
         ],
         "pixel_aspect": "1:1", "orientation": "ffmpeg_autorotate",
     }
+
+
+def duration_limit_args(seconds: float) -> list[str]:
+    """Bound filter outputs independently of infinitely looped overlay images."""
+    if not math.isfinite(seconds) or seconds <= 0 or seconds > 3600:
+        raise ValueError("invalid source duration for dynamic subtitle render")
+    return ["-t", f"{seconds:.3f}"]
 
 
 def render_dynamic(job_dir: Path) -> dict:
@@ -97,7 +105,8 @@ def render_dynamic(job_dir: Path) -> dict:
         "-filter_complex", graph, "-map", f"[{prev}]", "-map", "0:a?",
         "-c:v", "libx264", "-preset", "medium", "-crf", "20",
         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
-        "-movflags", "+faststart", "-shortest", str(output),
+        "-movflags", "+faststart", "-shortest",
+        *duration_limit_args(float(timeline["duration_s"])), str(output),
     ]
     t1 = time.monotonic()
     run(command, timeout=1800)
