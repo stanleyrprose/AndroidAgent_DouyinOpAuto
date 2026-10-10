@@ -2,6 +2,7 @@
 import json
 import tempfile
 import unittest
+import numpy as np
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,6 +19,7 @@ from pipeline.subtitle_localization import (
 )
 from pipeline.subtitle_quality import approve_review, evaluate, list_quality_queue
 from pipeline.subtitle_notify import notify_if_blocked
+from pipeline.video_ocr import OCRConfig, select_candidate_times
 
 
 def make_speech():
@@ -28,6 +30,71 @@ def make_speech():
             {"start": 3.5, "end": 5.0, "text": "还没结束"},
         ],
     }, 7.0)
+
+
+class OCRCandidateBudgetTests(unittest.TestCase):
+    """Offline deterministic sampling contracts; no live videos, network or TikTok."""
+
+    @staticmethod
+    def _flicker_frames(count: int):
+        for i in range(count):
+            yield (i + .5) / 2.0, np.full((8, 8), 255 if i % 2 else 0, dtype=np.uint8)
+
+    def _select(self, *, cap: int, frame_count: int = 120):
+        cfg = OCRConfig(scan_fps=2.0, baseline_fps=1.0,
+                        max_ocr_calls_per_minute=cap)
+        with patch("pipeline.video_ocr._video_frames",
+                   return_value=iter(self._flicker_frames(frame_count))):
+            return select_candidate_times(Path("synthetic.mp4"),
+                                          frame_count / 2, cfg)
+
+    def test_default_budget_is_120_not_90(self):
+        self.assertEqual(OCRConfig().max_ocr_calls_per_minute, 120)
+
+    def test_120_keeps_every_candidate_in_one_minute(self):
+        selected, diag = self._select(cap=120)
+        self.assertEqual(len(selected), 120)
+        self.assertEqual(diag["baseline_retained"], 60)
+        self.assertEqual(diag["motion_retained"], 60)
+        self.assertEqual(diag["unscanned_count"], 0)
+        self.assertFalse(diag["budget_exhausted"])
+        self.assertFalse(diag["coverage_incomplete"])
+
+    def test_90_reserves_full_baseline_then_spreads_extra_frames(self):
+        selected, diag = self._select(cap=90)
+        baseline = [t for t in selected if round(t % 1, 2) == .25]
+        motion = [t for t in selected if round(t % 1, 2) == .75]
+        self.assertEqual((len(baseline), len(motion)), (60, 30))
+        self.assertEqual(diag["unscanned_count"], 30)
+        self.assertEqual(diag["baseline_discarded"], 0)
+        self.assertLess(min(motion), 10)
+        self.assertGreater(max(motion), 50)
+        self.assertTrue(diag["coverage_incomplete"])
+        self.assertEqual(diag["coverage_reason"], "OCR_BUDGET_EXHAUSTED")
+
+    def test_baseline_over_budget_spreads_and_remains_blocked(self):
+        selected, diag = self._select(cap=30)
+        self.assertEqual(len(selected), 30)
+        self.assertEqual(diag["baseline_retained"], 30)
+        self.assertEqual(diag["baseline_discarded"], 30)
+        self.assertEqual(diag["motion_retained"], 0)
+        self.assertTrue(all(round(t % 1, 2) == .25 for t in selected))
+        self.assertLess(min(selected), 10)
+        self.assertGreater(max(selected), 50)
+        self.assertTrue(diag["budget_exhausted"])
+
+    def test_budget_resets_per_minute(self):
+        selected, diag = self._select(cap=120, frame_count=240)
+        self.assertEqual(len(selected), 240)
+        self.assertEqual(sum(t < 60 for t in selected), 120)
+        self.assertEqual(sum(t >= 60 for t in selected), 120)
+        self.assertFalse(diag["budget_exhausted"])
+
+    def test_54_second_r0_style_sample_fits_120(self):
+        selected, diag = self._select(cap=120, frame_count=109)
+        self.assertEqual(len(selected), 109)
+        self.assertEqual(diag["unscanned_count"], 0)
+        self.assertFalse(diag["budget_exhausted"])
 
 
 class VisualOnlyInputTests(unittest.TestCase):
