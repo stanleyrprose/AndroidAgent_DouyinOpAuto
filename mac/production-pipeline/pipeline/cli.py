@@ -460,6 +460,18 @@ def cmd_layout_set(args) -> int:
     return 0 if report["status"] != "BLOCKED" else 20
 
 
+def cmd_verify_transfer_clean(args) -> int:
+    from .media_lifecycle import verify_and_clean
+    job = get_job(args.job_id)
+    result = verify_and_clean(job.dir, ssh_target=args.ssh_target,
+                              device_path=args.device_path, artifact=args.artifact)
+    job.write_state(job.state().get("state", "EXPORTED"),
+                    media_cleanup_status=result["status"],
+                    y700_artifact_sha256=result["artifact_sha256"])
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
 def cmd_status(args) -> int:
     job = get_job(args.job_id)
     out = {"state": job.state()}
@@ -581,6 +593,13 @@ def main() -> int:
     p.add_argument("--mode", choices=["avoid_original", "cover_and_replace", "retain_original"], required=True)
     p.add_argument("--evidence-frame", action="append", default=[])
     p.set_defaults(func=cmd_layout_set)
+
+    p = sp.add_parser("verify-transfer-clean")
+    p.add_argument("job_id")
+    p.add_argument("--ssh-target", required=True)
+    p.add_argument("--device-path", required=True)
+    p.add_argument("--artifact", default="production/video.my.mp4")
+    p.set_defaults(func=cmd_verify_transfer_clean)
 
     p = sp.add_parser("status")
     p.add_argument("job_id")
