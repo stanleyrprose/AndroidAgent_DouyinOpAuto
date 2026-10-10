@@ -1,11 +1,13 @@
 """Feature-flagged dynamic subtitle evidence extraction after existing Mac analysis."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from .common import atomic_json, read_json, sha256_file
 from .subtitle_events import EventRules, digest, fuse_events, speech_events, track_ocr
-from .subtitle_localization import translation_request
+from .subtitle_localization import translation_request, dual_translation_request
+from .subtitle_review import reviewed_ledger
 from .video_ocr import run_video_ocr
 
 
@@ -40,7 +42,14 @@ def analyze_dynamic(video: Path, analysis_dir: Path, legacy_analysis: dict) -> d
     })
     fused = fuse_events(speech, visual, source_sha256=sha256_file(video),
                         duration=duration, rules=rules)
+    review_path = os.environ.get("Y700_DYNAMIC_HUMAN_GT_PATH")
+    if review_path:
+        human = read_json(Path(review_path))
+        reviewed = reviewed_ledger(fused, visual, human)
+        atomic_json(analysis_dir / "fused_events.machine.zh.json", fused)
+        fused = reviewed
     atomic_json(analysis_dir / "fused_events.zh.json", fused)
+    atomic_json(analysis_dir / "dual_translation_request.json", dual_translation_request(fused))
     requests = []
     count = len([x for x in fused["canonical_events"] if x["fact_disposition"] == "translate_target"])
     for offset in range(0, count, 16):
@@ -56,8 +65,12 @@ def analyze_dynamic(video: Path, analysis_dir: Path, legacy_analysis: dict) -> d
     analysis = {**legacy_analysis,
                 "subtitle_mode": "dynamic_v04",
                 "dynamic_ocr": diagnostic,
+                "asr_tail_review_required": bool(transcript.get("tail_review_required")),
+                "asr_tail_review_candidates": transcript.get("tail_review_candidates", []),
                 "fused_events_sha256": digest(fused),
                 "canonical_lock": fused["canonical_lock"],
+                "human_review_applied": bool(fused.get("human_adjudicated")),
+                "dual_translation_request": "analysis/dual_translation_request.json",
                 "translation_requests": "analysis/translation_requests.json"}
     atomic_json(analysis_dir / "analysis.json", analysis)
     return analysis

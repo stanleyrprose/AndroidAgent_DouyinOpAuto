@@ -55,10 +55,13 @@ def transcribe(wav_path: Path, model_path: Path = MODEL_DEFAULT) -> dict:
                 for w in (s.words or [])
             ],
         })
+    from .asr_tail import tail_review_candidates
+    tail = tail_review_candidates(model, audio, rows)
     return {
         "language": info.language,
         "language_probability": float(info.language_probability),
         "segments": rows,
+        **tail,
     }
 
 
