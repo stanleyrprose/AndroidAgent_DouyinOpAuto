@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import wave
 from pathlib import Path
-
-import numpy as np
 
 from .common import MODEL_DEFAULT, atomic_json, run
 
@@ -29,6 +28,7 @@ def extract_audio(video: Path, wav: Path) -> None:
 
 
 def transcribe(wav_path: Path, model_path: Path = MODEL_DEFAULT) -> dict:
+    import numpy as np
     from faster_whisper import WhisperModel
     with wave.open(str(wav_path), "rb") as w:
         if (w.getnchannels(), w.getframerate(), w.getsampwidth()) != (1, 16000, 2):
@@ -40,7 +40,7 @@ def transcribe(wav_path: Path, model_path: Path = MODEL_DEFAULT) -> dict:
         language="zh",
         beam_size=5,
         vad_filter=True,
-        word_timestamps=False,
+        word_timestamps=os.environ.get("Y700_WHISPER_WORD_TIMESTAMPS", "0") == "1",
     )
     rows = []
     for s in segments:
@@ -50,6 +50,10 @@ def transcribe(wav_path: Path, model_path: Path = MODEL_DEFAULT) -> dict:
             "text": s.text.strip(),
             "avg_logprob": round(float(s.avg_logprob), 4),
             "no_speech_prob": round(float(s.no_speech_prob), 4),
+            "words": [
+                {"start": round(w.start, 3), "end": round(w.end, 3), "text": w.word}
+                for w in (s.words or [])
+            ],
         })
     return {
         "language": info.language,
@@ -86,13 +90,17 @@ def keyframes(video: Path, out_dir: Path, duration: float) -> list[Path]:
     return files
 
 
-def analyze(video: Path, analysis_dir: Path) -> dict:
+def analyze(video: Path, analysis_dir: Path, *, allow_no_audio: bool = False) -> dict:
     analysis_dir.mkdir(parents=True, exist_ok=True)
     probe = ffprobe(video)
     duration = float(probe["format"]["duration"])
     wav = analysis_dir / "audio-16k.wav"
-    extract_audio(video, wav)
-    transcript = transcribe(wav)
+    has_audio = any(s.get("codec_type") == "audio" for s in probe.get("streams", []))
+    if allow_no_audio and not has_audio:
+        transcript = {"language": "zh", "language_probability": 0.0, "segments": []}
+    else:
+        extract_audio(video, wav)
+        transcript = transcribe(wav)
     atomic_json(analysis_dir / "transcript.zh.json", transcript)
     (analysis_dir / "transcript.zh.txt").write_text(
         "\n".join(x["text"] for x in transcript["segments"]) + "\n",
