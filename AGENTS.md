@@ -43,6 +43,26 @@ This repository is the canonical Git SOT for the Y700 Android automation node pl
 - A failed or ambiguous COMMIT is reconciled from durable state/profile evidence before any retry.
 - PUBLIC is the default visibility for the production publish workflow. A different visibility requires an explicit user request.
 
+## Development lifecycle — Agent Development Policy v1.0
+
+- Before changing code, inspect this project AGENTS.md, applicable PRDs,
+  current Git branch, all GitHub CI/PR triggers, and external deployment hooks.
+  Follow stricter Android, publisher, bridge and privacy safety boundaries.
+- **During development**: code changes and necessary static inspection only;
+  do not run tests. Make local commits and Push the dedicated development
+  branch to GitHub as work-in-progress SOT **only if Push cannot trigger CI,
+  an already-open PR synchronization check, or deployment**. Otherwise keep
+  changes in a local commit and report the blocker.
+- **No PR, CI, Merge, Y700 deployment or TikTok publication during active
+  development.** Do not alter the source-to-publisher workflow as part of
+  installing this engineering policy.
+- When implementation and required human review are complete, run affected
+  tests and resolve failures in a separately authorized verification phase.
+  Then request approval for PR, CI and Merge. Publishing and production
+  deployment remain separate approvals under existing project safeguards.
+- Keep all private source media, runtime state, identifiers, keys and credentials
+  outside Git. Accepted code SOT is GitHub main; WIP SOT is a development branch.
+
 ## Git SOT rule
 
 - `main` on GitHub is canonical for code/config/docs.
