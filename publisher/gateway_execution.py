@@ -316,11 +316,35 @@ def execute_gateway_bound(
             _require(callable(trusted_effect_callback),
                      "TRUSTED_EFFECT_AUTHORITY_NOT_CONNECTED")
             receipt = trusted_effect_callback()
+            # The callback's returned dictionary is not durable authority.
+            # Reopen the exact root-owned effect record and pin every
+            # immutable identity before entering Publisher COMMITTING.
+            boundary_path = (Path("/opt/y700/capability-jobs/active")
+                             / context.capability_job_id / "effect-boundary.json")
+            _require(not boundary_path.is_symlink() and boundary_path.is_file(),
+                     "EFFECT_BOUNDARY_DURABLE_PROOF_UNAVAILABLE")
+            try:
+                durable = _read_json(boundary_path)
+            except (OSError, ValueError, CapabilityStoreError) as exc:
+                raise GatewayPublisherUnavailable(
+                    "EFFECT_BOUNDARY_DURABLE_PROOF_UNAVAILABLE") from exc
+            expected = {
+                "phase": "EFFECT_BOUNDARY_CROSSED",
+                "capability": "tiktok.publish",
+                "capability_job_id": context.capability_job_id,
+                "backend_job_id": context.backend_job_id,
+                "request_sha256": context.request_sha256,
+                "effective_policy_sha256": context.effective_policy_sha256,
+                "content_sha256": context.content_sha256,
+                "visibility": "PUBLIC",
+            }
             _require(isinstance(receipt, Mapping)
-                     and receipt.get("phase") == "EFFECT_BOUNDARY_CROSSED"
-                     and receipt.get("capability_job_id")
-                         == context.capability_job_id
-                     and receipt.get("backend_job_id") == context.backend_job_id,
+                     and all(receipt.get(k) == v for k, v in expected.items())
+                     and all(durable.get(k) == v for k, v in expected.items())
+                     and durable.get("effect_boundary_version") == 1
+                     and durable.get("boundary") == "before_final_publish"
+                     and durable.get("external_effect_attempts_allowed") == 1
+                     and durable.get("external_effect_attempts_observed") == 0,
                      "EFFECT_BOUNDARY_RECEIPT_MISMATCH")
             verify_before_publisher_committing(
                 job=publisher_job, manifest=manifest,
