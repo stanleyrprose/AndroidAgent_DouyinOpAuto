@@ -229,7 +229,7 @@ def pull_verify_clean(job_dir: Path, *, ssh_target: str, manifest_url: str,
                    shlex.quote(manifest_url) + " --target-root /opt/y700/runtime/direct-download")
         expected_status = "PASS"
     elif intent in {"AUTO_PUBLISH", "STORE_ALBUM"}:
-        puller = remote_puller or "/opt/y700/deployments/media-cleanup-874f344/publisher/pull_job.py"
+        puller = remote_puller or "/opt/y700/deployments/media-current/publisher/pull_job.py"
         if not puller.startswith("/opt/y700/"):
             raise TransferSafetyError("invalid Y700 puller")
         remote_path = f"/opt/y700/media/ready/{job_dir.name}/video.mp4"
@@ -258,7 +258,7 @@ def pull_verify_clean(job_dir: Path, *, ssh_target: str, manifest_url: str,
     if intent == "DIRECT_DOWNLOAD":
         # The generic puller validates SHA-256 and .complete, but does not fsync.
         # A separate Y700-side finalizer performs durable verification and receipt.
-        finalize = "/opt/y700/deployments/media-cleanup-874f344/finalize_direct.py"
+        finalize = "/opt/y700/deployments/media-current/finalize_direct.py"
         p = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
                             ssh_target, "python3 " + shlex.quote(finalize) + " " +
                             shlex.quote(job_dir.name)], capture_output=True, text=True,
