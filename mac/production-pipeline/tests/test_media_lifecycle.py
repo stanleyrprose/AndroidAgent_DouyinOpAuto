@@ -25,7 +25,7 @@ class MediaLifecycleTest(unittest.TestCase):
         return verify_and_clean(self.root, ssh_target="y700", device_path="/storage/emulated/0/Movies/a.mp4")
 
     def test_success_and_idempotence(self):
-        with patch("pipeline.media_lifecycle._remote_hash", return_value=self.hash) as remote:
+        with patch("pipeline.media_lifecycle._remote_receipt"), patch("pipeline.media_lifecycle._remote_hash", return_value=self.hash) as remote:
             result = self.run_clean()
             self.assertEqual(result["status"], "MAC_MEDIA_CLEANED")
             self.assertEqual(result["deleted_count"], 2)
@@ -50,7 +50,7 @@ class MediaLifecycleTest(unittest.TestCase):
 
     def test_symlink_refused(self):
         (self.root / "analysis" / "evil.jpg").symlink_to(self.video)
-        with patch("pipeline.media_lifecycle._remote_hash", return_value=self.hash):
+        with patch("pipeline.media_lifecycle._remote_receipt"), patch("pipeline.media_lifecycle._remote_hash", return_value=self.hash):
             with self.assertRaisesRegex(TransferSafetyError, "symlink"):
                 self.run_clean()
         self.assertTrue(self.video.exists())
@@ -58,8 +58,39 @@ class MediaLifecycleTest(unittest.TestCase):
     def test_incomplete_receipt_blocks_retry(self):
         receipt = self.root / "export" / "media-cleanup-receipt.json"
         receipt.write_text('{"status":"TRANSFER_VERIFIED"}')
-        with self.assertRaisesRegex(TransferSafetyError, "manual recovery"):
+        with self.assertRaisesRegex(TransferSafetyError, "receipt arguments differ"):
             self.run_clean()
+        self.assertTrue(self.video.exists())
+
+    def test_crash_recovery_partial_deletion(self):
+        from pipeline.common import read_json, atomic_json
+        with patch("pipeline.media_lifecycle._remote_receipt"), patch("pipeline.media_lifecycle._remote_hash", return_value=self.hash):
+            with patch("pipeline.media_lifecycle.Path.unlink", side_effect=OSError("simulated crash")):
+                with self.assertRaises(OSError):
+                    self.run_clean()
+            receipt = self.root / "export" / "media-cleanup-receipt.json"
+            self.assertEqual(read_json(receipt)["status"], "TRANSFER_VERIFIED")
+            result = self.run_clean()
+            self.assertEqual(result["status"], "MAC_MEDIA_CLEANED")
+            self.assertFalse(self.video.exists())
+
+    def test_no_unrelated_new_file_deleted_on_resume(self):
+        from pipeline.common import read_json
+        with patch("pipeline.media_lifecycle._remote_receipt"), patch("pipeline.media_lifecycle._remote_hash", return_value=self.hash):
+            with patch("pipeline.media_lifecycle.Path.unlink", side_effect=OSError("simulated crash")):
+                with self.assertRaises(OSError):
+                    self.run_clean()
+            extra = self.root / "analysis" / "created-later.jpg"
+            extra.write_bytes(b"new")
+            self.run_clean()
+            self.assertTrue(extra.exists())
+
+    def test_receipt_guard_failure_retains_media(self):
+        with patch("pipeline.media_lifecycle._remote_hash", return_value=self.hash), patch(
+            "pipeline.media_lifecycle._remote_receipt", side_effect=TransferSafetyError("receipt missing")
+        ):
+            with self.assertRaises(TransferSafetyError):
+                self.run_clean()
         self.assertTrue(self.video.exists())
 
     def test_missing_artifact_refuses(self):

@@ -460,6 +460,20 @@ def cmd_layout_set(args) -> int:
     return 0 if report["status"] != "BLOCKED" else 20
 
 
+def cmd_pull_verify_clean(args) -> int:
+    from .media_lifecycle import pull_verify_clean
+    job = get_job(args.job_id)
+    handoff = read_json(job.dir / "export" / "handoff.json")
+    if not handoff or not handoff.get("manifest_url"):
+        raise RuntimeError("missing export handoff manifest")
+    result = pull_verify_clean(job.dir, ssh_target=args.ssh_target,
+                               manifest_url=handoff["manifest_url"])
+    job.write_state(job.state().get("state", "EXPORTED"),
+                    media_cleanup_status=result["status"])
+    print(json.dumps({"status": result["status"], "job_id": job.job_id}, ensure_ascii=False))
+    return 0
+
+
 def cmd_verify_transfer_clean(args) -> int:
     from .media_lifecycle import verify_and_clean
     job = get_job(args.job_id)
@@ -593,6 +607,11 @@ def main() -> int:
     p.add_argument("--mode", choices=["avoid_original", "cover_and_replace", "retain_original"], required=True)
     p.add_argument("--evidence-frame", action="append", default=[])
     p.set_defaults(func=cmd_layout_set)
+
+    p = sp.add_parser("pull-verify-clean")
+    p.add_argument("job_id")
+    p.add_argument("--ssh-target", required=True)
+    p.set_defaults(func=cmd_pull_verify_clean)
 
     p = sp.add_parser("verify-transfer-clean")
     p.add_argument("job_id")
