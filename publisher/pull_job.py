@@ -119,10 +119,10 @@ def main():
             if not part.exists() or sha256(part) != expected:
                 artifact_url = urllib.parse.urljoin(base,name)
                 if part.exists() and part.stat().st_size:
-                    request = urllib.request.Request(artifact_url, method="HEAD")
-                    with urllib.request.urlopen(request, timeout=30) as response:
-                        if response.headers.get("ETag", "").strip('"').lower() != expected:
-                            part.unlink()
+                    headers = subprocess.check_output(["curl", "-fsSI", "--connect-timeout", "15", artifact_url], timeout=30).decode("utf-8")
+                    etags = [line.split(":", 1)[1].strip().strip('"').lower() for line in headers.splitlines() if line.lower().startswith("etag:")]
+                    if not etags or etags[-1] != expected:
+                        part.unlink()
                 fetch(artifact_url,part)
             actual=sha256(part)
             if actual.lower()!=expected:
