@@ -62,7 +62,7 @@ def _local_media(job_dir: Path) -> list[Path]:
 def _remote_hash(ssh_target: str, device_path: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_.@-]+", ssh_target):
         raise TransferSafetyError("invalid SSH target")
-    if not device_path.startswith("/") or any(c in device_path for c in "\\r\\n\\0"):
+    if not device_path.startswith("/") or any(c in device_path for c in (chr(13), chr(10), chr(0))):
         raise TransferSafetyError("invalid absolute Y700 path")
     cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
            ssh_target, "sha256sum -- " + shlex.quote(device_path)]
@@ -77,8 +77,9 @@ def _remote_hash(ssh_target: str, device_path: str) -> str:
 
 def _remote_receipt(ssh_target: str, device_path: str, expected_sha: str) -> None:
     """Require a Y700-issued persisted receipt, not merely a remote file hash."""
-    if not device_path.startswith("/opt/y700/media/ready/"):
-        raise TransferSafetyError("Y700 media must be in the ready directory")
+    if not (device_path.startswith("/opt/y700/media/ready/") or
+            device_path.startswith("/opt/y700/runtime/direct-download/")):
+        raise TransferSafetyError("Y700 media must be in a verified persistent directory")
     receipt_path = str(Path(device_path).parent / "transfer-receipt.json")
     p = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
                         ssh_target, "cat -- " + shlex.quote(receipt_path)],
@@ -121,8 +122,11 @@ def _verify_and_clean_locked(job_dir: Path, *, ssh_target: str, device_path: str
             raise TransferSafetyError("Y700 SHA-256 mismatch during recovery")
         _remote_receipt(ssh_target, device_path, remote_sha)
         return _finish_cleanup(job_dir, record, existing)
-    artifact_path = (job_dir / artifact).resolve(strict=True)
-    if not artifact_path.is_relative_to(job_dir) or artifact_path.is_symlink():
+    original_artifact = job_dir / artifact
+    if original_artifact.is_symlink():
+        raise TransferSafetyError("artifact is a symlink")
+    artifact_path = original_artifact.resolve(strict=True)
+    if not artifact_path.is_relative_to(job_dir):
         raise TransferSafetyError("artifact path escapes job")
     if artifact_path.suffix.lower() not in MEDIA_SUFFIXES or not artifact_path.is_file():
         raise TransferSafetyError("artifact is not a media file")
