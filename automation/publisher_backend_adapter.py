@@ -60,7 +60,12 @@ class LocalPublisherBackend:
               "CAPABILITY_JOB_UNAVAILABLE")
         ident = _read_json(path / "identity.json")
         backend = _read_json(path / "backend.json")
-        _need(ident.get("capability_job_id") == job_id
+        request = _read_json(path / "request.json")
+        policy = _read_json(path / "effective_policy.json")
+        _need(_sha(request) == ident.get("request_sha256")
+              and _sha(policy) == ident.get("effective_policy_sha256")
+              and request.get("capability") == "tiktok.publish"
+              and ident.get("capability_job_id") == job_id
               and backend.get("capability_job_id") == job_id
               and backend.get("backend_job_id") == backend_id
               and backend.get("backend_type") == "publisher"
@@ -83,6 +88,7 @@ class LocalPublisherBackend:
             witness = _read_json(admitted.path / "backend-execution.json")
             state = _read_json(admitted.path / "state.json")
             _need(witness.get("backend_job_id") == backend_id
+                  and witness.get("capability_job_id") == admitted.job_id
                   and witness.get("request_sha256")
                       == admitted.request_sha256,
                   "BACKEND_WITNESS_MISMATCH")
@@ -92,6 +98,8 @@ class LocalPublisherBackend:
                 and witness.get("attempt_serial") == 0
                 and state.get("backend_submitted") is False
                 and state.get("mutation_uncertain") is False
+                and state.get("effect_uncertain") is False
+                and not (admitted.path / "cancel.json").exists()
                 and not (admitted.path / "effect-boundary.json").exists()
                 and not (admitted.path / "result.json").exists()
             )
