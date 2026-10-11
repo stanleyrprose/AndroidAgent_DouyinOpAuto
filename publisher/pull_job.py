@@ -16,7 +16,7 @@ INCOMING=MEDIA/"incoming"
 READY=MEDIA/"ready"
 FAILED=MEDIA/"failed"
 RUNTIME=Path("/opt/y700/runtime")
-INTAKE=Path(__file__).resolve().parents[1]/"scripts"/"disk-guard.sh"
+INTAKE=Path("/opt/y700/workspaces/y700-agent/scripts/disk-guard.sh")
 
 def sha256(path):
     h=hashlib.sha256()
@@ -29,6 +29,18 @@ def fetch(url,dest):
     req=urllib.request.Request(url,headers={"User-Agent":"Y700Agent/0.3"})
     with urllib.request.urlopen(req,timeout=60) as r, open(dest,"wb") as f:
         shutil.copyfileobj(r,f,1024*1024)
+
+def persist_media(directory: Path, files: list[str]) -> None:
+    """Flush validated media and directory entries before announcing READY."""
+    for name in [*files, "manifest.json"]:
+        with (directory / name).open("rb") as handle:
+            os.fsync(handle.fileno())
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
 
 def fail_dir(work,reason):
     if not work.exists():
@@ -62,8 +74,8 @@ def main():
 
     job_id=manifest["job_id"]
     work=INCOMING/job_id
-    if work.exists():
-        shutil.rmtree(work)
+    if work.exists() or (READY/job_id).exists():
+        raise SystemExit("job already present on Y700; refusing overwrite")
     work.mkdir(parents=True)
     shutil.copy2(manifest_tmp,work/"manifest.json")
     write_json_atomic(work/"state.json",{"status":"PULLING"})
@@ -86,12 +98,30 @@ def main():
                 raise ContractError(f"sha256 mismatch {name}: expected={expected} actual={actual}")
             part.replace(final)
 
+        persist_media(work, files)
         write_json_atomic(work/"state.json",{"status":"VALIDATED","files":files})
         dest=READY/job_id
         if dest.exists():
-            shutil.rmtree(dest)
+            raise ContractError("ready job appeared during pull; refusing overwrite")
         work.replace(dest)
         write_json_atomic(dest/"state.json",{"status":"READY","files":files})
+        # A verified receipt is published only after files and state reach stable storage.
+        write_json_atomic(dest/"transfer-receipt.json", {
+            "schema_version": 1, "status": "TRANSFER_VERIFIED",
+            "job_id": job_id, "files": [
+                {"name": name, "size": (dest / name).stat().st_size,
+                 "sha256": sha256(dest / name)} for name in files
+            ],
+        })
+        persist_media(dest, files)
+        for name in ["state.json", "transfer-receipt.json"]:
+            with (dest / name).open("rb") as handle:
+                os.fsync(handle.fileno())
+        dir_fd = os.open(dest, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
         print(json.dumps({"job_id":job_id,"status":"READY","path":str(dest)},ensure_ascii=False))
     except Exception as e:
         fail_dir(work,str(e))
