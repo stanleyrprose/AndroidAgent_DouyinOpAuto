@@ -81,7 +81,8 @@ class AlbumStoreContractTests(unittest.TestCase):
             root_exec = td / "root-exec.sh"
             root_exec.write_text(
                 f'''#!/bin/bash\nprintf '%s\\n' "$*" >> "{root_log}"\ncase "$*" in\n  *"content query"*) echo "Row: 0 _id=1, _display_name={job.name}.mp4, relative_path=Movies/Y700Agent/" ;;
-  *"sha256sum "*) echo "{manifest['sha256']['video.my.mp4']}  /sdcard/Movies/Y700Agent/{job.name}.mp4" ;;\n  *"ShareReceiverIntentActivity"*) printf "Status: ok\nActivity: com.zui.notes/.home.MainActivity\n" ;;\nesac\n''',
+  *"sha256sum "*) echo "{manifest['sha256']['video.my.mp4']}  /sdcard/Movies/Y700Agent/{job.name}.mp4" ;;\n  *"dumpsys activity activities"*) echo "topResumedActivity=ActivityRecord{{0 u0 com.zui.notes/.home.MainActivity t1}}" ;;
+  *"ShareReceiverIntentActivity"*) printf "Status: ok\nActivity: com.zui.notes/.home.MainActivity\n" ;;\nesac\n''',
                 encoding="utf-8",
             )
             root_exec.chmod(0o755)
