@@ -125,6 +125,9 @@ def inspect_exact_outcome_readonly(
         if backend_type == "ui_workflow":
             positive = (
                 exact
+                and receipt.get("settings_restore_result_version") == 1
+                and receipt.get("request_sha256")
+                    == identity["request_sha256"]
                 and receipt.get("restored_verified") is True
                 and receipt.get("initial_mode") in {"LIGHT", "DARK"}
                 and receipt.get("initial_mode")

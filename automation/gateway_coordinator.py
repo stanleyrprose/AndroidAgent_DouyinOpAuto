@@ -690,12 +690,28 @@ class ForegroundCoordinator:
                     )
             elif adapter_type == "ui_workflow":
                 proof = acknowledgement.get("settings_golden")
+                try:
+                    durable_restore = _read_json(
+                        admitted.path / "settings-restore-result.json")
+                except (OSError, ValueError, CapabilityStoreError):
+                    durable_restore = {}
                 positive_verifier = (
                     resource_safe_to_release
+                    and durable_restore.get("settings_restore_result_version") == 1
+                    and durable_restore.get("capability_job_id") == job_id
+                    and durable_restore.get("backend_job_id") == backend_id
+                    and durable_restore.get("request_sha256")
+                        == admitted.request_sha256
+                    and durable_restore.get("restored_verified") is True
+                    and durable_restore.get("initial_mode") in {"LIGHT", "DARK"}
+                    and durable_restore.get("initial_mode")
+                        == durable_restore.get("restored_mode")
                     and isinstance(proof, Mapping)
                     and proof.get("status") == "VERIFIED"
                     and proof.get("initial_mode")
-                        == proof.get("restored_mode")
+                        == durable_restore.get("initial_mode")
+                    and proof.get("restored_mode")
+                        == durable_restore.get("restored_mode")
                 )
             elif adapter_type == "publisher":
                 business = acknowledgement.get("publisher_outcome")

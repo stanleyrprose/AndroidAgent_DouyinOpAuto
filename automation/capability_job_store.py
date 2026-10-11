@@ -1041,6 +1041,9 @@ class CapabilityStore:
                         _need(restored.get("capability_job_id") == job_id
                               and restored.get("backend_job_id")
                                   == exact_backend_id
+                              and restored.get("request_sha256")
+                                  == identity["request_sha256"]
+                              and restored.get("settings_restore_result_version") == 1
                               and restored.get("restored_verified") is True
                               and restored.get("initial_mode")
                                   == restored.get("restored_mode"),

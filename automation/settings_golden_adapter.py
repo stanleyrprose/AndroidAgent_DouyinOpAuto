@@ -384,6 +384,7 @@ def execute_settings_golden(
             "settings_restore_result_version": 1,
             "capability_job_id": job.job_id,
             "backend_job_id": backend_job_id,
+            "request_sha256": job.request_sha256,
             "initial_mode": mode.value,
             "restored_mode": final.value,
             "restored_verified": True,
