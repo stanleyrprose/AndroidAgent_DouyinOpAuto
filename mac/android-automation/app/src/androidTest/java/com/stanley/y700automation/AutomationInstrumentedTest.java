@@ -1847,6 +1847,18 @@ public class AutomationInstrumentedTest {
         }
         UiObject2 target = matches.get(ordinal);
         JSONObject resolved = elementJson(target);
+        // tapObserved is not the single authorized Capability Publish
+        // dispatch path. An ordinal is mutable UI ordering, never an
+        // irreversible-action authority. Even a mislabeled reversible
+        // action cannot click a known Publish control here.
+        if ("EXTERNAL_IRREVERSIBLE".equals(
+                action.optString("side_effect", ""))
+                || isKnownTikTokPublishControl(target)) {
+            throw new ActionFailure(
+                    "IRREVERSIBLE_OBSERVED_TAP_DENIED",
+                    "tapObserved cannot dispatch external Publish",
+                    false, "BLOCKED");
+        }
         target.click();
         verifyExpectation(action.optJSONObject("expect"), action.optLong("timeout_ms", 15000L));
         return new JSONObject()
@@ -2376,6 +2388,13 @@ public class AutomationInstrumentedTest {
     private JSONObject longClick(JSONObject action) throws Exception {
         UiObject2 target = findUnique(action.optJSONObject("selector"));
         JSONObject resolved = elementJson(target);
+        if ("EXTERNAL_IRREVERSIBLE".equals(
+                action.optString("side_effect", ""))
+                || isKnownTikTokPublishControl(target)) {
+            throw new ActionFailure("IRREVERSIBLE_LONG_CLICK_DENIED",
+                    "longClick cannot dispatch external Publish",
+                    false, "BLOCKED");
+        }
         target.longClick();
         verifyExpectation(action.optJSONObject("expect"), action.optLong("timeout_ms", 10000L));
         return new JSONObject().put("resolved_element", resolved);
@@ -2388,6 +2407,13 @@ public class AutomationInstrumentedTest {
         String text = action.getString("text");
         JSONObject selector = action.optJSONObject("selector");
         UiObject2 target = findUnique(selector);
+        if ("EXTERNAL_IRREVERSIBLE".equals(
+                action.optString("side_effect", ""))
+                || isKnownTikTokPublishControl(target)) {
+            throw new ActionFailure("IRREVERSIBLE_INPUT_TARGET_DENIED",
+                    "inputText cannot dispatch external Publish",
+                    false, "BLOCKED");
+        }
         target.click();
         if (action.optBoolean("clear_first", true)) target.clear();
         target.setText(text);
