@@ -203,7 +203,7 @@ def pull_verify_clean(job_dir: Path, *, ssh_target: str, manifest_url: str,
     job_dir = job_dir.resolve(strict=True)
     receipt = job_dir / "export" / "media-cleanup-receipt.json"
     if intent == "DIRECT_DOWNLOAD":
-        puller = remote_puller or "/opt/y700/workspaces/y700-agent/scripts/pull-artifact-bundle.py"
+        puller = remote_puller or "/opt/y700/deployments/media-current/scripts/pull-artifact-bundle.py"
         if not puller.startswith("/opt/y700/"):
             raise TransferSafetyError("invalid Y700 puller")
         remote_dir = f"/opt/y700/runtime/direct-download/{job_dir.name}"
