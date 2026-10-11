@@ -123,7 +123,9 @@ def golden_change_restore_plan(
     device_contract: str,
 ) -> dict[str, Any]:
     """Plan only; does not issue state token or click."""
-    if current.value not in _MODES:
+    # A mode name alone is not sufficient: prevent a caller-constructed
+    # SettingsMode with swapped resource IDs from reversing restore intent.
+    if current.value not in _MODES or current != _MODES[current.value]:
         raise SettingsGoldenUnavailable("SETTINGS_MODE_AMBIGUOUS")
     if type(observed_revision) is not int or observed_revision < 0:
         raise SettingsGoldenUnavailable("STATE_REVISION_UNAVAILABLE")
@@ -187,6 +189,26 @@ def _checked_from_find(result: Mapping[str, Any],
     raise SettingsGoldenUnavailable("SETTINGS_MODE_EVIDENCE_UNAVAILABLE")
 
 
+def _require_exact_settings_action_receipts(
+    result: Mapping[str, Any], actions: list[dict[str, Any]],
+) -> None:
+    """A top-level PASS cannot hide skipped or failed UI mutations.
+
+    All requested action IDs must appear exactly once, in original order,
+    with individually positive receipts before a Settings subjob can be
+    recorded as durably complete. Missing evidence remains uncertain.
+    """
+    rows = result.get("actions")
+    if (not isinstance(rows, list) or len(rows) != len(actions)):
+        raise SettingsGoldenUnavailable("SETTINGS_ACTION_RECEIPTS_INCOMPLETE")
+    for expected, observed in zip(actions, rows):
+        if (not isinstance(observed, dict)
+                or observed.get("action_id") != expected.get("action_id")
+                or observed.get("action") != expected.get("action")
+                or observed.get("status") != "PASS"):
+            raise SettingsGoldenUnavailable("SETTINGS_ACTION_RECEIPTS_INCOMPLETE")
+
+
 def _run_bound_settings_actions(
     job: Any, *, step: str, actions: list[dict[str, Any]],
     guard: Mapping[str, Any],
@@ -200,7 +222,7 @@ def _run_bound_settings_actions(
     from automation import ui_job, resource_arbiter
     from automation.subjob_provenance import bind_subordinate_job
     from automation.capability_job_store import (
-        _need, _root_dir, _atomic_new,
+        _need, _root_dir, _atomic_new, _sha,
     )
     from pathlib import Path
 
@@ -241,14 +263,21 @@ def _run_bound_settings_actions(
         # Preserve the original request/provenance when completion is
         # unknown; never delete evidence and silently issue the same ID.
         raise SettingsGoldenUnavailable("SETTINGS_SUBJOB_RECONCILE_REQUIRED")
+    # A successful aggregate alone does not establish that every requested
+    # mutation ran and returned its own positive acknowledgement.
+    _require_exact_settings_action_receipts(result, actions)
     # Durable completion receipt before returning to the parent Backend.
     # Do not store screenshots, raw selectors or a second mutation plan.
     _atomic_new(request_root / (job_id + ".receipt.json"), {
         "settings_subjob_receipt_version": 1,
         "capability_job_id": job.job_id,
         "backend_job_id": backend_job_id,
+        "request_sha256": job.request_sha256,
         "subjob_id": job_id,
         "subjob_status": "PASS",
+        "subjob_request_sha256": _sha(request),
+        "subjob_provenance_sha256": _sha(provenance.to_record()),
+        "completed_action_ids": [action["action_id"] for action in actions],
         "claim_id": current.get("claim_id"),
         "owner_id": current.get("owner_id"),
         "request_path_retained": True,
