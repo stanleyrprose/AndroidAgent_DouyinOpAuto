@@ -2439,6 +2439,13 @@ public class AutomationInstrumentedTest {
     private JSONObject clearText(JSONObject action) throws Exception {
         JSONObject selector = action.optJSONObject("selector");
         UiObject2 target = findUnique(selector);
+        if ("EXTERNAL_IRREVERSIBLE".equals(
+                action.optString("side_effect", ""))
+                || isKnownTikTokPublishControl(target)) {
+            throw new ActionFailure("IRREVERSIBLE_CLEAR_TARGET_DENIED",
+                    "clearText cannot mutate an external Publish control",
+                    false, "BLOCKED");
+        }
         target.clear();
         UiObject2 refreshed = findUnique(selector);
         String actual = refreshed.getText();
