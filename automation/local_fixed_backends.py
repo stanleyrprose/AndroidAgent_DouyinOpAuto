@@ -154,6 +154,9 @@ class LocalFixedBackend:
                 and execution.get("submission_possible") is False
                 and state.get("backend_submitted") is False
                 and state.get("mutation_uncertain") is False
+                and state.get("effect_uncertain") is False
+                and not (job.admitted.path / "cancel.json").exists()
+                and not (job.admitted.path / "effect-boundary.json").exists()
                 and not (job.admitted.path / "result.json").exists()
             )
             return {

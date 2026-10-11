@@ -645,21 +645,49 @@ class ForegroundCoordinator:
             # accepted verifier receipt may enter result.json/archive.
             adapter_type = invocation.backend_type
             positive_verifier = False
-            if adapter_type == "observation":
-                positive_verifier = (
-                    acknowledgement.get("backend_synchronous_complete")
-                        is True
-                    and isinstance(acknowledgement.get("read_only_authority"),
-                                   Mapping)
-                    and acknowledgement["read_only_authority"].get("status")
-                        == "READ_ONLY_SOT_OBSERVED"
+            if adapter_type in {"observation", "root_exec"}:
+                # The adapter's ACK is transport evidence, not a terminal
+                # verifier. Reopen the immutable, exact-job result persisted
+                # by the fixed backend before declaring VERIFIED.
+                result_name = ("observation-result.json"
+                               if adapter_type == "observation"
+                               else "root-result.json")
+                try:
+                    durable_result = _read_json(admitted.path / result_name)
+                except (OSError, ValueError, CapabilityStoreError):
+                    durable_result = {}
+                identity_ok = (
+                    durable_result.get("capability_job_id") == job_id
+                    and durable_result.get("backend_job_id") == backend_id
+                    and durable_result.get("request_sha256")
+                        == admitted.request_sha256
                 )
-            elif adapter_type == "root_exec":
-                positive_verifier = (
-                    acknowledgement.get("root_epoch_advanced") is True
-                    and acknowledgement.get("ui_mutators_quiesced_positive")
-                        is True
-                )
+                if adapter_type == "observation":
+                    positive_verifier = (
+                        identity_ok
+                        and durable_result.get("observation_result_version") == 1
+                        and durable_result.get("authoritative_state_observed")
+                            is True
+                        and durable_result.get("read_only") is True
+                        and acknowledgement.get("backend_synchronous_complete")
+                            is True
+                        and isinstance(acknowledgement.get("read_only_authority"),
+                                       Mapping)
+                        and acknowledgement["read_only_authority"].get("status")
+                            == "READ_ONLY_SOT_OBSERVED"
+                    )
+                else:
+                    positive_verifier = (
+                        identity_ok
+                        and durable_result.get("root_result_version") == 1
+                        and durable_result.get("fixed_maintenance_contract_id")
+                            == "read-only-system-info.v1"
+                        and durable_result.get("root_epoch_advanced") is True
+                        and durable_result.get("command_exited_zero") is True
+                        and acknowledgement.get("root_epoch_advanced") is True
+                        and acknowledgement.get("ui_mutators_quiesced_positive")
+                            is True
+                    )
             elif adapter_type == "ui_workflow":
                 proof = acknowledgement.get("settings_golden")
                 positive_verifier = (
