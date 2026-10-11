@@ -93,6 +93,27 @@ class MediaLifecycleTest(unittest.TestCase):
                 self.run_clean()
         self.assertTrue(self.video.exists())
 
+    def test_direct_one_click_network_failure_retains_source(self):
+        from pipeline.media_lifecycle import pull_verify_clean
+        from pipeline.common import atomic_json
+        import json
+        source = self.root / "source"
+        source.mkdir(exist_ok=True)
+        original = source / "original.mp4"
+        original.write_bytes(b"network failure fixture")
+        atomic_json(source / "source.json", {"video_path": str(original)})
+        with patch("pipeline.media_lifecycle.subprocess.run") as run:
+            run.return_value.returncode = 255
+            with self.assertRaisesRegex(TransferSafetyError, "Y700 pull failed"):
+                pull_verify_clean(self.root, ssh_target="y700", manifest_url="https://example.com/cap/manifest.json", intent="DIRECT_DOWNLOAD")
+        self.assertTrue(original.exists())
+        self.assertFalse((self.root / "export" / "media-cleanup-receipt.json").exists())
+
+    def test_direct_one_click_rejects_invalid_url(self):
+        from pipeline.media_lifecycle import pull_verify_clean
+        with self.assertRaisesRegex(TransferSafetyError, "HTTPS"):
+            pull_verify_clean(self.root, ssh_target="y700", manifest_url="http://example.com/manifest.json", intent="DIRECT_DOWNLOAD")
+
     def test_missing_artifact_refuses(self):
         self.video.unlink()
         with self.assertRaises(FileNotFoundError):

@@ -191,27 +191,79 @@ def _finish_cleanup(job_dir: Path, record: Path, receipt: dict) -> dict:
 
 
 def pull_verify_clean(job_dir: Path, *, ssh_target: str, manifest_url: str,
-                      remote_puller: str = "/opt/y700/deployments/media-cleanup-874f344/publisher/pull_job.py") -> dict:
-    """Invoke Y700 pull, then independently verify persistence before cleanup."""
+                      intent: str = "AUTO_PUBLISH",
+                      remote_puller: str | None = None) -> dict:
+    """One-command Y700 pull -> persisted receipt -> independently verified Mac cleanup."""
     from urllib.parse import urlparse
     u = urlparse(manifest_url)
     if u.scheme != "https" or not u.hostname or u.username or u.password:
         raise TransferSafetyError("manifest URL must be HTTPS")
     if not re.fullmatch(r"[A-Za-z0-9_.@-]+", ssh_target):
         raise TransferSafetyError("invalid SSH target")
-    if not remote_puller.startswith("/opt/y700/"):
-        raise TransferSafetyError("remote puller must be within Y700 app")
     job_dir = job_dir.resolve(strict=True)
-    cmd = "python3 " + shlex.quote(remote_puller) + " " + shlex.quote(manifest_url)
-    p = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
-                        ssh_target, cmd], capture_output=True, text=True, timeout=600, check=False)
+    receipt = job_dir / "export" / "media-cleanup-receipt.json"
+    if intent == "DIRECT_DOWNLOAD":
+        puller = remote_puller or "/opt/y700/workspaces/y700-agent/scripts/pull-artifact-bundle.py"
+        if not puller.startswith("/opt/y700/"):
+            raise TransferSafetyError("invalid Y700 puller")
+        remote_dir = f"/opt/y700/runtime/direct-download/{job_dir.name}"
+        remote_path = remote_dir + "/original.mp4"
+        source = read_json(job_dir / "source" / "source.json")
+        source_path = Path(source.get("video_path", "")) if isinstance(source, dict) else Path("")
+        if not source_path.is_relative_to(job_dir) or not source_path.is_file():
+            # Source metadata may reference a previous Mac release directory.
+            candidates = sorted((job_dir / "source").rglob("*.mp4"))
+            if len(candidates) == 1 and not candidates[0].is_symlink():
+                source_path = candidates[0]
+        if not source_path.is_relative_to(job_dir) or not source_path.is_file():
+            # A completed journal is resumable even after source media was deleted.
+            if not receipt.exists():
+                raise TransferSafetyError("source media unavailable")
+            artifact = read_json(receipt)["artifact"]
+        else:
+            artifact = str(source_path.relative_to(job_dir))
+        if receipt.exists():
+            return verify_and_clean(job_dir, ssh_target=ssh_target,
+                                    device_path=remote_path, artifact=artifact)
+        command = ("python3 " + shlex.quote(puller) + " --manifest-url " +
+                   shlex.quote(manifest_url) + " --target-root /opt/y700/runtime/direct-download")
+        expected_status = "PASS"
+    elif intent in {"AUTO_PUBLISH", "STORE_ALBUM"}:
+        puller = remote_puller or "/opt/y700/deployments/media-cleanup-874f344/publisher/pull_job.py"
+        if not puller.startswith("/opt/y700/"):
+            raise TransferSafetyError("invalid Y700 puller")
+        remote_path = f"/opt/y700/media/ready/{job_dir.name}/video.mp4"
+        artifact = "production/video.my.mp4"
+        if receipt.exists():
+            return verify_and_clean(job_dir, ssh_target=ssh_target,
+                                    device_path=remote_path, artifact=artifact)
+        command = "python3 " + shlex.quote(puller) + " " + shlex.quote(manifest_url)
+        expected_status = "READY"
+    else:
+        raise TransferSafetyError("unsupported workflow intent")
+    try:
+        p = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+                            ssh_target, command], capture_output=True, text=True,
+                           timeout=600, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise TransferSafetyError("Y700 pull unavailable; Mac media retained") from exc
     if p.returncode:
         raise TransferSafetyError("Y700 pull failed; Mac media retained")
     try:
         result = json.loads(p.stdout.strip().splitlines()[-1])
     except (IndexError, ValueError) as exc:
         raise TransferSafetyError("invalid Y700 pull result") from exc
-    if result.get("status") != "READY" or result.get("job_id") != job_dir.name:
+    if result.get("status") != expected_status or result.get("job_id") != job_dir.name:
         raise TransferSafetyError("Y700 pull job mismatch")
+    if intent == "DIRECT_DOWNLOAD":
+        # The generic puller validates SHA-256 and .complete, but does not fsync.
+        # A separate Y700-side finalizer performs durable verification and receipt.
+        finalize = "/opt/y700/deployments/media-cleanup-874f344/finalize_direct.py"
+        p = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+                            ssh_target, "python3 " + shlex.quote(finalize) + " " +
+                            shlex.quote(job_dir.name)], capture_output=True, text=True,
+                           timeout=90, check=False)
+        if p.returncode or p.stdout.strip() != "TRANSFER_VERIFIED":
+            raise TransferSafetyError("Y700 direct download persistence failed; Mac media retained")
     return verify_and_clean(job_dir, ssh_target=ssh_target,
-                            device_path=f"/opt/y700/media/ready/{job_dir.name}/video.mp4")
+                            device_path=remote_path, artifact=artifact)

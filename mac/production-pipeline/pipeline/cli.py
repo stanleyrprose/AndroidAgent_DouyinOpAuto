@@ -467,7 +467,8 @@ def cmd_pull_verify_clean(args) -> int:
     if not handoff or not handoff.get("manifest_url"):
         raise RuntimeError("missing export handoff manifest")
     result = pull_verify_clean(job.dir, ssh_target=args.ssh_target,
-                               manifest_url=handoff["manifest_url"])
+                               manifest_url=handoff["manifest_url"],
+                               intent=job.state().get("workflow_intent", "AUTO_PUBLISH"))
     job.write_state(job.state().get("state", "EXPORTED"),
                     media_cleanup_status=result["status"])
     print(json.dumps({"status": result["status"], "job_id": job.job_id}, ensure_ascii=False))
