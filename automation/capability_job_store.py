@@ -43,6 +43,62 @@ _ARCHIVE_CLASS = {
 }
 
 
+def inspect_public_commit_authority_readonly(
+        source: Path, *, capability_job_id: str,
+        backend_job_id: str, request_sha256: str,
+        effective_policy_sha256: str,
+        content_sha256: str, caption_sha256: str) -> bool:
+    """Match one-use approval to the sole fsynced effect crossing.
+
+    No missing/corrupt/symlinked authority is ever interpreted as a
+    successful COMMIT. Both recovery and terminalization use this rule.
+    """
+    try:
+        approval_path = source / "approval.json"
+        effect_path = source / "effect-boundary.json"
+        if (approval_path.is_symlink() or effect_path.is_symlink()
+                or not approval_path.is_file() or not effect_path.is_file()):
+            return False
+        approval = _read_json(approval_path)
+        effect = _read_json(effect_path)
+        return (
+            approval.get("approval_version") == 1
+            and approval.get("approved") is True
+            and approval.get("single_use") is True
+            and approval.get("capability") == "tiktok.publish"
+            and approval.get("capability_version") == "1.0"
+            and approval.get("job_id") == capability_job_id
+            and approval.get("request_sha256") == request_sha256
+            and approval.get("effective_policy_sha256")
+                == effective_policy_sha256
+            and approval.get("content_sha256") == content_sha256
+            and approval.get("caption_sha256") == caption_sha256
+            and approval.get("visibility") == "PUBLIC"
+            and isinstance(approval.get("approval_id"), str)
+            and bool(approval["approval_id"])
+            and isinstance(approval.get("approval_nonce"), str)
+            and bool(approval["approval_nonce"])
+            and effect.get("effect_boundary_version") == 1
+            and effect.get("phase") == "EFFECT_BOUNDARY_CROSSED"
+            and effect.get("boundary") == "before_final_publish"
+            and effect.get("capability") == "tiktok.publish"
+            and effect.get("capability_job_id") == capability_job_id
+            and effect.get("backend_job_id") == backend_job_id
+            and effect.get("request_sha256") == request_sha256
+            and effect.get("effective_policy_sha256")
+                == effective_policy_sha256
+            and effect.get("content_sha256") == content_sha256
+            and effect.get("visibility") == "PUBLIC"
+            and effect.get("approval_id") == approval["approval_id"]
+            and effect.get("approval_nonce") == approval["approval_nonce"]
+            and effect.get("approval_sha256") == _sha(approval)
+            and effect.get("external_effect_attempts_allowed") == 1
+            and effect.get("external_effect_attempts_observed") == 0
+        )
+    except (OSError, ValueError, TypeError, CapabilityStoreError):
+        return False
+
+
 class CapabilityStoreError(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
@@ -1016,6 +1072,16 @@ class CapabilityStore:
                         else:
                             _need(payload.get("publish_mode") == "COMMIT",
                                   "PUBLISHER_MODE_INVALID")
+                            _need(inspect_public_commit_authority_readonly(
+                                source,
+                                capability_job_id=job_id,
+                                backend_job_id=exact_backend_id,
+                                request_sha256=identity["request_sha256"],
+                                effective_policy_sha256=identity[
+                                    "effective_policy_sha256"],
+                                content_sha256=payload.get("content_sha256"),
+                                caption_sha256=payload.get("caption_sha256")),
+                                "PUBLISHER_PUBLIC_COMMIT_AUTHORITY_UNVERIFIED")
                             published = Path("/opt/y700/media/published")
                             receipt = _read_json(
                                 published / publisher_id / "publish-result.json")

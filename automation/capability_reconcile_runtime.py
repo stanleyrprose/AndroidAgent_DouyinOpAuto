@@ -16,7 +16,7 @@ from typing import Any
 
 from automation.capability_job_store import (
     CAP_JOBS, CapabilityStore, CapabilityStoreError,
-    _read_json, _sha,
+    _read_json, _sha, inspect_public_commit_authority_readonly,
 )
 from automation.recovery_inventory import inspect_active_exact_readonly
 
@@ -258,6 +258,22 @@ def inspect_exact_outcome_readonly(
         }
     if payload.get("publish_mode") != "COMMIT":
         raise CapabilityStoreError("RECONCILE_PUBLISH_MODE_INVALID")
+    if not inspect_public_commit_authority_readonly(
+            active,
+            capability_job_id=capability_job_id,
+            backend_job_id=backend_id,
+            request_sha256=identity["request_sha256"],
+            effective_policy_sha256=identity["effective_policy_sha256"],
+            content_sha256=payload.get("content_sha256"),
+            caption_sha256=payload.get("caption_sha256")):
+        return {
+            "status": "RECONCILE_REQUIRED",
+            "reason_code": "PUBLIC_COMMIT_AUTHORITY_UNVERIFIED",
+            "capability_job_id": capability_job_id,
+            "backend_job_id": backend_id,
+            "effect_retry_allowed": False,
+            "state_mutated": False,
+        }
     published = _PUBLISHED / publisher_id / "publish-result.json"
     if not published.exists() or published.is_symlink():
         # A crash may occur between the durable Profile result write and
