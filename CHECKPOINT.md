@@ -1122,3 +1122,11 @@ Scope: close instrumentation launch/evidence/health-check issues only. Frozen OC
 - Local acceptance: 44 Mac Python tests PASS, including 19 new tests without third-party packages; Swift OCR and batch renderer compile/typecheck PASS; 6-second synthetic visual-only source gives three independent OCR events and timed Myanmar overlay cues; final MP4 duration 6.000 seconds, local Q3 PASS; contact image manually inspected.
 - **NOT accepted**: real 24+2 Douyin sample GT recall/precision KPI, field OCR benchmarking, Myanmar native-speaking semantic/shaping review, R0/R2 human release gates, zero-touch production activation, and any real TikTok COMMIT. These gates MUST remain independent; Git merge does not authorize production dynamic mode.
 - Activation guard: dynamic mode disabled by default; legacy subtitle workflow and DIRECT_DOWNLOAD unchanged. Without later accepted R0/R2 evidence and separate production authorization, do not set `Y700_SUBTITLE_MODE=dynamic_v04` or issue `--dynamic-subtitles` for real publishing.
+
+## Y700 Antigravity CLI via Bangkok VPS — DEVICE BASELINE PASS (accepted 2026-10-11)
+
+- Scope: independently operating Y700's official `agy 1.3.3` via `agy-bkk`, Debian chroot, on-demand Privoxy + SSH SOCKS5/autossh egress through the pre-existing Bangkok VPS; Mac mini and USB are not in the runtime dependency chain.
+- Evidence: Y700 dedicated SSH key authentication PASS; loopback SSH SOCKS5/Privoxy listeners present; proxy exit matched the intended Bangkok VPS while direct exit differed; `agy-bkk --version` PASS; authenticated `gemini-3.8-flash-low` model returned `Y700_BKK_GEMINI_OK`; owner confirmed successful interactive use.
+- Security: private SSH keys, Google OAuth tokens, account/VPS identifiers and runtime-only settings remain outside Git. The launcher checks expected egress before invoking agy and fails closed on unavailable proxy.
+- Boundary: no reboot, Android sleep/background-kill, Wi-Fi/hotspot transition or long-duration OAuth renewal acceptance is claimed. No Android global network or publisher/automation authorization changed; startup remains on demand.
+- Public-safe runbook and evidence: `docs/Y700-AGY-BKK-VERIFIED-BASELINE-2026-10-11.md`. Documentation records the accepted live-device state; it is not a byte-for-byte deployment artifact for private runtime configuration.
