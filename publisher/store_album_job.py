@@ -170,7 +170,12 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         raise AlbumStoreError("invalid album name")
     previous = existing_result(job_id)
     if previous:
-        return {**previous, "idempotent": True}
+        # A stale receipt is not proof that Android still holds the media.
+        destination = previous.get("device_path", "")
+        if destination and destination.startswith(f"/sdcard/Movies/{album}/"):
+            probe = root_exec(f"test -s {shlex.quote(destination)}", check=False, timeout_ms=10000)
+            if probe.returncode == 0:
+                return {**previous, "idempotent": True}
 
     job = READY / job_id
     if not job.is_dir():
@@ -199,6 +204,16 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         write_state("STORING_IN_ALBUM", job_id, album=album, initial_power_state=initial)
 
         video = str(manifest["video_file"])
+        source_file = job / video
+        expected_sha256 = manifest["sha256"][video].lower()
+        if not source_file.is_file():
+            raise AlbumStoreError("READY video missing")
+        digest = hashlib.sha256()
+        with source_file.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != expected_sha256:
+            raise AlbumStoreError("READY video checksum mismatch")
         src = f"{HOST_READY}/{job_id}/{video}"
         album_dir = f"/sdcard/Movies/{album}"
         display_name = f"{job_id}.mp4"
@@ -214,6 +229,9 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
             f"mkdir -p {q_album}; cp {q_src} {q_part}; chmod 644 {q_part}; mv -f {q_part} {q_dst}",
             timeout_ms=30000,
         )
+        copied_hash = root_exec(f"sha256sum {q_dst}", timeout_ms=30000).stdout.strip().split()[0].lower()
+        if copied_hash != expected_sha256:
+            raise AlbumStoreError("Android album video checksum mismatch")
         root_exec(
             f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{dst} >/dev/null",
             timeout_ms=10000,

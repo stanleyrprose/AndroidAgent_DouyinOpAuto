@@ -62,7 +62,27 @@ bash "$TG_NOTIFY" TRANSFERRING "$JOB_ID" --detail "正在传输到 Y700 相册 $
 
 # Capability URL is intentionally never echoed. Pull is idempotent at job scope;
 # album storage is non-destructive for every other file in the album.
-remote "cd /opt/y700/workspaces/y700-agent && python3 publisher/pull_job.py '$manifest_url'" >/dev/null
+# The resumable puller lives behind the verified media deployment pointer.
+# An already READY job is reused only when its media still matches its manifest.
+remote "python3 - '$JOB_ID' '$manifest_url' <<'PYREMOTE'
+import hashlib,json,subprocess,sys
+from pathlib import Path
+job_id,url=sys.argv[1:]
+ready=Path('/opt/y700/media/ready')/job_id
+manifest=ready/'manifest.json'
+if ready.is_dir():
+    if not manifest.is_file():
+        raise SystemExit('READY manifest missing')
+    data=json.loads(manifest.read_text())
+    if data.get('job_id')!=job_id:
+        raise SystemExit('READY job mismatch')
+    for name,digest in data['sha256'].items():
+        artifact=ready/name
+        if not artifact.is_file() or hashlib.sha256(artifact.read_bytes()).hexdigest()!=digest.lower():
+            raise SystemExit('READY media checksum mismatch')
+else:
+    subprocess.run(['python3','/opt/y700/deployments/media-current/publisher/pull_job.py',url],check=True)
+PYREMOTE" >/dev/null
 store_json="$(remote "cd /opt/y700/workspaces/y700-agent && ./scripts/store-to-album.sh '$JOB_ID' '$ALBUM'")"
 
 read -r status device_path note_saved < <(python3 - "$store_json" <<'PY'
