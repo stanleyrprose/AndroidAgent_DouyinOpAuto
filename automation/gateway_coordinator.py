@@ -816,15 +816,43 @@ class ForegroundCoordinator:
             return _blocked(exc.code, job_id, phase="STATUS")
 
     def reconcile(self, job_id: str) -> dict[str, Any]:
-        """No automatic replay, unlock, resource reset or repeated COMMIT."""
-        current = self.status(job_id)
-        if current.get("status") == "BLOCKED":
-            return current
+        """Inspect exact durable outcome; never replay, release or archive.
+
+        A positive receipt is a proposal for separately authorized final
+        reconciliation, not permission for this foreground API to mutate.
+        """
+        from automation.capability_reconcile_runtime import (
+            inspect_exact_outcome_readonly,
+        )
+        try:
+            current = self.store.observe(job_id)
+            evidence = inspect_exact_outcome_readonly(
+                job_id, store=self.store)
+        except (CapabilityStoreError, OSError, ValueError) as exc:
+            return {
+                **_blocked(getattr(exc, "code", "RECONCILE_EVIDENCE_UNAVAILABLE"),
+                           job_id, phase="BACKEND_RECONCILE"),
+                "backend_replayed": False,
+                "capability_state_mutated": False,
+            }
         return {
-            "status": "RECONCILE_REQUIRED",
+            "status": "RECONCILE_INSPECTED_READ_ONLY",
             "capability_job_id": job_id,
-            "next_action": "EXACT_BACKEND_AND_EFFECT_OBSERVATION",
+            "capability_terminal": current.get("terminal") is True,
+            "durable_outcome_status": evidence.get("status", "UNKNOWN"),
+            "reason_code": evidence.get("reason_code"),
+            "backend_job_id": evidence.get("backend_job_id"),
+            "next_action": (
+                "SEPARATELY_AUTHORIZED_EXACT_FINALIZATION"
+                if evidence.get("status") in {
+                    "POSITIVE_PROFILE_VERIFIER_OBSERVED",
+                    "POSITIVE_BACKEND_VERIFIER_OBSERVED",
+                    "TERMINAL_ARCHIVE_PENDING_READ_ONLY",
+                    "PUBLISHER_ARCHIVE_PENDING",
+                } else "EXACT_BACKEND_AND_EFFECT_OBSERVATION"
+            ),
             "backend_replayed": False,
-            "external_effect_attempts": 0,
+            "external_effect_retry_allowed": False,
+            "capability_state_mutated": False,
             "execution_authorized": False,
         }

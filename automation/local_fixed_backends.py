@@ -88,7 +88,9 @@ class LocalFixedBackend:
         ident = _read_json(source / "identity.json")
         record = _read_json(source / "backend.json")
         request = _read_json(source / "request.json")
-        _require(record.get("backend_job_id") == backend_id
+        policy = _read_json(source / "effective_policy.json")
+        _require(_sha(policy) == ident.get("effective_policy_sha256")
+                 and record.get("backend_job_id") == backend_id
                  and record.get("backend_type") == backend_type
                  and record.get("capability_job_id") == cap_id
                  and ident.get("capability_job_id") == cap_id
