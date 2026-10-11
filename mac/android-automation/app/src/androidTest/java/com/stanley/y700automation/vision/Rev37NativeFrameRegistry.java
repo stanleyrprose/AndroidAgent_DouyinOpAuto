@@ -254,8 +254,22 @@ public final class Rev37NativeFrameRegistry {
                     && locatorBounds != null && locatorNonce != null
                     && frameToken != null && locator != null) {
                 JSONArray area = locator.optJSONArray("bounds");
-                if (area != null && area.length() == 4) {
-                    match = nonce.equals(frameToken.optString("frame_id"))
+                if (area != null && area.length() == 4
+                        && locator.length() == 5
+                        && Boolean.FALSE.equals(locator.opt("ambiguous"))
+                        && LOCATOR.equals(locator.optString(
+                                "locator_contract_version", ""))) {
+                    boolean exactIntegerBounds = true;
+                    for (int i = 0; i < 4; i++) {
+                        try {
+                            if (!(area.get(i) instanceof Integer))
+                                exactIntegerBounds = false;
+                        } catch (Exception ignored) {
+                            exactIntegerBounds = false;
+                        }
+                    }
+                    match = exactIntegerBounds
+                            && nonce.equals(frameToken.optString("frame_id"))
                             && nonce.equals(locator.optString("frame_id"))
                             && locatorNonce.equals(nonce)
                             && issuedAt == frameToken.optLong(
