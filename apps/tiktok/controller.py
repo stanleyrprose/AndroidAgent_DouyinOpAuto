@@ -70,10 +70,64 @@ _CURRENT_UI_GUARD: contextvars.ContextVar[
 
 
 @contextmanager
+def capability_ui_claim_scope(
+    *,
+    trusted_resource_guard: dict[str, str],
+    capability_job_id: str,
+    backend_job_id: str,
+    request_sha256: str,
+):
+    """Adopt exactly one upstream Gateway claim; never acquire it twice.
+
+    The caller must be a trusted, authenticated top-level Gateway adapter;
+    model/workflow payloads cannot grant themselves this scope. Every Core
+    mutation independently reasserts exact current Claim ownership.
+    """
+    current = _CURRENT_UI_GUARD.get()
+    if current is not None:
+        raise TikTokCoreError("NESTED_CAPABILITY_CLAIM_DENIED")
+    if any(not isinstance(value, str) or not value for value in (
+        capability_job_id, backend_job_id, request_sha256,
+    )):
+        raise TikTokCoreError("CAPABILITY_RESOURCE_IDENTITY_INVALID")
+    try:
+        claim = resource_arbiter.assert_guard(trusted_resource_guard)
+    except resource_arbiter.ResourceError as exc:
+        raise TikTokCoreError("STALE_RESOURCE_OWNERSHIP") from exc
+    if not (
+        claim.get("owner_kind") == "CAPABILITY"
+        and claim.get("capability_job_id") == capability_job_id
+        and claim.get("backend_job_id") == backend_job_id
+        and claim.get("request_sha256") == request_sha256
+        and claim.get("resource") == "android_ui"
+        and claim.get("claim_id") == trusted_resource_guard.get("claim_id")
+        and claim.get("owner_id") == trusted_resource_guard.get("owner_id")
+    ):
+        raise TikTokCoreError("CAPABILITY_RESOURCE_IDENTITY_MISMATCH")
+    # Lifetime is owned by the TOP-LEVEL Gateway resource context, not by
+    # this Controller. Re-check exact claim before and after the scoped body.
+    inherited = resource_arbiter.ResourceGuard(
+        "android_ui", claim["claim_id"], claim["owner_id"])
+    handle = _CURRENT_UI_GUARD.set(inherited)
+    try:
+        resource_arbiter.assert_guard(inherited.as_dict())
+        yield inherited
+        resource_arbiter.assert_guard(inherited.as_dict())
+    finally:
+        _CURRENT_UI_GUARD.reset(handle)
+
+
+@contextmanager
 def ui_lease(timeout_sec: int = 300):
     """Shared Rev3.6 android_ui ownership; nested callers reuse one claim."""
     current = _CURRENT_UI_GUARD.get()
     if current is not None:
+        # Reuse the SAME canonical owner and reassert the durable identity
+        # before the inner controller call; never nested-flock reacquire.
+        try:
+            resource_arbiter.assert_guard(current.as_dict())
+        except resource_arbiter.ResourceError as exc:
+            raise TikTokCoreError("STALE_RESOURCE_OWNERSHIP") from exc
         yield current
         return
 
@@ -680,7 +734,9 @@ def prepare_dry_run(
         }
 
 
-def build_commit_actions(caption: str) -> list[dict[str, Any]]:
+def build_commit_actions(
+    caption: str, *, capability_bound: bool = False,
+) -> list[dict[str, Any]]:
     """Revalidate POST_CONFIG, then dispatch exactly one irreversible Publish click."""
     return [
         {
@@ -707,6 +763,8 @@ def build_commit_actions(caption: str) -> list[dict[str, Any]]:
             "action_id": "commit-publish",
             "action": "click",
             "selector": publish_button_selector(),
+            **({"route_contract_id": "tiktok.publish-control.v1"}
+               if capability_bound else {}),
             "side_effect": "EXTERNAL_IRREVERSIBLE",
         },
     ]
@@ -719,6 +777,7 @@ def commit_public(
     visibility: str = "PUBLIC",
     album: str = ALBUM,
     before_irreversible: Callable[[], None] | None = None,
+    capability_bound: bool = False,
 ) -> dict[str, Any]:
     """Prepare generically, persist COMMITTING, then dispatch Publish exactly once."""
     if not caption:
@@ -732,7 +791,8 @@ def commit_public(
 
     with ui_lease():
         ready = _run_single_session_dry_run(caption, album)
-        commit_actions = build_commit_actions(caption)
+        commit_actions = build_commit_actions(
+            caption, capability_bound=capability_bound)
         precommit = _run(
             "commit-preflight",
             commit_actions[:-1],

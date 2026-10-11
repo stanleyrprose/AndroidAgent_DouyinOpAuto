@@ -21,6 +21,9 @@ if str(ROOT) not in sys.path:
 
 from apps.tiktok import controller as generic_tiktok
 from automation import resource_arbiter, state_integrity
+from automation.publisher_boundary_guard import (
+    read_gateway_binding, verify_before_publisher_committing,
+)
 
 READY=Path("/opt/y700/media/ready")
 PUBLISHED=Path("/opt/y700/media/published")
@@ -246,6 +249,22 @@ def main():
         raise SystemExit("job_id mismatch")
     metadata=load_metadata(job,manifest)
     mode=manifest["publish_mode"]
+    # Detect a Gateway claim for BOTH DRY_RUN and COMMIT before entering
+    # Legacy unlock/preflight. A Gateway-bound DRY_RUN launched via the
+    # old CLI must not silently wake/unlock or acquire a second UI owner.
+    gateway_binding=read_gateway_binding(job,manifest)
+    if gateway_binding is not None:
+        # A Gateway-controlled Publisher cannot reuse the legacy process
+        # entrypoint: it would auto-wake and acquire a second LEGACY claim.
+        # The trusted foreground Gateway must call the scoped executor
+        # with its own verified exact claim and precommit observer.
+        from publisher.gateway_execution import execute_gateway_bound
+        return execute_gateway_bound(
+            publisher_job=job, manifest=manifest,
+            binding=gateway_binding,
+            trusted_runtime_context=None,
+            trusted_effect_callback=None,
+        )
     visibility=str(metadata.get("visibility",manifest.get("visibility","PUBLIC"))).upper()
     title=str(metadata.get("title",manifest.get("title",""))).strip()
     caption=read_text(job/manifest["caption_file"])
@@ -327,6 +346,13 @@ def main():
                    ui_engine="androidx-uiautomator-2.4",
                    caption_verified=True,
                    visibility="PUBLIC")
+            # Rev3.7 Gateway-bound jobs must have the exact durable
+            # capability effect boundary and consumed approval BEFORE
+            # Publisher writes COMMITTING. Legacy remains allowed only
+            # while the source migration gate is explicitly disabled.
+            verify_before_publisher_committing(
+                job=job, manifest=manifest,
+                gateway_binding=gateway_binding)
             update("COMMITTING",args.job_id,
                    ui_engine="androidx-uiautomator-2.4",
                    visibility="PUBLIC")
@@ -355,8 +381,10 @@ def main():
 
         PUBLISHED.mkdir(parents=True,exist_ok=True)
         dest=PUBLISHED/args.job_id
-        if dest.exists():
-            shutil.rmtree(dest)
+        # A prior published archive is immutable evidence. Never delete it
+        # to make a second COMMIT appear successful (including Legacy).
+        if dest.exists() or dest.is_symlink():
+            raise PublishError("PUBLISHED_JOB_IDENTITY_CONFLICT_RECONCILE_REQUIRED")
         job.replace(dest)
         write_json_atomic(dest/"publish-result.json",{
             "status":"PUBLISHED",
@@ -376,7 +404,7 @@ def main():
         else:
             # Generic Core does not switch the system default IME.
             pass
-        if mode=="COMMIT" and commit_entered:
+        if mode=="COMMIT" and (commit_entered or gateway_binding is not None):
             update("AMBIGUOUS_COMMIT_NEEDS_RECONCILE",args.job_id,
                    reason=str(e),
                    ui_engine="androidx-uiautomator-2.4",

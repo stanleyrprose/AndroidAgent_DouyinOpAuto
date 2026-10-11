@@ -553,6 +553,12 @@ public final class VisionTemplateLocator {
         }
     }
 
+    public static void ensureOpenCvForNativeReadOnlyRoute(
+            Instrumentation instrumentation)
+            throws VisionV0Harness.VisionFailure {
+        ensureOpenCv(instrumentation);
+    }
+
     private static void ensureOpenCv(Instrumentation instrumentation)
             throws VisionV0Harness.VisionFailure {
         synchronized (VisionTemplateLocator.class) {

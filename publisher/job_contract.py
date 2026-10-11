@@ -61,11 +61,33 @@ def validate_manifest(m):
     return True
 
 def write_json_atomic(path,data):
+    """Durable Publisher transition: file fsync + atomic replace + dir fsync.
+
+    In particular COMMITTING must survive a crash BEFORE the single
+    external Publish input is dispatched. Unique temp names prevent a
+    second status writer from clobbering a shared .tmp inode.
+    """
+    import os
+    import secrets
+
     path=Path(path)
     path.parent.mkdir(parents=True,exist_ok=True)
-    tmp=path.with_suffix(path.suffix+".tmp")
-    with open(tmp,"w",encoding="utf-8") as f:
-        json.dump(data,f,ensure_ascii=False,indent=2)
-        f.write("\n")
-        f.flush()
-    tmp.replace(path)
+    if path.parent.is_symlink():
+        raise ContractError("publisher state parent symlink not trusted")
+    tmp=path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+    try:
+        with open(tmp,"x",encoding="utf-8") as f:
+            os.fchmod(f.fileno(),0o600)
+            json.dump(data,f,ensure_ascii=False,indent=2,allow_nan=False)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp,path)
+        fd=os.open(path.parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    finally:
+        if tmp.exists():
+            tmp.unlink()

@@ -28,6 +28,13 @@ import androidx.test.uiautomator.UiObject2;
 import com.stanley.y700automation.vision.OcrTextLocator;
 import com.stanley.y700automation.vision.VisionTemplateLocator;
 import com.stanley.y700automation.vision.VisionV0Harness;
+import com.stanley.y700automation.vision.Rev37NativeMutationBoundary;
+import com.stanley.y700automation.vision.Rev37NativeResourceOwner;
+import com.stanley.y700automation.vision.Rev37NativePublishBoundary;
+import com.stanley.y700automation.vision.Rev37NativeFrameRegistry;
+import com.stanley.y700automation.vision.Rev37NativeAppContract;
+import com.stanley.y700automation.vision.Rev37NativeTemplateRoute;
+import com.stanley.y700automation.vision.Rev37NativePostcondition;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -51,6 +58,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 @RunWith(AndroidJUnit4.class)
 public class AutomationInstrumentedTest {
     private static final String DRIVER_VERSION = "0.5.0";
+    // This is a separate last-mile input acceptance switch, independent
+    // from host Gateway, Native template and D-G3/JIT release authorities.
+    private static final boolean REV37_NATIVE_CREATE_CLICK_ACCEPTED = false;
     private static final int PROTOCOL_VERSION = 1;
     private static final int MAX_ACTIONS = 50;
     private static final long MAX_DURATION_MS = 600_000L;
@@ -377,16 +387,76 @@ public class AutomationInstrumentedTest {
                     // ANY mutating action that may invoke visual localization
                     // before executeWithRetry/executeAction can click.
                     JSONObject one;
-                    if (interactiveVisionMutationRequiresDg3(action)) {
+                    // The Host reobserves the canonical Claim for each
+                    // protocol-v2 mutation and overwrites this owner field.
+                    // A Capability-owned EXTERNAL_IRREVERSIBLE semantic click
+                    // MUST NOT bypass D-G3 via the unique-semantic fast path
+                    // in clickSelector(), before visual fallback is checked.
+                    // Missing/ill-typed provenance is NOT Legacy evidence.
+                    boolean externalEffect = "EXTERNAL_IRREVERSIBLE".equals(
+                            action.optString("side_effect", ""));
+                    boolean verifiedLegacyMarker = action.has(
+                            "rev37_capability_bound")
+                            && Boolean.FALSE.equals(
+                                    action.opt("rev37_capability_bound"));
+                    boolean capabilityPublishCandidate =
+                            Boolean.TRUE.equals(
+                                    action.opt("rev37_capability_bound"))
+                            && "click".equals(action.optString("action"))
+                            && "tiktok.publish-control.v1".equals(
+                                    action.optString("route_contract_id"))
+                            && Rev37NativePublishBoundary
+                                    .productionDispatchAuthorized();
+                    String nativeOwnerReason = externalEffect
+                            ? Rev37NativeResourceOwner.classifyExternalEffect(
+                                    instrumentation,
+                                    action.optString("rev37_claim_id", ""),
+                                    !verifiedLegacyMarker)
+                            : "";
+                    if (externalEffect && !capabilityPublishCandidate && (
+                            !verifiedLegacyMarker
+                            || !"EXACT_LEGACY_CLAIM_OBSERVED_READ_ONLY"
+                                    .equals(nativeOwnerReason))) {
+                        one = new JSONObject()
+                                .put("action_id", action.optString(
+                                        "action_id", "action-" + actionIndex))
+                                .put("action", action.optString("action", ""))
+                                .put("status", "BLOCKED")
+                                .put("attempts", 0)
+                                .put("error", error(
+                                        nativeOwnerReason,
+                                        "exact native external effect owner not authorized",
+                                        false));
+                    } else if (interactiveVisionMutationRequiresDg3(action)) {
+                        if (REV37_NATIVE_CREATE_CLICK_ACCEPTED
+                                && "click".equals(action.optString("action"))
+                                && "tiktok.create.observe.v1".equals(
+                                        action.optString("route_contract_id"))) {
+                            one = dispatchRev37NativeCreateClick(
+                                    action, actionIndex);
+                        } else {
+                        // The actual Driver dispatch path now invokes the
+                        // native compare-before-mutate candidate. Caller
+                        // frame/locator JSON alone is NEVER trusted:
+                        // the separate D-G3 gate remains CLOSED until
+                        // native screenshot provenance and versioned modal
+                        // contracts have independent acceptance.
+                        JSONObject frame = action.optJSONObject("frame_token");
+                        JSONObject locator = action.optJSONObject("locator");
+                        Rev37NativeMutationBoundary.Verdict nativeVerdict =
+                                Rev37NativeMutationBoundary.compareAtNativeBoundary(
+                                        instrumentation, device, frame, locator);
                         one = new JSONObject()
                                 .put("action_id", action.optString("action_id",
                                         "action-" + actionIndex))
                                 .put("action", action.optString("action", ""))
                                 .put("status", "BLOCKED")
                                 .put("attempts", 0)
+                                .put("native_dispatch_jit", nativeVerdict.toReceipt())
                                 .put("error", error("VISION_DRIVER_GATE_CLOSED",
-                                        "driver-side D-G3 visual dispatch not accepted",
+                                        "native JIT checked read-only; D-G3 visual dispatch not accepted",
                                         false));
+                        }
                     } else {
                         one = executeWithRetry(action, actionIndex);
                     }
@@ -592,7 +662,10 @@ public class AutomationInstrumentedTest {
         String sideEffect = action.optString("side_effect", defaultSideEffect(action.optString("action", "")));
         boolean retrySafe = "OBSERVE_ONLY".equals(sideEffect) || "IDEMPOTENT".equals(sideEffect)
                 || action.optBoolean("retry_safe", false);
-        int maxRetry = retrySafe ? requestedRetry : 0;
+        // Irreversible Publish must NEVER retry based on workflow fields,
+        // even when retry_safe=true was supplied by an external caller.
+        int maxRetry = "EXTERNAL_IRREVERSIBLE".equals(sideEffect)
+                ? 0 : (retrySafe ? requestedRetry : 0);
 
         JSONArray delays = new JSONArray();
         JSONArray recovery = new JSONArray();
@@ -649,6 +722,9 @@ public class AutomationInstrumentedTest {
         switch (actionName) {
             case "health":
             case "observe":
+            case "observeNativeFrame":
+            case "observeNativeAppContract":
+            case "observeNativeLocator":
             case "screenshot":
             case "find":
             case "findAll":
@@ -667,22 +743,161 @@ public class AutomationInstrumentedTest {
      * boolean, vision_enabled, or frame metadata can open this gate.
      * Legacy benchmark/read-only flows keep their separate contracts.
      */
+    /**
+     * One-source native Create click, dispatched ONLY inside the existing
+     * interactive Core v2 mutation journal. Never uses workflow-provided
+     * coordinates, frame_id, visual template path or retry policy.
+     */
+    private JSONObject dispatchRev37NativeCreateClick(
+            JSONObject action, int index) throws Exception {
+        JSONObject one = new JSONObject()
+                .put("action_id", action.optString(
+                        "action_id", "action-" + index))
+                .put("action", "click");
+        if (!REV37_NATIVE_CREATE_CLICK_ACCEPTED
+                || !Rev37NativeMutationBoundary.productionDispatchAuthorized()
+                || !Rev37NativeTemplateRoute.productionDispatchAuthorized()
+                || !Rev37NativePostcondition.productionDispatchAuthorized()
+                || !"tiktok.create.observe.v1".equals(
+                        action.optString("route_contract_id"))
+                || action.has("visual_coordinates")
+                || action.has("frame_token")
+                || action.has("locator")) {
+            return one.put("status", "BLOCKED")
+                    .put("attempts", 0)
+                    .put("error", error(
+                            "VISION_DRIVER_GATE_CLOSED",
+                            "native Create click contract not accepted",
+                            false));
+        }
+        boolean clickEntered = false;
+        try (Rev37NativeTemplateRoute.Resolved resolved =
+                Rev37NativeTemplateRoute.resolveCreateReadOnly(
+                        instrumentation, device)) {
+            Rev37NativeMutationBoundary.Verdict jit =
+                    Rev37NativeMutationBoundary.compareAtNativeBoundary(
+                            instrumentation, device,
+                            resolved.token, resolved.locator);
+            if (!jit.acceptedForSingleDispatch()) {
+                return one.put("status", "BLOCKED")
+                        .put("attempts", 0)
+                        .put("native_dispatch_jit", jit.toReceipt())
+                        .put("error", error(
+                                jit.code,
+                                "independently observed JIT refused input",
+                                false));
+            }
+            Rect bounds = jit.acceptedTargetBounds;
+            // One exact press and never automatic fallback/retry, regardless
+            // of request retry_safe or visual confidence metadata.
+            clickEntered = true;
+            boolean pressed = device.click(
+                    bounds.centerX(), bounds.centerY());
+            if (!pressed) {
+                return one.put("status", "RECONCILE_REQUIRED")
+                        .put("attempts", 1)
+                        .put("error", error(
+                                "NATIVE_CLICK_OUTCOME_UNCERTAIN",
+                                "single native input was attempted",
+                                false));
+            }
+            device.waitForIdle(1000L);
+            if (!Rev37NativePostcondition.createVisiblePositive(
+                    device, "tiktok.create.observe.v1")) {
+                return one.put("status", "RECONCILE_REQUIRED")
+                        .put("attempts", 1)
+                        .put("error", error(
+                                "NATIVE_CREATE_POSTCONDITION_UNVERIFIED",
+                                "input attempted; positive page proof absent",
+                                false));
+            }
+            return one.put("status", "PASS")
+                    .put("attempts", 1)
+                    .put("data", new JSONObject()
+                            .put("postcondition_passed", true)
+                            .put("postcondition_kind",
+                                    "NATIVE_VERSIONED_CREATE_SCREEN")
+                            .put("coordinates_exported", false));
+        } catch (Exception failure) {
+            Rev37NativeFrameRegistry.invalidate();
+            return one.put("status", clickEntered
+                            ? "RECONCILE_REQUIRED" : "BLOCKED")
+                    .put("attempts", clickEntered ? 1 : 0)
+                    .put("error", error(
+                            clickEntered ? "NATIVE_CLICK_OUTCOME_UNCERTAIN"
+                                    : "NATIVE_CREATE_ROUTE_UNAVAILABLE",
+                            clickEntered ? "input may have been performed"
+                                    : "native route could not be established",
+                            false));
+        }
+    }
+
+    /**
+     * Defense in depth: a workflow cannot downgrade a known TikTok Publish
+     * control by declaring its side_effect=REVERSIBLE_LOCAL. A precise
+     * app-version-pinned button selector is still required by the native
+     * Publish gate, and currently remains NOT ACCEPTED.
+     */
+    private boolean isKnownTikTokPublishControl(UiObject2 target) {
+        if (target == null || !"com.zhiliaoapp.musically".equals(
+                device.getCurrentPackageName())) return false;
+        try {
+            String label = target.getText();
+            String description = target.getContentDescription();
+            for (String candidate : new String[]{
+                    "发布", "立即发布", "发布视频", "Post", "Publish",
+                    "Post video", "Publish video"}) {
+                if (candidate.equals(label) || candidate.equals(description))
+                    return true;
+            }
+        } catch (Exception ignored) {
+            // Unknown UI semantics cannot grant a Publish permission:
+            // independent native exact target matching still applies.
+        }
+        return false;
+    }
+
     private boolean interactiveVisionMutationRequiresDg3(JSONObject action) {
         if (!isMutationAction(action.optString("action", ""))) return false;
-        if ("VISION_ASSISTED_UI".equals(action.optString("route_class", ""))) return true;
-        if (action.has("vision_recovery")) return true;
-        JSONObject selector = action.optJSONObject("selector");
-        if (selector == null) return false;
-        String type = selector.optString("type", "");
-        if ("vision_template".equals(type) || "vision_text".equals(type)) return true;
-        JSONArray fallback = selector.optJSONArray("fallback");
-        if (fallback == null) return false;
-        for (int i = 0; i < fallback.length(); i++) {
-            JSONObject candidate = fallback.optJSONObject(i);
-            if (candidate == null) continue;
-            String candidateType = candidate.optString("type", "");
-            if ("vision_template".equals(candidateType) ||
-                    "vision_text".equals(candidateType)) return true;
+        // Fail closed for visual recovery anywhere in a mutation's nested
+        // selector/expect/fallback trees, not just the first fallback level.
+        // An over-complex document also cannot prove it is non-visual.
+        return containsVisionDispatchContract(action, 0, new int[]{0});
+    }
+
+    private boolean containsVisionDispatchContract(
+            Object item, int depth, int[] observedNodes) {
+        if (item == null || item == JSONObject.NULL) return false;
+        if (++observedNodes[0] > 256 || depth > 12) return true;
+        if (item instanceof JSONObject) {
+            JSONObject obj = (JSONObject) item;
+            String type = obj.optString("type", "");
+            String route = obj.optString("route_class", "");
+            if ("VISION_ASSISTED_UI".equals(route)
+                    || "vision_template".equals(type)
+                    || "vision_text".equals(type)
+                    || "vision_ocr".equals(type)
+                    || "vision_locator".equals(type)
+                    || obj.has("vision_recovery")
+                    || obj.has("vision_match")
+                    || obj.has("frame_token")
+                    || obj.has("locator_frame_id")
+                    || obj.has("visual_coordinates")) return true;
+            java.util.Iterator<String> keys = obj.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                Object nested = obj.opt(key);
+                if ((nested instanceof JSONObject || nested instanceof JSONArray)
+                        && containsVisionDispatchContract(
+                                nested, depth + 1, observedNodes)) return true;
+            }
+        } else if (item instanceof JSONArray) {
+            JSONArray array = (JSONArray) item;
+            if (array.length() > 256) return true;
+            for (int i = 0; i < array.length(); i++) {
+                if (containsVisionDispatchContract(
+                        array.opt(i), depth + 1, observedNodes)) return true;
+            }
         }
         return false;
     }
@@ -735,6 +950,73 @@ public class AutomationInstrumentedTest {
         return Math.min(5_000L, value);
     }
 
+    /**
+     * Native screenshot-provenance observation. The ROI is entire physical
+     * display and is never supplied as caller coordinates. The single-use
+     * FrameToken stays in this instrumentation process; no boot/epoch/pixel
+     * data leaks into an external action response. Without an accepted modal
+     * observer capture fails CLOSED rather than minting a caller token.
+     */
+    private JSONObject observeNativeFrameReadOnly() throws Exception {
+        Rect screen = new Rect(
+                0, 0, device.getDisplayWidth(), device.getDisplayHeight());
+        try (Rev37NativeFrameRegistry.IssuedFrame issued =
+                Rev37NativeFrameRegistry.captureReadOnly(
+                        instrumentation, device, screen)) {
+            return new JSONObject()
+                    .put("status", "NATIVE_FRAME_CAPTURED_READ_ONLY")
+                    .put("dispatch_frame_token_exported", false)
+                    .put("source", "ANDROID_UIAUTOMATION_SCREENSHOT")
+                    .put("route", "tiktok.create.observe.v1")
+                    .put("frame_generation_positive",
+                            issued.frame.generation > 0)
+                    .put("frame_pixel_data_exported", false)
+                    .put("locator_proven", false)
+                    .put("dg3_status", "OPEN")
+                    .put("production_dispatch_authorized", false)
+                    .put("ui_mutation_attempts", 0);
+        } catch (IllegalStateException failure) {
+            Rev37NativeFrameRegistry.invalidate();
+            throw new ActionFailure(
+                    "NATIVE_FRAME_EVIDENCE_UNAVAILABLE",
+                    "native frame contract or state observation unavailable",
+                    false, "BLOCKED");
+        } catch (VisionV0Harness.VisionFailure failure) {
+            Rev37NativeFrameRegistry.invalidate();
+            throw new ActionFailure(
+                    "NATIVE_FRAME_CAPTURE_UNAVAILABLE",
+                    "native screenshot capture failed",
+                    false, "BLOCKED");
+        }
+    }
+
+    /**
+     * Exact prepackaged template matching from real Android screenshot.
+     * This action is OBSERVE_ONLY; it does not export target coordinates,
+     * frame identity, pixels or user-controlled match thresholds.
+     */
+    private JSONObject observeNativeLocatorReadOnly() throws Exception {
+        try (Rev37NativeTemplateRoute.Resolved resolved =
+                     Rev37NativeTemplateRoute.resolveCreateReadOnly(
+                             instrumentation, device)) {
+            return new JSONObject()
+                    .put("status", "NATIVE_LOCATOR_MATCHED_READ_ONLY")
+                    .put("template_contract_id", "tiktok.create.observe.v1")
+                    .put("frame_binding_verified_in_process", true)
+                    .put("locator_caller_controlled", false)
+                    .put("coordinates_exported", false)
+                    .put("dg3_status", "OPEN")
+                    .put("production_dispatch_authorized", false)
+                    .put("ui_mutation_attempts", 0);
+        } catch (Exception failure) {
+            Rev37NativeFrameRegistry.invalidate();
+            throw new ActionFailure(
+                    "NATIVE_TEMPLATE_OR_CONTRACT_UNAVAILABLE",
+                    "independent TikTok template, modal or state unavailable",
+                    false, "BLOCKED");
+        }
+    }
+
     private JSONObject executeAction(JSONObject action, int index) throws Exception {
         long started = SystemClock.elapsedRealtime();
         String name = action.optString("action", "");
@@ -755,6 +1037,16 @@ public class AutomationInstrumentedTest {
                     break;
                 case "observe":
                     out.put("data", observe());
+                    break;
+                case "observeNativeFrame":
+                    out.put("data", observeNativeFrameReadOnly());
+                    break;
+                case "observeNativeAppContract":
+                    out.put("data", Rev37NativeAppContract
+                            .observeInstalledReadOnly(instrumentation));
+                    break;
+                case "observeNativeLocator":
+                    out.put("data", observeNativeLocatorReadOnly());
                     break;
                 case "screenshot":
                     out.put("data", screenshot(action.optString("filename", "screen-" + index + ".png")));
@@ -1422,6 +1714,77 @@ public class AutomationInstrumentedTest {
             if (matches.size() == 1) {
                 UiObject2 target = matches.get(0);
                 JSONObject resolved = elementJson(target);
+                if ("EXTERNAL_IRREVERSIBLE".equals(
+                        action.optString("side_effect", ""))
+                        || isKnownTikTokPublishControl(target)) {
+                    // Last-mile independent Claim recheck. The semantic
+                    // fast path is not permitted to rely on an earlier
+                    // Host owner marker or command-start lookup.
+                    // The canonical on-device Claim chooses Legacy vs
+                    // Capability. An Action flag may only agree with that
+                    // already observed owner, never create the authority.
+                    JSONObject nativeClaim =
+                            Rev37NativeResourceOwner.readFixedClaim(
+                                    instrumentation);
+                    if (nativeClaim == null || !action.optString(
+                            "rev37_claim_id", "").equals(
+                                    nativeClaim.optString("claim_id", ""))) {
+                        throw new ActionFailure(
+                                "RESOURCE_OWNERSHIP_UNAVAILABLE",
+                                "exact native Claim not verified",
+                                false, "BLOCKED");
+                    }
+                    String realOwnerKind =
+                            nativeClaim.optString("owner_kind", "");
+                    if ("CAPABILITY".equals(realOwnerKind)) {
+                        if (!Boolean.TRUE.equals(
+                                    action.opt("rev37_capability_bound"))
+                                || !"tiktok.publish-control.v1".equals(
+                                    action.optString("route_contract_id"))) {
+                            throw new ActionFailure(
+                                    "CAPABILITY_PUBLISH_ROUTE_MISMATCH",
+                                    "native Publish action contract missing",
+                                    false, "BLOCKED");
+                        }
+                        Rev37NativePublishBoundary.Verdict verdict =
+                                Rev37NativePublishBoundary
+                                        .inspectBeforeSingleClick(
+                                                instrumentation, device,
+                                                nativeClaim.optString(
+                                                        "claim_id", ""),
+                                                target.getVisibleBounds());
+                        if (!verdict.authorizesOnce()) {
+                            throw new ActionFailure(
+                                    verdict.code,
+                                    "native source-owned Publish boundary blocked",
+                                    false, "BLOCKED");
+                        }
+                    } else if ("LEGACY".equals(realOwnerKind)) {
+                        if (!Boolean.FALSE.equals(
+                                    action.opt("rev37_capability_bound"))) {
+                            throw new ActionFailure(
+                                    "LEGACY_PUBLISH_ROUTE_MISMATCH",
+                                    "legacy publisher mode not proven",
+                                    false, "BLOCKED");
+                        }
+                        String reason = Rev37NativeResourceOwner
+                                .classifyExternalEffect(
+                                        instrumentation,
+                                        nativeClaim.optString("claim_id", ""),
+                                        false);
+                        if (!"EXACT_LEGACY_CLAIM_OBSERVED_READ_ONLY"
+                                .equals(reason)) {
+                            throw new ActionFailure(reason,
+                                    "legacy owner changed at dispatch",
+                                    false, "BLOCKED");
+                        }
+                    } else {
+                        throw new ActionFailure(
+                                "PUBLISH_OWNER_KIND_UNACCEPTED",
+                                "admin or unknown owner cannot publish",
+                                false, "BLOCKED");
+                    }
+                }
                 target.click();
                 verifyExpectation(
                         action.optJSONObject("expect"),

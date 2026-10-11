@@ -33,8 +33,12 @@ DRIVER_CLASS = "com.stanley.y700automation.AutomationInstrumentedTest#runWorkflo
 JOB_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 PACKAGE_RE = re.compile(r"^[A-Za-z0-9_.]{3,160}$")
 ACTIVITY_RE = re.compile(r"^[A-Za-z0-9_.$]{1,200}$")
-OBSERVATION_ACTIONS = {"health", "observe", "screenshot", "find", "findAll", "assert", "waitFor", "waitStable"}
+OBSERVATION_ACTIONS = {"health", "observe", "observeNativeFrame", "observeNativeLocator", "screenshot", "find", "findAll", "assert", "waitFor", "waitStable"}
 LOCAL_MUTATION_ACTIONS = {"click", "longClick", "inputText", "clearText", "swipe", "scroll", "pressBack", "pressHome", "tapObserved", "appForceStop", "appLaunch"}
+# The native first-party Android action-time external-effect adapter is
+# not yet accepted. Caller flags or a semantically unique selector may
+# NOT skip Capability Effect Boundary/D-G3.
+_CAPABILITY_NATIVE_EXTERNAL_EFFECT_ACCEPTED = False
 SAFE_ACTIONS = set(OBSERVATION_ACTIONS)
 RESULT_RE = re.compile(r"y700_result_b64=([^\r\n ]+)")
 HEARTBEAT_RE = re.compile(r"y700_heartbeat_b64=([^\r\n ]+)")
@@ -162,6 +166,20 @@ def validate_request(req: dict[str, Any], *, internal_backend: bool = False) -> 
             raise UiJobError("UNGUARDED_MUTATION_NOT_ALLOWED")
         if state_guard.get("mode") == "TOKEN" and not isinstance(state_guard.get("token"), dict):
             raise UiJobError("UNGUARDED_MUTATION_NOT_ALLOWED")
+        # A capability-bound irreversible input can otherwise take the
+        # ordinary semantic click fast-path, bypassing the Vision guard.
+        # Verify root-owned Claim at the HOST boundary; legacy operation
+        # retains its separate frozen migration contract.
+        if any(a.get("side_effect") == "EXTERNAL_IRREVERSIBLE"
+               for a in actions):
+            try:
+                owner = resource_arbiter.assert_guard(guard)
+            except resource_arbiter.ResourceError as exc:
+                raise UiJobError("EXTERNAL_EFFECT_OWNER_UNAVAILABLE") from exc
+            if (owner.get("owner_kind") == "CAPABILITY"
+                    and not _CAPABILITY_NATIVE_EXTERNAL_EFFECT_ACCEPTED):
+                raise UiJobError(
+                    "CAPABILITY_EXTERNAL_EFFECT_NATIVE_DISPATCH_NOT_ACCEPTED")
 
     vision = req.get("vision")
     if vision is not None:
@@ -845,12 +863,38 @@ def run_workflow(path: Path, *, internal_backend: bool = False) -> dict[str, Any
             nonlocal driver_seq
             sequence = driver_seq
             driver_seq += 1
+            # The capability/legacy distinction is observed from the
+            # canonical Claim SOT on EVERY mutating command, not accepted
+            # from action JSON or an Agent-generated workflow.
+            mutating = any(action_is_mutating(a) for a in actions)
+            capability_owned = False
+            observed_claim_id = None
+            if mutating:
+                try:
+                    claim = resource_arbiter.assert_guard(
+                        req.get("resource_guard", {}))
+                except resource_arbiter.ResourceError as exc:
+                    raise ui_core_v2.CoreV2Error(
+                        "DRIVER_RESOURCE_OWNER_UNAVAILABLE") from exc
+                capability_owned = claim.get("owner_kind") == "CAPABILITY"
+                observed_claim_id = claim.get("claim_id")
+                if not isinstance(observed_claim_id, str):
+                    raise ui_core_v2.CoreV2Error(
+                        "DRIVER_CLAIM_IDENTITY_UNAVAILABLE")
+            enriched_actions = [
+                {
+                    **a,
+                    "rev37_capability_bound": capability_owned,
+                    "rev37_claim_id": observed_claim_id,
+                }
+                for a in actions
+            ]
             control_write(
                 f"command-{sequence:03d}.json",
                 {
                     "sequence": sequence,
                     "label": re.sub(r"[^A-Za-z0-9._-]", "-", label)[:64],
-                    "actions": actions,
+                    "actions": enriched_actions,
                 },
             )
             return control_read(f"result-{sequence:03d}.json", 190)
