@@ -86,7 +86,9 @@ def main():
 
     # Stable staging survives interrupted transfers; never reuse bytes from a different manifest.
     staging = root / ("." + job_id + ".partial")
-    identity = hashlib.sha256(json.dumps(artifacts, sort_keys=True).encode()).hexdigest()
+    # Capability URLs expire; immutable file name, size and SHA define identity.
+    stable = [{key: item[key] for key in ("name", "size", "sha256")} for item in artifacts]
+    identity = hashlib.sha256(json.dumps(stable, sort_keys=True).encode()).hexdigest()
     marker = staging / ".identity"
     if staging.exists() and (staging.is_symlink() or not staging.is_dir()):
         raise RuntimeError("unsafe partial directory")
@@ -102,6 +104,12 @@ def main():
             if partial.exists() and partial.stat().st_size > item["size"]:
                 partial.unlink()
             if not partial.exists() or partial.stat().st_size < item["size"]:
+                if partial.exists() and partial.stat().st_size:
+                    request = urllib.request.Request(item["url"], method="HEAD")
+                    with urllib.request.urlopen(request, timeout=min(args.timeout, 30)) as response:
+                        etag = response.headers.get("ETag", "").strip('"').lower()
+                        if etag != item["sha256"]:
+                            partial.unlink()
                 curl_download(item["url"], partial, args.timeout)
             if partial.stat().st_size != item["size"] or sha256_file(partial) != item["sha256"]:
                 # A mismatched partial must never be reused on the next attempt.

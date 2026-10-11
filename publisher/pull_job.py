@@ -82,7 +82,12 @@ def main():
     work=INCOMING/job_id
     if (READY/job_id).exists():
         raise SystemExit("job already present on Y700; refusing overwrite")
-    identity = sha256(manifest_tmp)
+    # Refreshing the capability URL must not invalidate verified partial bytes.
+    stable = {key: manifest[key] for key in ("job_id", "sha256", "video_file", "caption_file")}
+    for key in ("title_file", "metadata_file"):
+        if manifest.get(key):
+            stable[key] = manifest[key]
+    identity = hashlib.sha256(json.dumps(stable, sort_keys=True).encode()).hexdigest()
     marker = work / ".manifest-sha256"
     if work.exists() and (work.is_symlink() or not work.is_dir()):
         raise SystemExit("unsafe incoming job directory")
@@ -112,7 +117,13 @@ def main():
                 final.unlink()
             expected=manifest["sha256"][name].lower()
             if not part.exists() or sha256(part) != expected:
-                fetch(urllib.parse.urljoin(base,name),part)
+                artifact_url = urllib.parse.urljoin(base,name)
+                if part.exists() and part.stat().st_size:
+                    request = urllib.request.Request(artifact_url, method="HEAD")
+                    with urllib.request.urlopen(request, timeout=30) as response:
+                        if response.headers.get("ETag", "").strip('"').lower() != expected:
+                            part.unlink()
+                fetch(artifact_url,part)
             actual=sha256(part)
             if actual.lower()!=expected:
                 part.unlink(missing_ok=True)
