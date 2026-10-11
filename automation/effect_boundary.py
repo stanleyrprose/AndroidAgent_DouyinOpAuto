@@ -179,14 +179,17 @@ def record_approval(
         _need(not (job.path / "effect-boundary.json").exists(),
               "EFFECT_ALREADY_ATTEMPTED")
         path = job.path / "approval.json"
-        if path.exists():
+        if path.exists() or path.is_symlink():
+            # A repeated trusted ingress must not silently reuse a changed
+            # principal, caption, nonce, expiry or approval provenance.
+            # Compare the entire canonical record rather than five fields.
             original = _read_json(path)
-            for field in (
-                "approval_id", "request_sha256", "effective_policy_sha256",
-                "content_sha256", "visibility",
-            ):
-                _need(original.get(field) == entry.get(field),
-                      "APPROVAL_IMMUTABLE")
+            _need(isinstance(original.get("recorded_at"), str)
+                  and _sha({k: v for k, v in original.items()
+                            if k != "recorded_at"})
+                      == _sha({k: v for k, v in entry.items()
+                               if k != "recorded_at"}),
+                  "APPROVAL_IMMUTABLE")
             return original
         _atomic_new(path, entry)
         return entry
