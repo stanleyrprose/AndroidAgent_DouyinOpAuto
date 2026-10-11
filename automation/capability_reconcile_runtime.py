@@ -76,9 +76,11 @@ def inspect_exact_outcome_readonly(
     identity = _read_json(active / "identity.json")
     backend = _read_json(active / "backend.json")
     request = _read_json(active / "request.json")
+    policy = _read_json(active / "effective_policy.json")
     state = _read_json(active / "state.json")
     if (identity.get("capability_job_id") != capability_job_id
             or identity.get("request_sha256") != _sha(request)
+            or identity.get("effective_policy_sha256") != _sha(policy)
             or backend.get("capability_job_id") != capability_job_id
             or backend.get("request_sha256")
                 != identity.get("request_sha256")):
