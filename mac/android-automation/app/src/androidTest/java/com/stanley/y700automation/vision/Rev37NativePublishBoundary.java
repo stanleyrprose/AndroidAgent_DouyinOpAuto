@@ -116,7 +116,7 @@ public final class Rev37NativePublishBoundary {
         if (!NATIVE_PUBLISH_ACCEPTED)
             return deny("CAPABILITY_NATIVE_PUBLISH_GATE_CLOSED");
         if (exactClaimId == null
-                || !exactClaimId.startsWith("ui-claim-")
+                || !exactClaimId.matches("^ui-claim-[0-9a-f]{32}$")
                 || instrumentation == null || device == null
                 || buttonBounds == null || buttonBounds.isEmpty())
             return deny("CAPABILITY_PUBLISH_CLAIM_OR_TARGET_INVALID");
@@ -180,6 +180,10 @@ public final class Rev37NativePublishBoundary {
             return deny("CAPABILITY_PUBLISH_REQUEST_CONTENT_DRIFT");
         if (!same(effect, claim, "request_sha256")
                 || !same(binding, claim, "request_sha256")
+                || !same(request, claim, "request_sha256")
+                || !same(approval, claim, "request_sha256")
+                || !same(binding, claim, "capability_job_id")
+                || !same(approval, claim, "capability_job_id")
                 || !same(effect, approval, "approval_id")
                 || !same(effect, approval, "approval_nonce")
                 || !same(effect, approval, "content_sha256"))
