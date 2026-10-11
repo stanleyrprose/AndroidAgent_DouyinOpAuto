@@ -16,6 +16,10 @@ import re
 
 from automation.capability_job_store import (
     AdmittedJob, CapabilityStore, CapabilityStoreError, _need, _read_json,
+    _sha,
+)
+from automation.gateway_adapters import (
+    AdapterContractError, prepare_adapter_intent_readonly,
 )
 from automation.authoritative_state_reader import observe_authoritative_state
 from automation import resource_arbiter
@@ -90,6 +94,7 @@ class LocalFixedBackend:
                  and ident.get("capability_job_id") == cap_id
                  and record.get("request_sha256")
                      == ident.get("request_sha256")
+                 and _sha(request) == ident.get("request_sha256")
                  and request.get("capability")
                      == _BACKEND_TO_CAPABILITY[backend_type],
                  "BACKEND_IDENTITY_MISMATCH")
@@ -98,6 +103,36 @@ class LocalFixedBackend:
                         ident["effective_policy_sha256"], False),
             backend_type, backend_id,
         )
+
+    def _assert_exact_intent(self, job: FixedBackendJob,
+                             intent: Mapping[str, Any]) -> None:
+        """Reconstruct the adapter from durable request, never caller data."""
+        _require(isinstance(intent, Mapping)
+                 and intent.get("backend_job_id") == job.backend_job_id
+                 and intent.get("capability_job_id") == job.admitted.job_id
+                 and intent.get("request_sha256")
+                     == job.admitted.request_sha256
+                 and intent.get("effective_policy_sha256")
+                     == job.admitted.effective_policy_sha256,
+                 "BACKEND_INTENT_IDENTITY_MISMATCH")
+        request = _read_json(job.admitted.path / "request.json")
+        policy = _read_json(job.admitted.path / "effective_policy.json")
+        _require(_sha(request) == job.admitted.request_sha256
+                 and _sha(policy) == job.admitted.effective_policy_sha256,
+                 "BACKEND_DURABLE_REQUEST_DRIFT")
+        try:
+            expected = prepare_adapter_intent_readonly(
+                capability=job.capability,
+                immutable_payload=request.get("payload"),
+                exact_backend_id=job.backend_job_id,
+                exact_request_sha256=job.admitted.request_sha256,
+            )
+        except (AdapterContractError, TypeError, ValueError) as exc:
+            raise LocalBackendUnavailable(
+                "BACKEND_DURABLE_ADAPTER_INVALID") from exc
+        _require(isinstance(intent.get("adapter_intent"), Mapping)
+                 and dict(intent["adapter_intent"]) == expected,
+                 "BACKEND_ADAPTER_CONTRACT_MISMATCH")
 
     def lookup_exact(self, backend_type: str,
                      backend_id: str) -> dict[str, Any]:
@@ -136,23 +171,8 @@ class LocalFixedBackend:
             return self.publisher.prepare_exact(
                 backend_type, backend_id, intent)
         job = self._get(backend_type, backend_id)
-        _require(isinstance(intent, Mapping)
-                 and intent.get("backend_job_id") == backend_id
-                 and intent.get("capability_job_id")
-                     == job.admitted.job_id
-                 and intent.get("request_sha256")
-                     == job.admitted.request_sha256
-                 and intent.get("effective_policy_sha256")
-                     == job.admitted.effective_policy_sha256,
-                 "BACKEND_INTENT_IDENTITY_MISMATCH")
-        adapter = intent.get("adapter_intent")
-        _require(isinstance(adapter, Mapping)
-                 and adapter.get("backend_job_id") == backend_id
-                 and adapter.get("backend_type") == backend_type
-                 and adapter.get("capability") == job.capability
-                 and adapter.get("request_sha256")
-                     == job.admitted.request_sha256,
-                 "BACKEND_ADAPTER_CONTRACT_MISMATCH")
+        self._assert_exact_intent(job, intent)
+        adapter = intent["adapter_intent"]
         needs_ui = backend_type == "ui_workflow"
         _require((isinstance(intent.get("resource_guard"), Mapping))
                  is needs_ui, "BACKEND_RESOURCE_CONTRACT_MISMATCH")
@@ -198,11 +218,18 @@ class LocalFixedBackend:
             return self.publisher.submit_exact(
                 backend_type, backend_id, intent)
         job = self._get(backend_type, backend_id)
+        self._assert_exact_intent(job, intent)
         phase = _read_json(
             job.admitted.path / "backend-execution.json")
         _require(phase.get("phase") == "SUBMISSION_POSSIBLE"
+                 and phase.get("submission_possible") is True
                  and phase.get("attempt_serial") == 1
-                 and phase.get("backend_job_id") == backend_id,
+                 and phase.get("backend_job_id") == backend_id
+                 and phase.get("capability_job_id") == job.admitted.job_id
+                 and phase.get("request_sha256")
+                     == job.admitted.request_sha256
+                 and not (job.admitted.path / "result.json").exists()
+                 and not (job.admitted.path / "effect-boundary.json").exists(),
                  "BACKEND_SUBMIT_WITNESS_INVALID")
 
         # These are release-authorized source decisions, not request flags.
@@ -292,12 +319,15 @@ class LocalFixedBackend:
                  and payload.get("maintenance_contract_id")
                      == "read-only-system-info.v1",
                  "ROOT_COMMAND_NOT_REGISTERED")
-        from automation import state_integrity
-        state_integrity.bump_epoch(
-            "CAPABILITY_ROOT_EXEC_UNKNOWN_STATE:" + backend_id)
+        # Persist the single submission BEFORE touching state_epoch.
+        # A crash after this point is reconcile-only, never a second root
+        # invocation; epoch must still advance before the root command.
         self.store.record_backend_submission(
             job.admitted, exact_backend_job_id=backend_id,
             backend_identity_confirmed=True)
+        from automation import state_integrity
+        state_integrity.bump_epoch(
+            "CAPABILITY_ROOT_EXEC_UNKNOWN_STATE:" + backend_id)
         import subprocess
         script = Path(__file__).resolve().parents[1] / "bridge/root-exec.sh"
         _require(script.is_file() and not script.is_symlink(),
@@ -318,7 +348,7 @@ class LocalFixedBackend:
         lines = observation.stdout.splitlines()
         _require(len(lines) >= 2
                  and all(0 < len(item) <= 128
-                         and "\\x00" not in item for item in lines[:2]),
+                         and chr(0) not in item for item in lines[:2]),
                  "ROOT_OBSERVATION_UNRELIABLE")
         from automation.capability_job_store import _atomic_new, _locked
         with _locked(job.admitted.path / "transition.lock"):
