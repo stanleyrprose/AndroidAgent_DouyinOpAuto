@@ -16,7 +16,7 @@ INCOMING=MEDIA/"incoming"
 READY=MEDIA/"ready"
 FAILED=MEDIA/"failed"
 RUNTIME=Path("/opt/y700/runtime")
-INTAKE=Path(__file__).resolve().parents[1]/"scripts"/"disk-guard.sh"
+INTAKE=Path("/opt/y700/workspaces/y700-agent/scripts/disk-guard.sh")
 
 def sha256(path):
     h=hashlib.sha256()
@@ -74,8 +74,8 @@ def main():
 
     job_id=manifest["job_id"]
     work=INCOMING/job_id
-    if work.exists():
-        shutil.rmtree(work)
+    if work.exists() or (READY/job_id).exists():
+        raise SystemExit("job already present on Y700; refusing overwrite")
     work.mkdir(parents=True)
     shutil.copy2(manifest_tmp,work/"manifest.json")
     write_json_atomic(work/"state.json",{"status":"PULLING"})
@@ -102,7 +102,7 @@ def main():
         write_json_atomic(work/"state.json",{"status":"VALIDATED","files":files})
         dest=READY/job_id
         if dest.exists():
-            shutil.rmtree(dest)
+            raise ContractError("ready job appeared during pull; refusing overwrite")
         work.replace(dest)
         write_json_atomic(dest/"state.json",{"status":"READY","files":files})
         # A verified receipt is published only after files and state reach stable storage.
