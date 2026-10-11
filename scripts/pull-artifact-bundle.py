@@ -105,11 +105,10 @@ def main():
                 partial.unlink()
             if not partial.exists() or partial.stat().st_size < item["size"]:
                 if partial.exists() and partial.stat().st_size:
-                    request = urllib.request.Request(item["url"], method="HEAD")
-                    with urllib.request.urlopen(request, timeout=min(args.timeout, 30)) as response:
-                        etag = response.headers.get("ETag", "").strip('"').lower()
-                        if etag != item["sha256"]:
-                            partial.unlink()
+                    headers = subprocess.check_output(["curl", "-fsSI", "--connect-timeout", "15", item["url"]], timeout=30).decode("utf-8")
+                    etags = [line.split(":", 1)[1].strip().strip('"').lower() for line in headers.splitlines() if line.lower().startswith("etag:")]
+                    if not etags or etags[-1] != item["sha256"]:
+                        partial.unlink()
                 curl_download(item["url"], partial, args.timeout)
             if partial.stat().st_size != item["size"] or sha256_file(partial) != item["sha256"]:
                 # A mismatched partial must never be reused on the next attempt.
