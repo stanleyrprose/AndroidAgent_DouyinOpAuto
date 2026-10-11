@@ -19,7 +19,7 @@ import re
 
 from automation import resource_arbiter
 from automation.capability_job_store import (
-    AdmittedJob, CapabilityStoreError, _read_json, _need,
+    AdmittedJob, CapabilityStoreError, _read_json, _need, _sha,
 )
 from automation.publisher_boundary_guard import (
     PublisherBoundaryError, read_gateway_binding,
@@ -358,6 +358,33 @@ def execute_gateway_bound(
                      and durable.get("external_effect_attempts_allowed") == 1
                      and durable.get("external_effect_attempts_observed") == 0,
                      "EFFECT_BOUNDARY_RECEIPT_MISMATCH")
+            approval_path = (Path("/opt/y700/capability-jobs/active")
+                             / context.capability_job_id / "approval.json")
+            _require(not approval_path.is_symlink()
+                     and approval_path.is_file(),
+                     "PUBLISHER_APPROVAL_DURABLE_PROOF_UNAVAILABLE")
+            try:
+                approval = _read_json(approval_path)
+            except (OSError, ValueError, CapabilityStoreError) as exc:
+                raise GatewayPublisherUnavailable(
+                    "PUBLISHER_APPROVAL_DURABLE_PROOF_UNAVAILABLE") from exc
+            _require(_sha(approval) == durable.get("approval_sha256")
+                     and approval.get("job_id") == context.capability_job_id
+                     and approval.get("request_sha256")
+                         == context.request_sha256
+                     and approval.get("effective_policy_sha256")
+                         == context.effective_policy_sha256
+                     and approval.get("content_sha256")
+                         == context.content_sha256
+                     and approval.get("caption_sha256")
+                         == context.caption_sha256
+                     and approval.get("visibility") == "PUBLIC"
+                     and approval.get("approval_id")
+                         == durable.get("approval_id")
+                     and approval.get("approval_nonce")
+                         == durable.get("approval_nonce")
+                     and approval.get("single_use") is True,
+                     "PUBLISHER_APPROVAL_EFFECT_IDENTITY_MISMATCH")
             verify_before_publisher_committing(
                 job=publisher_job, manifest=manifest,
                 gateway_binding=binding)
