@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hashlib
 import os
 import subprocess
 import tempfile
@@ -51,6 +53,9 @@ class AlbumStoreContractTests(unittest.TestCase):
             ready = td / "ready"
             job = ready / "dy-1234567890123456789"
             job.mkdir(parents=True)
+            video_bytes = b"Y700 test video bytes"
+            video_sha = hashlib.sha256(video_bytes).hexdigest()
+            (job / "video.my.mp4").write_bytes(video_bytes)
             manifest = {
                 "schema_version": 1,
                 "job_id": job.name,
@@ -61,7 +66,7 @@ class AlbumStoreContractTests(unittest.TestCase):
                 "video_file": "video.my.mp4",
                 "caption_file": "caption.my.txt",
                 "sha256": {
-                    "video.my.mp4": "a" * 64,
+                    "video.my.mp4": video_sha,
                     "caption.my.txt": "b" * 64,
                 },
                 "publish_mode": "DRY_RUN",
@@ -75,7 +80,8 @@ class AlbumStoreContractTests(unittest.TestCase):
 
             root_exec = td / "root-exec.sh"
             root_exec.write_text(
-                f'''#!/bin/bash\nprintf '%s\\n' "$*" >> "{root_log}"\ncase "$*" in\n  *"content query"*) echo "Row: 0 _id=1, _display_name={job.name}.mp4, relative_path=Movies/Y700Agent/" ;;\n  *"ShareReceiverIntentActivity"*) printf "Status: ok\nActivity: com.zui.notes/.home.MainActivity\n" ;;\nesac\n''',
+                f'''#!/bin/bash\nprintf '%s\\n' "$*" >> "{root_log}"\ncase "$*" in\n  *"content query"*) echo "Row: 0 _id=1, _display_name={job.name}.mp4, relative_path=Movies/Y700Agent/" ;;
+  *"sha256sum "*) echo "{manifest['sha256']['video.my.mp4']}  /sdcard/Movies/Y700Agent/{job.name}.mp4" ;;\n  *"ShareReceiverIntentActivity"*) printf "Status: ok\nActivity: com.zui.notes/.home.MainActivity\n" ;;\nesac\n''',
                 encoding="utf-8",
             )
             root_exec.chmod(0o755)
@@ -102,7 +108,7 @@ class AlbumStoreContractTests(unittest.TestCase):
                 text=True,
                 capture_output=True,
             )
-            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
             out = json.loads(p.stdout.strip().splitlines()[-1])
             self.assertEqual(out["status"], "STORED_IN_ALBUM")
             self.assertTrue(out["media_store_verified"])
