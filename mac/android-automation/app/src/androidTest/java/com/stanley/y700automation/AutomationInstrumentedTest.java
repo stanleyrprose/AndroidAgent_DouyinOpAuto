@@ -2461,6 +2461,14 @@ public class AutomationInstrumentedTest {
     }
 
     private JSONObject swipe(JSONObject action) throws Exception {
+        // Gestures are not an approved one-shot external effect dispatch.
+        // A caller's side-effect label must not turn a swipe into Publish.
+        if ("EXTERNAL_IRREVERSIBLE".equals(
+                action.optString("side_effect", ""))) {
+            throw new ActionFailure("IRREVERSIBLE_SWIPE_DENIED",
+                    "swipe cannot dispatch an external effect",
+                    false, "BLOCKED");
+        }
         int width = device.getDisplayWidth();
         int height = device.getDisplayHeight();
         int x1;
@@ -2498,6 +2506,13 @@ public class AutomationInstrumentedTest {
 
     private JSONObject scroll(JSONObject action) throws Exception {
         UiObject2 target = findUnique(action.optJSONObject("selector"));
+        if ("EXTERNAL_IRREVERSIBLE".equals(
+                action.optString("side_effect", ""))
+                || isKnownTikTokPublishControl(target)) {
+            throw new ActionFailure("IRREVERSIBLE_SCROLL_DENIED",
+                    "scroll cannot dispatch an external Publish control",
+                    false, "BLOCKED");
+        }
         String raw = action.optString("direction", "DOWN").toUpperCase(Locale.ROOT);
         Direction direction;
         try {
