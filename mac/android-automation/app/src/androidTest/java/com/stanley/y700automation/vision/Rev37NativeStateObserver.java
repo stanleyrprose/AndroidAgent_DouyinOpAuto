@@ -134,6 +134,7 @@ public final class Rev37NativeStateObserver {
                     || windows.size() > 80) return "WINDOW_INVENTORY_UNAVAILABLE";
             int focused = 0;
             int activeTargetRoots = 0;
+            int targetRoots = 0;
             for (AccessibilityWindowInfo window : windows) {
                 if (window == null) return "WINDOW_INVENTORY_INCOMPLETE";
                 if (window.isFocused()) focused++;
@@ -147,6 +148,7 @@ public final class Rev37NativeStateObserver {
                 boolean targetRoot = window.getType()
                         == AccessibilityWindowInfo.TYPE_APPLICATION
                         && expectedPackage.equals(owner);
+                if (targetRoot) targetRoots++;
                 if (targetRoot && window.isActive()) activeTargetRoots++;
                 if (window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
                     // IME presence alone is not a blocker; whether it steals
@@ -161,7 +163,7 @@ public final class Rev37NativeStateObserver {
                     return "WINDOW_TARGET_ROOT_AMBIGUOUS";
                 }
             }
-            if (focused != 1 || activeTargetRoots != 1)
+            if (focused != 1 || activeTargetRoots != 1 || targetRoots != 1)
                 return "WINDOW_FOCUS_OR_TARGET_ROOT_UNAVAILABLE";
             return "READ_ONLY_WINDOW_INVENTORY_CLASSIFIED";
         } catch (Exception ignored) {
