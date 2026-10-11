@@ -128,8 +128,18 @@ def save_caption_note(job: Path, manifest: dict, run_dir: Path) -> dict:
     )
     started = root_exec(command, timeout_ms=15000)
     output = (started.stdout or "") + "\n" + (started.stderr or "")
-    if "Status: ok" not in output or "com.zui.notes/.home.MainActivity" not in output:
-        raise AlbumStoreError("ZUI Notes share receiver did not open MainActivity")
+    if "Status: ok" not in output:
+        raise AlbumStoreError("ZUI Notes share receiver failed to launch")
+
+    # On current ZUI, am start -W can return ShareReceiverIntentActivity
+    # before its asynchronous transition to MainActivity.
+    for _ in range(10):
+        activity = root_exec("dumpsys activity activities", timeout_ms=20000).stdout
+        if "topResumedActivity=" in activity and "com.zui.notes/.home.MainActivity" in activity.split("topResumedActivity=", 1)[1].splitlines()[0]:
+            break
+        time.sleep(0.5)
+    else:
+        raise AlbumStoreError("ZUI Notes MainActivity was not foreground")
 
     # ZUI Notes persists shared text when the editor lifecycle is completed.
     # This behavior was verified on the target Y700 against notes_v2.
@@ -170,7 +180,17 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         raise AlbumStoreError("invalid album name")
     previous = existing_result(job_id)
     if previous:
-        return {**previous, "idempotent": True}
+        # A stale receipt is not proof that Android still holds the media.
+        destination = previous.get("device_path", "")
+        expected_path = f"/sdcard/Movies/{album}/{job_id}.mp4"
+        if destination == expected_path:
+            ready_manifest = READY / job_id / "manifest.json"
+            if ready_manifest.is_file():
+                verified_manifest = load_manifest(ready_manifest)
+                expected_digest = verified_manifest["sha256"][verified_manifest["video_file"]].lower()
+                probe = root_exec(f"sha256sum {shlex.quote(destination)}", check=False, timeout_ms=30000)
+                if probe.returncode == 0 and (probe.stdout or "").strip().split()[:1] == [expected_digest]:
+                    return {**previous, "idempotent": True}
 
     job = READY / job_id
     if not job.is_dir():
@@ -199,6 +219,16 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         write_state("STORING_IN_ALBUM", job_id, album=album, initial_power_state=initial)
 
         video = str(manifest["video_file"])
+        source_file = job / video
+        expected_sha256 = manifest["sha256"][video].lower()
+        if not source_file.is_file():
+            raise AlbumStoreError("READY video missing")
+        digest = hashlib.sha256()
+        with source_file.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != expected_sha256:
+            raise AlbumStoreError("READY video checksum mismatch")
         src = f"{HOST_READY}/{job_id}/{video}"
         album_dir = f"/sdcard/Movies/{album}"
         display_name = f"{job_id}.mp4"
@@ -214,9 +244,13 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
             f"mkdir -p {q_album}; cp {q_src} {q_part}; chmod 644 {q_part}; mv -f {q_part} {q_dst}",
             timeout_ms=30000,
         )
+        copied_hash = root_exec(f"sha256sum {q_dst}", timeout_ms=30000).stdout.strip().split()[0].lower()
+        if copied_hash != expected_sha256:
+            raise AlbumStoreError("Android album video checksum mismatch")
+        write_state("ALBUM_COPY_VERIFIED", job_id, album=album, device_path=dst)
         root_exec(
             f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{dst} >/dev/null",
-            timeout_ms=10000,
+            timeout_ms=30000,
         )
 
         relative_path = f"Movies/{album}/"
@@ -225,9 +259,10 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
             "--projection _id:_display_name:relative_path "
             f"--where \"_display_name='{display_name}' AND relative_path='{relative_path}'\""
         )
+        write_state("WAITING_MEDIASTORE_INDEX", job_id, album=album, device_path=dst)
         media_row = ""
         for _ in range(30):
-            q = root_exec(query, check=False, timeout_ms=5000)
+            q = root_exec(query, check=False, timeout_ms=20000)
             media_row = q.stdout or ""
             if display_name in media_row and relative_path in media_row:
                 break
