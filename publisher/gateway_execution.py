@@ -338,8 +338,20 @@ def execute_gateway_bound(
                 "content_sha256": context.content_sha256,
                 "visibility": "PUBLIC",
             }
+            # cross_effect_boundary returns a deliberately minimal ACK;
+            # immutable content/policy identity lives in its fsynced
+            # effect-boundary.json, not in the callback return value.
+            callback_expected = {
+                "effect_boundary_version": 1,
+                "phase": "EFFECT_BOUNDARY_CROSSED",
+                "capability_job_id": context.capability_job_id,
+                "backend_job_id": context.backend_job_id,
+                "production_dispatch_authorized": False,
+                "effect_attempts_performed_by_this_module": 0,
+            }
             _require(isinstance(receipt, Mapping)
-                     and all(receipt.get(k) == v for k, v in expected.items())
+                     and all(receipt.get(k) == v
+                             for k, v in callback_expected.items())
                      and all(durable.get(k) == v for k, v in expected.items())
                      and durable.get("effect_boundary_version") == 1
                      and durable.get("boundary") == "before_final_publish"

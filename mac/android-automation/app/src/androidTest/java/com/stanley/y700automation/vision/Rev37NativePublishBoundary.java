@@ -146,8 +146,10 @@ public final class Rev37NativePublishBoundary {
                 instrumentation, PUBLISH_STATE);
         JSONObject request = readRestrictedJson(
                 instrumentation, JOB_ROOT + job + "/request.json");
+        JSONObject identity = readRestrictedJson(
+                instrumentation, JOB_ROOT + job + "/identity.json");
         if (effect == null || binding == null || approval == null
-                || publisher == null || request == null)
+                || publisher == null || request == null || identity == null)
             return deny("CAPABILITY_PUBLISH_DURABLE_PROOF_UNAVAILABLE");
         if (!"EFFECT_BOUNDARY_CROSSED".equals(
                 effect.optString("phase", ""))
@@ -178,12 +180,25 @@ public final class Rev37NativePublishBoundary {
                 || !same(payload, effect, "content_sha256")
                 || !same(payload, approval, "caption_sha256"))
             return deny("CAPABILITY_PUBLISH_REQUEST_CONTENT_DRIFT");
-        if (!same(effect, claim, "request_sha256")
+        if (!job.equals(identity.optString("capability_job_id", ""))
+                || !same(identity, claim, "request_sha256")
+                || !same(identity, effect, "effective_policy_sha256")
+                || !same(approval, effect, "effective_policy_sha256")
+                || !same(effect, claim, "request_sha256")
                 || !same(binding, claim, "request_sha256")
-                || !same(request, claim, "request_sha256")
+                // request.json is the canonical hashed request body;
+                // it does not carry its own request_sha256 field. The
+                // binding, approval and effect records pin that digest.
                 || !same(approval, claim, "request_sha256")
                 || !same(binding, claim, "capability_job_id")
-                || !same(approval, claim, "capability_job_id")
+                // approval.json uses job_id, not capability_job_id.
+                || !job.equals(approval.optString("job_id", ""))
+                || !"tiktok.publish".equals(
+                        approval.optString("capability", ""))
+                || approval.optInt("approval_version", -1) != 1
+                || !approval.optBoolean("approved", false)
+                || !approval.optBoolean("single_use", false)
+                || !"PUBLIC".equals(approval.optString("visibility", ""))
                 || !same(effect, approval, "approval_id")
                 || !same(effect, approval, "approval_nonce")
                 || !same(effect, approval, "content_sha256"))
