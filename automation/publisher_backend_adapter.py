@@ -250,8 +250,18 @@ class LocalPublisherBackend:
         admitted = self._load_admitted(backend_id)
         _need(isinstance(intent, Mapping)
               and intent.get("backend_job_id") == backend_id
-              and intent.get("request_sha256") == admitted.request_sha256,
+              and intent.get("capability_job_id") == admitted.job_id
+              and intent.get("request_sha256") == admitted.request_sha256
+              and intent.get("effective_policy_sha256")
+                  == admitted.effective_policy_sha256,
               "BACKEND_INTENT_IDENTITY_MISMATCH")
+        adapter = intent.get("adapter_intent")
+        _need(isinstance(adapter, Mapping)
+              and adapter.get("backend_type") == "publisher"
+              and adapter.get("capability") == "tiktok.publish"
+              and adapter.get("backend_job_id") == backend_id
+              and adapter.get("request_sha256") == admitted.request_sha256,
+              "BACKEND_ADAPTER_CONTRACT_INVALID")
         witness = _read_json(admitted.path / "backend-execution.json")
         _need(witness.get("phase") == "SUBMISSION_POSSIBLE"
               and witness.get("attempt_serial") == 1
@@ -268,6 +278,20 @@ class LocalPublisherBackend:
               and payload.get("existing_publisher_job_id"),
               "PUBLISHER_JOB_ID_INVALID")
         publisher_id = payload["existing_publisher_job_id"]
+        from automation.gateway_adapters import (
+            prepare_adapter_intent_readonly,
+        )
+        expected_adapter = prepare_adapter_intent_readonly(
+            capability="tiktok.publish",
+            immutable_payload=payload,
+            exact_backend_id=backend_id,
+            exact_request_sha256=admitted.request_sha256,
+        )
+        _need(isinstance(publisher_id, str)
+              and re.fullmatch(r"[A-Za-z0-9_.-]{1,96}", publisher_id)
+              is not None
+              and dict(adapter) == expected_adapter,
+              "PUBLISHER_SUBMISSION_PAYLOAD_DRIFT")
         path = _PUBLISHER_PATH / publisher_id
         _need(path.parent == _PUBLISHER_PATH and path.is_dir()
               and not path.is_symlink(),
