@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import hmac
+import hashlib
 import json
 import mimetypes
 import re
@@ -48,6 +49,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         size=target.stat().st_size
         ctype=mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        with target.open("rb") as handle:
+            etag = '"' + hashlib.file_digest(handle, "sha256").hexdigest() + '"'
+        if_range = self.headers.get("If-Range")
+        if if_range and if_range != etag:
+            self.send_response(412)
+            self.end_headers()
+            return
         start, end = 0, size - 1
         value = self.headers.get("Range")
         if value:
@@ -65,6 +73,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(206 if value else 200)
         self.send_header("Content-Type", ctype)
         self.send_header("Accept-Ranges", "bytes")
+        self.send_header("ETag", etag)
         self.send_header("Content-Length", str(end - start + 1 if value else size))
         if value:
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
