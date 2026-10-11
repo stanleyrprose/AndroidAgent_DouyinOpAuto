@@ -196,6 +196,11 @@ public final class Rev37NativePublishBoundary {
                 || !"tiktok.publish".equals(
                         approval.optString("capability", ""))
                 || approval.optInt("approval_version", -1) != 1
+                || !"1.0".equals(approval.optString("capability_version", ""))
+                || !"RECORDED".equals(approval.optString("approval_state", ""))
+                || approval.optString("nonce", "").isEmpty()
+                || !approval.optString("nonce", "").equals(
+                        approval.optString("approval_nonce", ""))
                 || !approval.optBoolean("approved", false)
                 || !approval.optBoolean("single_use", false)
                 || !"PUBLIC".equals(approval.optString("visibility", ""))

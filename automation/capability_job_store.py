@@ -74,6 +74,11 @@ def inspect_public_commit_authority_readonly(
             and approval.get("content_sha256") == content_sha256
             and approval.get("caption_sha256") == caption_sha256
             and approval.get("visibility") == "PUBLIC"
+            and approval.get("nonce") == approval.get("approval_nonce")
+            and approval.get("approval_state") == "RECORDED"
+            and isinstance(approval.get("approved_by"), dict)
+            and bool(approval["approved_by"].get("principal_type"))
+            and bool(approval["approved_by"].get("principal_id"))
             and isinstance(approval.get("approval_id"), str)
             and bool(approval["approval_id"])
             and isinstance(approval.get("approval_nonce"), str)
