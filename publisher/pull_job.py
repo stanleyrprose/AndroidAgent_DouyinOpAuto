@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -25,10 +26,15 @@ def sha256(path):
             h.update(chunk)
     return h.hexdigest()
 
-def fetch(url,dest):
+def fetch_manifest(url,dest):
     req=urllib.request.Request(url,headers={"User-Agent":"Y700Agent/0.3"})
-    with urllib.request.urlopen(req,timeout=60) as r, open(dest,"wb") as f:
-        shutil.copyfileobj(r,f,1024*1024)
+    with urllib.request.urlopen(req,timeout=60) as response, open(dest,"wb") as out:
+        shutil.copyfileobj(response,out,1024*1024)
+
+def fetch(url,dest):
+    # curl -C - negotiates HTTP Range; an interrupted .part remains reusable.
+    subprocess.run(["curl", "-fL", "--retry", "3", "--connect-timeout", "15",
+                    "--max-time", "600", "-C", "-", "-o", str(dest), url], check=True)
 
 def persist_media(directory: Path, files: list[str]) -> None:
     """Flush validated media and directory entries before announcing READY."""
@@ -65,7 +71,7 @@ def main():
 
     manifest_tmp=RUNTIME/"tmp"/"pull-manifest.json"
     manifest_tmp.parent.mkdir(parents=True,exist_ok=True)
-    fetch(args.manifest_url,manifest_tmp)
+    fetch_manifest(args.manifest_url,manifest_tmp)
 
     try:
         manifest=load_manifest(manifest_tmp)
@@ -74,9 +80,16 @@ def main():
 
     job_id=manifest["job_id"]
     work=INCOMING/job_id
-    if work.exists() or (READY/job_id).exists():
+    if (READY/job_id).exists():
         raise SystemExit("job already present on Y700; refusing overwrite")
-    work.mkdir(parents=True)
+    identity = sha256(manifest_tmp)
+    marker = work / ".manifest-sha256"
+    if work.exists() and (work.is_symlink() or not work.is_dir()):
+        raise SystemExit("unsafe incoming job directory")
+    if work.exists() and (not marker.is_file() or marker.read_text() != identity):
+        shutil.rmtree(work)
+    work.mkdir(parents=True, exist_ok=True)
+    marker.write_text(identity)
     shutil.copy2(manifest_tmp,work/"manifest.json")
     write_json_atomic(work/"state.json",{"status":"PULLING"})
 
@@ -91,10 +104,18 @@ def main():
         for name in files:
             part=work/(name+".part")
             final=work/name
-            fetch(urllib.parse.urljoin(base,name),part)
-            actual=sha256(part)
+            if part.is_symlink() or final.is_symlink():
+                raise ContractError("unsafe media file")
+            if final.exists() and sha256(final) == manifest["sha256"][name].lower():
+                continue
+            if final.exists():
+                final.unlink()
             expected=manifest["sha256"][name].lower()
+            if not part.exists() or sha256(part) != expected:
+                fetch(urllib.parse.urljoin(base,name),part)
+            actual=sha256(part)
             if actual.lower()!=expected:
+                part.unlink(missing_ok=True)
                 raise ContractError(f"sha256 mismatch {name}: expected={expected} actual={actual}")
             part.replace(final)
 
@@ -123,8 +144,8 @@ def main():
         finally:
             os.close(dir_fd)
         print(json.dumps({"job_id":job_id,"status":"READY","path":str(dest)},ensure_ascii=False))
-    except Exception as e:
-        fail_dir(work,str(e))
+    except Exception:
+        # Keep incoming .part files for a retry with the same manifest.
         raise
 
 if __name__=="__main__":

@@ -48,18 +48,38 @@ class Handler(BaseHTTPRequestHandler):
             return
         size=target.stat().st_size
         ctype=mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-        self.send_response(200)
-        self.send_header("Content-Type",ctype)
-        self.send_header("Content-Length",str(size))
-        self.send_header("Cache-Control","no-store")
+        start, end = 0, size - 1
+        value = self.headers.get("Range")
+        if value:
+            match = re.fullmatch(r"bytes=(\d+)-(\d*)", value.strip())
+            if not match:
+                self.send_error(400, "unsupported byte range")
+                return
+            start = int(match.group(1))
+            end = min(int(match.group(2)), size - 1) if match.group(2) else size - 1
+            if start >= size or end < start:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.end_headers()
+                return
+        self.send_response(206 if value else 200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(end - start + 1 if value else size))
+        if value:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         if not head:
-            with open(target,"rb") as f:
-                while True:
-                    chunk=f.read(1024*1024)
+            with open(target, "rb") as f:
+                f.seek(start)
+                remaining = end - start + 1
+                while remaining > 0:
+                    chunk = f.read(min(1024 * 1024, remaining))
                     if not chunk:
                         break
                     self.wfile.write(chunk)
+                    remaining -= len(chunk)
 
     def do_GET(self):
         self._send(False)
