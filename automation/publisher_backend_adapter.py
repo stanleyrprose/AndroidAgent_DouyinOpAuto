@@ -254,7 +254,13 @@ class LocalPublisherBackend:
               "BACKEND_INTENT_IDENTITY_MISMATCH")
         witness = _read_json(admitted.path / "backend-execution.json")
         _need(witness.get("phase") == "SUBMISSION_POSSIBLE"
-              and witness.get("attempt_serial") == 1,
+              and witness.get("attempt_serial") == 1
+              and witness.get("submission_possible") is True
+              and witness.get("backend_job_id") == backend_id
+              and witness.get("capability_job_id") == admitted.job_id
+              and witness.get("request_sha256") == admitted.request_sha256
+              and not (admitted.path / "effect-boundary.json").exists()
+              and not (admitted.path / "result.json").exists(),
               "BACKEND_SUBMISSION_WITNESS_MISSING")
         prepared = _read_json(admitted.path / "request.json")
         payload = prepared.get("payload")
