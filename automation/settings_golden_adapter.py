@@ -263,6 +263,12 @@ def _run_bound_settings_actions(
         # Preserve the original request/provenance when completion is
         # unknown; never delete evidence and silently issue the same ID.
         raise SettingsGoldenUnavailable("SETTINGS_SUBJOB_RECONCILE_REQUIRED")
+    # Never attach a successful receipt from a different UI session, even
+    # if it reports the same action names and a PASS aggregate.
+    if (result.get("job_id") != job_id
+            or result.get("session_id") != request["session_id"]
+            or result.get("protocol_version") != 2):
+        raise SettingsGoldenUnavailable("SETTINGS_SUBJOB_RESULT_IDENTITY_MISMATCH")
     # A successful aggregate alone does not establish that every requested
     # mutation ran and returned its own positive acknowledgement.
     _require_exact_settings_action_receipts(result, actions)
