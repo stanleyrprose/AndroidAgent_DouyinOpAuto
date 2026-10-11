@@ -187,7 +187,7 @@ def _finish_cleanup(job_dir: Path, record: Path, receipt: dict) -> dict:
 
 
 def pull_verify_clean(job_dir: Path, *, ssh_target: str, manifest_url: str,
-                      remote_puller: str = "/opt/y700/workspaces/y700-agent-bridge-v2/publisher/pull_job.py") -> dict:
+                      remote_puller: str = "/opt/y700/deployments/media-cleanup-874f344/publisher/pull_job.py") -> dict:
     """Invoke Y700 pull, then independently verify persistence before cleanup."""
     from urllib.parse import urlparse
     u = urlparse(manifest_url)
