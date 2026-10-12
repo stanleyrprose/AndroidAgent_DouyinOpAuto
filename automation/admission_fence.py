@@ -138,27 +138,48 @@ def assert_admission_unfenced_readonly(
     stale release fence after a reboot.
     """
     fence = submissions_root / "release-admission-fence.json"
+    # A missing fence is positive evidence ONLY if the protected directory
+    # was independently opened and remains the same trusted inode. In
+    # particular, ENOENT for the parent must never reopen admission.
     try:
-        parent = os.lstat(submissions_root)
+        if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+            raise AdmissionFenceUnavailable("ADMISSION_FENCE_NOFOLLOW_UNAVAILABLE")
+        directory_fd = os.open(
+            submissions_root,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+        )
+    except OSError as exc:
+        raise AdmissionFenceUnavailable("ADMISSION_FENCE_ROOT_UNAVAILABLE") from exc
+    try:
+        parent = os.fstat(directory_fd)
         if (not stat.S_ISDIR(parent.st_mode)
                 or parent.st_uid != 0
                 or stat.S_IMODE(parent.st_mode) != 0o700):
             raise AdmissionFenceUnavailable("ADMISSION_FENCE_ROOT_UNTRUSTED")
-        entry = os.lstat(fence)
-    except FileNotFoundError as exc:
-        if exc.filename == str(fence):
+        try:
+            entry = os.stat(fence.name, dir_fd=directory_fd,
+                            follow_symlinks=False)
+        except FileNotFoundError:
+            current = os.stat(submissions_root, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != (parent.st_dev, parent.st_ino):
+                raise AdmissionFenceUnavailable("ADMISSION_FENCE_ROOT_CHANGED")
             return
-        raise AdmissionFenceUnavailable("ADMISSION_FENCE_ROOT_UNAVAILABLE") from exc
-    except OSError as exc:
-        raise AdmissionFenceUnavailable("ADMISSION_FENCE_UNAVAILABLE") from exc
-    if not stat.S_ISREG(entry.st_mode):
-        raise AdmissionFenceUnavailable("ADMISSION_FENCE_UNTRUSTED")
-    try:
+        if (not stat.S_ISREG(entry.st_mode)
+                or entry.st_uid != 0
+                or stat.S_IMODE(entry.st_mode) != 0o600):
+            raise AdmissionFenceUnavailable("ADMISSION_FENCE_UNTRUSTED")
         record = _read_json(fence)
+        current = os.stat(submissions_root, follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != (parent.st_dev, parent.st_ino):
+            raise AdmissionFenceUnavailable("ADMISSION_FENCE_ROOT_CHANGED")
+        if record.get("admission_fence_version") != 1:
+            raise AdmissionFenceUnavailable("ADMISSION_FENCE_CORRUPT")
     except CapabilityStoreError as exc:
         raise AdmissionFenceUnavailable("ADMISSION_FENCE_CORRUPT") from exc
-    if record.get("admission_fence_version") != 1:
-        raise AdmissionFenceUnavailable("ADMISSION_FENCE_CORRUPT")
+    except OSError as exc:
+        raise AdmissionFenceUnavailable("ADMISSION_FENCE_UNAVAILABLE") from exc
+    finally:
+        os.close(directory_fd)
     # Even stale release fences must NOT auto-expire without positive
     # operator-confirmed clean lifecycle reconciliation.
     raise AdmissionFenceUnavailable("ADMISSIONS_PAUSED_FOR_RELEASE")

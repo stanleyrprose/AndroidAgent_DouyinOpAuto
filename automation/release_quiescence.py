@@ -74,12 +74,24 @@ def inspect_upgrade_quiescence_readonly(
         # because active/ is empty when an upgrade fence is installed.
         if not CAPABILITY_STAGING.is_dir() or CAPABILITY_STAGING.is_symlink():
             raise CapabilityStoreError("STAGING_JOBS_ROOT_UNAVAILABLE")
-        if any(True for _ in CAPABILITY_STAGING.iterdir()):
+        staging_before = {
+            child.name: (child.lstat().st_dev, child.lstat().st_ino)
+            for child in CAPABILITY_STAGING.iterdir()
+        }
+        if len(staging_before) > 1000:
+            raise CapabilityStoreError("STAGING_INVENTORY_OVERSIZE")
+        if staging_before:
             no_staging_jobs = False
             no_unsafe_jobs = False
             reasons.append("ADMISSION_STAGING_NOT_RECONCILED")
         if not CAPABILITY_JOBS.is_dir() or CAPABILITY_JOBS.is_symlink():
             raise CapabilityStoreError("ACTIVE_JOBS_ROOT_UNAVAILABLE")
+        active_before = {
+            child.name: (child.lstat().st_dev, child.lstat().st_ino)
+            for child in CAPABILITY_JOBS.iterdir()
+        }
+        if len(active_before) > 1000:
+            raise CapabilityStoreError("ACTIVE_INVENTORY_OVERSIZE")
         for job in CAPABILITY_JOBS.iterdir():
             if not job.is_dir() or job.is_symlink():
                 raise CapabilityStoreError("ACTIVE_JOBS_PATH_UNTRUSTED")
@@ -95,6 +107,16 @@ def inspect_upgrade_quiescence_readonly(
             if (status.get("effect_uncertain")
                     or status.get("mutation_uncertain")):
                 no_unsafe_jobs = False
+        active_after = {
+            child.name: (child.lstat().st_dev, child.lstat().st_ino)
+            for child in CAPABILITY_JOBS.iterdir()
+        }
+        staging_after = {
+            child.name: (child.lstat().st_dev, child.lstat().st_ino)
+            for child in CAPABILITY_STAGING.iterdir()
+        }
+        if active_before != active_after or staging_before != staging_after:
+            raise CapabilityStoreError("CAPABILITY_INVENTORY_CHANGED_DURING_SCAN")
     except (OSError, CapabilityStoreError) as exc:
         no_live_capability_jobs = False
         no_staging_jobs = False
