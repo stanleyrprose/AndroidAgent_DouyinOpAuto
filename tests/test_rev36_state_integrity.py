@@ -246,3 +246,23 @@ class StateIntegritySprint1Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class AuthorityLossRegressionTests(StateIntegritySprint1Tests):
+    def test_missing_canonical_state_after_initialization_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            si = self.load(Path(td))
+            si.load_state()
+            self.assertTrue(si.STATE_INITIALIZED_MARKER.exists())
+            si.STATE_PATH.unlink()
+            with self.assertRaisesRegex(si.StateIntegrityError, "canonical state missing"):
+                si.load_state()
+            self.assertFalse(si.STATE_PATH.exists())
+
+    def test_missing_state_with_marker_never_bootstraps_new_epoch(self):
+        with tempfile.TemporaryDirectory() as td:
+            si = self.load(Path(td))
+            si._ensure_dir()
+            si._install_initialization_marker()
+            with self.assertRaisesRegex(si.StateIntegrityError, "canonical state missing"):
+                si.load_state()
+            self.assertFalse(si.STATE_PATH.exists())

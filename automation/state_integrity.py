@@ -17,6 +17,7 @@ from typing import Any
 RUNTIME = Path(os.environ.get("Y700_RUNTIME", "/opt/y700/runtime"))
 STATE_DIR = Path(os.environ.get("Y700_UI_STATE_DIR", str(RUNTIME / "ui-state")))
 STATE_PATH = STATE_DIR / "device-state.json"
+STATE_INITIALIZED_MARKER = STATE_DIR / "device-state.initialized"
 FINGERPRINT_VERSION = "semantic-v1"
 MAX_TOKEN_AGE_MS = 30_000
 
@@ -167,6 +168,26 @@ def _create_initial_state(value: dict[str, Any]) -> None:
 
 
 
+def _install_initialization_marker() -> None:
+    """Record the first state epoch so missing authority cannot reset silently."""
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: nofollow unavailable")
+    try:
+        fd = os.open(STATE_INITIALIZED_MARKER,
+                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError as exc:
+        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: marker already exists") from exc
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(b"initialized\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        _fsync_dir(STATE_DIR)
+    finally:
+        # The fd is owned by fdopen; never unlink a committed marker.
+        pass
+
+
 def _boot_id() -> str:
     try:
         return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
@@ -249,6 +270,12 @@ def load_state() -> dict[str, Any]:
             try:
                 return _validate_state(_read_existing_state())
             except FileNotFoundError:
+                if STATE_INITIALIZED_MARKER.is_symlink():
+                    raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: marker symlink")
+                if STATE_INITIALIZED_MARKER.exists():
+                    raise StateIntegrityError(
+                        "STATE_INTEGRITY_UNAVAILABLE: canonical state missing after initialization"
+                    )
                 state = {
                     "state_version": 1,
                     "state_epoch": "epoch-" + secrets.token_hex(16),
@@ -257,6 +284,10 @@ def load_state() -> dict[str, Any]:
                     "initialized_at": _now_iso(),
                     "updated_at": _now_iso(),
                 }
+                # Persist the one-time initialization marker before publishing
+                # the canonical state. A missing state with an existing marker
+                # is a loss of authority, never permission to reset revision.
+                _install_initialization_marker()
                 _create_initial_state(state)
                 return state
     except (OSError, ValueError, UnicodeError) as exc:

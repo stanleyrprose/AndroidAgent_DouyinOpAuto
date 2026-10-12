@@ -2687,3 +2687,12 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   of exposing an unclassified parser exception. Added regression candidates.
 - This is not a complete descriptor-relative same-UID race defense; tests
   and real device verification remain deferred.
+
+### 2026-10-12 authority-state loss fail-closed draft
+
+- Added an owner-private durable initialization marker before first canonical
+  state publication. On subsequent missing `device-state.json`, marker presence
+  blocks silent epoch/revision reset and requires operator reconciliation.
+- Added unexecuted regression candidates for deletion and interrupted first
+  publication. Existing deployments initialized before this marker need a
+  separately reviewed migration/backfill strategy; source-only, not accepted.
