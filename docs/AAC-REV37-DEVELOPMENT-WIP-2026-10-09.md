@@ -2784,3 +2784,47 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   successful work, missing guard and failed durable marking. Consolidated
   fault injection, restart/recovery, ownership and real Y700 acceptance remain
   pending; no runtime gate is opened by this source change.
+
+### 2026-10-12 read-only interrupted UI job evidence inventory
+
+- Added `automation/ui_recovery_inspector.py`: bounded, owner-private,
+  nofollow journal/receipt reader with strict job/session identity checks,
+  PREPARED-to-COMMITTED accounting and explicit unresolved action indices.
+- Inspector never executes Android input, resumes old jobs, releases Claims,
+  authorizes replay, or upgrades evidence into business verification.
+- Eight source-only regression candidates cover interrupted PREPARED,
+  misleading terminal receipt, committed terminal evidence, ambiguous outcome,
+  partial/symlinked journal, mismatched result, and orphan COMMIT.
+- This is diagnostic groundwork, **not** an automatic recovery executor or
+  acceptance of Sprint 1/1A. Native process death, same-UID races, crash
+  durability and live Y700 Claim reconciliation remain unverified.
+
+### 2026-10-12 read-only restart recovery evidence inspector
+
+- Added `automation/ui_recovery_inspector.py`: bounded, owner-private,
+  nofollow and generation-checked reads of a job's journal, checkpoint,
+  workflow, state and result; torn JSONL and suspicious files fail closed.
+- `ui_job.inspect_recovery(job_id)` explicitly combines this evidence with
+  the canonical Claim read. It does **not** run on job start, does not resume
+  or release a Claim, and cannot approve any mutation replay. Missing result,
+  unresolved PREPARED, ambiguous journal, mismatched identity and checkpoint
+  inconsistencies require reconciliation. Even an apparently clean PASS is
+  classified as an unverified terminal receipt, not device outcome proof.
+- Six source-only regression candidates added. This diagnostic is not a
+  verified crash-recovery state machine or a replacement for device evidence;
+  PRD acceptance, consolidated tests and native Y700 fault injection remain.
+
+### 2026-10-12 read-only UI crash recovery evidence inspection
+
+- Added `automation/ui_recovery_inspector_v37.py` as a dormant read-only
+  evidence scanner for a single exact UI job. It validates private bounded
+  workflow/checkpoint/journal/result evidence, checks action identity and
+  PREPARED/COMMITTED revision ordering, and reports unresolved action indices.
+- Every output hard-codes `safe_to_resume=false`, `replay_allowed=false`,
+  `claim_release_allowed=false`; this scanner never dispatches Android input
+  or changes canonical state. It is diagnostic evidence, not recovery approval.
+- Added seven source-only regression candidates for missing result, pending
+  PREPARED, committed-but-not-replayable, truncated journal, symlinked journal,
+  invalid revision ordering and mismatched checkpoint identity.
+- Recovery gate, positive stop proof, Claim cleanup, journal durability and
+  Android restart acceptance remain CLOSED / unverified.

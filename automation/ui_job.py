@@ -21,7 +21,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from bridge import bridge_client as bridge_v2
-from automation import resource_arbiter, state_integrity, ui_core_v2
+from automation import resource_arbiter, state_integrity, ui_core_v2, ui_recovery_inspector
 
 os.umask(0o077)
 
@@ -1315,6 +1315,19 @@ def status(job_id: str) -> dict[str, Any]:
     }
 
 
+def inspect_recovery(job_id: str) -> dict[str, Any]:
+    """Explicit read-only recovery diagnostic; never schedules a replay.
+
+    An unreadable/corrupt Claim is a hard error, not evidence that the UI
+    resource is free. No state, checkpoint or Claim is changed here.
+    """
+    if not JOB_RE.fullmatch(job_id):
+        raise UiJobError("invalid job id")
+    directory = UI_JOBS / job_id
+    claim = resource_arbiter.read_claim()
+    return ui_recovery_inspector.classify(directory, claim=claim)
+
+
 def cancel(job_id: str, reason: str = "user_requested") -> dict[str, Any]:
     if not JOB_RE.fullmatch(job_id):
         raise UiJobError("invalid job id")
@@ -1339,6 +1352,8 @@ def main() -> int:
     p.add_argument("workflow")
     p = sp.add_parser("status")
     p.add_argument("job_id")
+    p = sp.add_parser("inspect-recovery")
+    p.add_argument("job_id")
     p = sp.add_parser("cancel")
     p.add_argument("job_id")
     p.add_argument("--reason", default="user_requested")
@@ -1347,6 +1362,8 @@ def main() -> int:
     try:
         if args.cmd == "run":
             out = run_workflow(Path(args.workflow))
+        elif args.cmd == "inspect-recovery":
+            out = inspect_recovery(args.job_id)
         elif args.cmd == "cancel":
             out = cancel(args.job_id, args.reason)
         else:
