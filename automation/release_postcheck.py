@@ -116,8 +116,24 @@ def positive_no_effect_since_switch_readonly(
                 or inventory.get("active_count") != 0
                 or inventory.get("staging_count") != 0):
             return False
+        # Re-observe after inventory and fence scans. A new Claim, a
+        # release switch, or an advanced Android state revision invalidates
+        # the original no-effect witness, even if the old receipt is fresh.
+        final_state = observe_authoritative_state()
+        final_fence = observe_admission_fence_readonly(
+            expected_release_id=candidate_dir.name)
         return (
-            receipt.get("all_android_mutators_absent") is True
+            final_state.boot_id == now.boot_id
+            and final_state.state_epoch == now.state_epoch
+            and final_state.revision == now.revision
+            and type(receipt.get("observed_boottime_ms")) is int
+            and 0 <= (final_state.observed_boottime_ms
+                      - receipt["observed_boottime_ms"]) <= 1500
+            and final_fence.get("admissions_stopped_positive") is True
+            and read_claim() is None
+            and _ACTIVE.is_symlink()
+            and _ACTIVE.resolve(strict=True) == candidate_dir
+            and receipt.get("all_android_mutators_absent") is True
             and receipt.get("all_linux_backend_mutators_absent") is True
             and receipt.get("all_capability_effects_absent") is True
             and receipt.get("unknown_effects_present") is False

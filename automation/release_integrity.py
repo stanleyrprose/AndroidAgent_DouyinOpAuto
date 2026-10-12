@@ -52,11 +52,14 @@ def _need(ok: bool, code: str) -> None:
 
 
 def _regular(path: Path, *, owner: int = 0, maximum: int) -> bytes:
+    _need(hasattr(os, "O_NOFOLLOW"),
+          "RELEASE_INTEGRITY_NOFOLLOW_UNAVAILABLE")
     fd = -1
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
         before = os.fstat(fd)
         _need(stat.S_ISREG(before.st_mode)
+              and before.st_nlink == 1
               and before.st_uid == owner
               and (before.st_mode & 0o022) == 0
               and 0 < before.st_size <= maximum,
@@ -68,11 +71,14 @@ def _regular(path: Path, *, owner: int = 0, maximum: int) -> bytes:
                 break
             raw.extend(part)
         after = os.fstat(fd)
+        current = os.stat(path, follow_symlinks=False)
         _need(len(raw) == before.st_size
               and (before.st_dev, before.st_ino, before.st_size,
-                   before.st_mtime_ns)
+                   before.st_mtime_ns, before.st_ctime_ns)
               == (after.st_dev, after.st_ino, after.st_size,
-                  after.st_mtime_ns),
+                  after.st_mtime_ns, after.st_ctime_ns)
+              == (current.st_dev, current.st_ino, current.st_size,
+                  current.st_mtime_ns, current.st_ctime_ns),
               "RELEASE_INTEGRITY_READ_RACE")
         return bytes(raw)
     except OSError as exc:
@@ -140,8 +146,15 @@ def verify_signed_candidate_readonly(
     _need(_regular(candidate / DIGESTS, maximum=2 * 1024 * 1024) == contents
           and _regular(candidate / SIGNATURE, maximum=4096) == signature,
           "RELEASE_SIGNATURE_INPUT_CHANGED")
+    def unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        obj: dict[str, Any] = {}
+        for key, value in pairs:
+            _need(key not in obj, "RELEASE_DIGEST_DUPLICATE_KEY")
+            obj[key] = value
+        return obj
+
     try:
-        manifest = json.loads(contents)
+        manifest = json.loads(contents, object_pairs_hook=unique_pairs)
     except (UnicodeError, ValueError) as exc:
         raise ReleaseIntegrityUnavailable(
             "RELEASE_DIGEST_CATALOG_INVALID") from exc
@@ -162,16 +175,25 @@ def verify_signed_candidate_readonly(
         _need(len(actual_names) <= 8192,
               "RELEASE_INTEGRITY_TREE_OVERSIZE")
         for dirname in dirs:
-            _need(not (Path(parent) / dirname).is_symlink(),
-                  "RELEASE_INTEGRITY_SYMLINK_FORBIDDEN")
+            directory = Path(parent) / dirname
+            metadata = directory.lstat()
+            _need(stat.S_ISDIR(metadata.st_mode)
+                  and metadata.st_uid == 0
+                  and (stat.S_IMODE(metadata.st_mode) & 0o022) == 0,
+                  "RELEASE_INTEGRITY_DIRECTORY_UNTRUSTED")
         for filename in filenames:
             item = Path(parent) / filename
-            _need(not item.is_symlink(),
-                  "RELEASE_INTEGRITY_SYMLINK_FORBIDDEN")
+            metadata = item.lstat()
+            _need(stat.S_ISREG(metadata.st_mode)
+                  and metadata.st_nlink == 1
+                  and metadata.st_uid == 0
+                  and (stat.S_IMODE(metadata.st_mode) & 0o022) == 0,
+                  "RELEASE_INTEGRITY_FILE_UNTRUSTED")
             relative = (rel_parent / filename).as_posix()
             if relative not in {DIGESTS, SIGNATURE}:
                 actual_names.add(relative)
-    _need(actual_names == set(hashes),
+    _need(len(actual_names) <= 8192
+          and actual_names == set(hashes),
           "RELEASE_DIGEST_INVENTORY_MISMATCH")
     total = 0
     for name, wanted in hashes.items():

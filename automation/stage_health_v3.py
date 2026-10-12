@@ -39,8 +39,6 @@ class StageEvidence:
 
     def normalized(self, current_boot: str, now_ms: int,
                    freshness_ms: int | None) -> "StageEvidence":
-        if self.state == StageState.NOT_APPLICABLE:
-            return self
         if (type(freshness_ms) is not int or freshness_ms <= 0
                 or freshness_ms > 60000 or self.boot_id != current_boot
                 or type(self.boottime_ms) is not int
@@ -71,9 +69,14 @@ def stage_evidence(
         state = StageState(status)
     except ValueError as exc:
         raise StageEvidenceInvalid("STAGE_STATUS_UNKNOWN") from exc
-    if (state != StageState.NOT_APPLICABLE
-            and (not isinstance(boot_id, str) or not boot_id
-                 or type(boottime_ms) is not int or boottime_ms < 0)):
+    if state == StageState.NOT_APPLICABLE:
+        # N/A still needs fresh provenance; stale N/A must not mask
+        # an unobserved or now-applicable execution stage.
+        if (not isinstance(boot_id, str) or not boot_id
+                or type(boottime_ms) is not int or boottime_ms < 0):
+            raise StageEvidenceInvalid("STAGE_PROVENANCE_MISSING")
+    elif (not isinstance(boot_id, str) or not boot_id
+          or type(boottime_ms) is not int or boottime_ms < 0):
         raise StageEvidenceInvalid("STAGE_PROVENANCE_MISSING")
     if (type(reason_codes) is not tuple
             or any(type(x) is not str or not x or len(x) > 128

@@ -2425,3 +2425,25 @@ checks bounded bytes and stable device/inode/size/mtime/ctime against the
 current pathname, and rejects malformed journal rows before any new
 SUBJOB_BOUND append. Missing/corrupt identity is a reconcile blocker,
 not permission to mint fresh provenance. This is static source only.
+
+### 2026-10-12 Sprint 3/6 cross-module static integration batch
+
+- Release signature inventory: reject duplicate keys in signed digest JSON,
+  reject untrusted non-regular/symlink/hardlinked candidate files and
+  writable/non-root-owned directories, require O_NOFOLLOW, and verify
+  protected file inode identity (including ctime and pathname) after reads.
+- Subordinate journal: reject truncated final JSONL rows, duplicate JSON
+  keys and duplicate SUBJOB_BOUND identities across the entire bounded
+  journal; only one exact existing provenance may be reused.
+- Health v3: NOT_APPLICABLE now requires boot/time provenance and expires
+  under the same freshness policy as other stages. It is advisory only.
+- Release quiescence: cancellation/terminal/effect marker paths (including
+  symlinks), missing boolean uncertainty fields and unknown Backend
+  submission state prevent an unsafe active job from being considered safe.
+- Post-switch no-effect observer: after reading the durable inventory,
+  re-observe authoritative boot/epoch/revision, admission fence, Claim,
+  active release symlink and receipt age before a positive answer.
+
+No acceptance producer or release-switch gate was enabled. The work is
+source-only and requires the deferred consolidated test/fault-injection
+batch plus real Y700 evidence before any acceptance decision.

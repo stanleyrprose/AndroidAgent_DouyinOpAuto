@@ -110,10 +110,16 @@ def inspect_upgrade_quiescence_readonly(
             if (status.get("phase") in {
                     "RUNNING_UNSAFE", "BACKEND_SUBMITTING",
                     "RECONCILE_REQUIRED", "VERIFYING",
-                } or (job / "effect-boundary.json").exists()):
+                } or any(marker.exists() or marker.is_symlink()
+                         for marker in (
+                             job / "effect-boundary.json",
+                             job / "cancel.json",
+                             job / "result.json",
+                         ))):
                 no_unsafe_jobs = False
-            if (status.get("effect_uncertain")
-                    or status.get("mutation_uncertain")):
+            if (status.get("effect_uncertain") is not False
+                    or status.get("mutation_uncertain") is not False
+                    or type(status.get("backend_submitted")) is not bool):
                 no_unsafe_jobs = False
         active_after = {
             child.name: (child.lstat().st_dev, child.lstat().st_ino)

@@ -169,17 +169,34 @@ def bind_subordinate_job(
             lines = raw.decode("utf-8").splitlines()
         except UnicodeError as exc:
             raise CapabilityStoreError("SUBJOB_JOURNAL_CORRUPT") from exc
+        _need(not raw or raw.endswith(b"\n"),
+              "SUBJOB_JOURNAL_TRUNCATED")
+        def unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            obj: dict[str, Any] = {}
+            for key, value in pairs:
+                _need(key not in obj, "SUBJOB_JOURNAL_DUPLICATE_KEY")
+                obj[key] = value
+            return obj
+        existing: dict[str, dict[str, Any]] = {}
         for line in lines:
             try:
-                row = json.loads(line)
+                row = json.loads(line, object_pairs_hook=unique_pairs)
             except (ValueError, UnicodeError) as exc:
                 raise CapabilityStoreError("SUBJOB_JOURNAL_CORRUPT") from exc
             _need(isinstance(row, dict), "SUBJOB_JOURNAL_CORRUPT")
-            if row.get("event") == "SUBJOB_BOUND" and (
-                    row.get("subjob_id") == subjob_id):
-                _need(row.get("provenance") == record.to_record(),
-                      "SUBORDINATE_STALE_CLAIM_REBIND_DENIED")
-                return record
+            if row.get("event") == "SUBJOB_BOUND":
+                bound_id = row.get("subjob_id")
+                _need(isinstance(bound_id, str)
+                      and _ID.fullmatch(bound_id) is not None
+                      and isinstance(row.get("provenance"), dict),
+                      "SUBJOB_JOURNAL_CORRUPT")
+                _need(bound_id not in existing,
+                      "SUBJOB_JOURNAL_DUPLICATE_BINDING")
+                existing[bound_id] = row["provenance"]
+        if subjob_id in existing:
+            _need(existing[subjob_id] == record.to_record(),
+                  "SUBORDINATE_STALE_CLAIM_REBIND_DENIED")
+            return record
         _append(journal, {
             "event": "SUBJOB_BOUND",
             "timestamp": _utc(),
