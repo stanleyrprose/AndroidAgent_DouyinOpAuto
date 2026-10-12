@@ -2280,3 +2280,29 @@ Git push, PR, CI or merge. Code Complete is still unproven.
 - Runtime state, media, credentials and rooted-device identifiers stay
   outside Git.
 - Keep all D-G3 and BUSINESS release gates CLOSED until full acceptance.
+
+## 2026-10-12 continuation: native State Integrity observer provenance (SOURCE ONLY)
+
+Implemented in `Rev37NativeStateObserver.java` on the Rev3.7 feature branch:
+
+- The Android-side fixed SOT reader now checks the fixed-path file's root UID,
+  exact `0600` permissions, regular-file type, bounded size, and device/inode/
+  size/mtime metadata before and after reading. A symlink or changing file
+  identity rejects the observation. This is a conservative read-only
+  *candidate*, not an accepted replacement for a native open/fstat/O_NOFOLLOW
+  primitive. GNU/Toybox `stat -c` support and root shell semantics still
+  require device verification; metadata sampling cannot make reads atomic.
+- Foreground Activity observations reject ambiguous multiple resumed
+  activities and recheck the exact component after the second native window
+  walk and semantic modal observation.
+- Existing native read-only observation timeout, dual window checks and
+  keyboard overlap refusal remain fail-closed. No action is dispatched.
+
+**Outstanding:** A trusted root-side inode-bound single-fd SOT reader,
+complete versioned window/modal contract, accepted TikTok version/signature,
+real-device age calibration and Android native JIT acceptance remain open.
+D-G3, BUSINESS COMMIT and release switches remain CLOSED. No tests, builds,
+Android device execution, PR, CI, merge or deployment were authorized.
+The user's newer instruction explicitly permits multiple source commits and
+batched feature-branch GitHub pushes, provided feature push does not run CI;
+older no-push notes above are superseded on that narrow point.
