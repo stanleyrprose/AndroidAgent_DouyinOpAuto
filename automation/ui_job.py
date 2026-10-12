@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import fcntl
+import stat
 import json
 import os
 import re
@@ -86,8 +88,12 @@ def read_json(path: Path, default=None):
 
 def append_journal(path: Path, row: dict[str, Any]) -> None:
     """Durable append; never follow or silently chmod a replaced journal."""
-    import stat
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory = os.lstat(path.parent)
+    if (not stat.S_ISDIR(directory.st_mode)
+            or directory.st_uid != os.geteuid()
+            or stat.S_IMODE(directory.st_mode) != 0o700):
+        raise UiJobError("JOURNAL_DIRECTORY_UNTRUSTED")
     if not hasattr(os, "O_NOFOLLOW"):
         raise UiJobError("JOURNAL_NOFOLLOW_UNAVAILABLE")
     raw = (json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
@@ -96,20 +102,29 @@ def append_journal(path: Path, row: dict[str, Any]) -> None:
     flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW
     fd = os.open(path, flags, 0o600)
     try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
         before = os.fstat(fd)
         named = os.stat(path, follow_symlinks=False)
-        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+        current_dir = os.lstat(path.parent)
+        if ((directory.st_dev, directory.st_ino)
+                != (current_dir.st_dev, current_dir.st_ino)
+                or not stat.S_ISDIR(current_dir.st_mode)
+                or current_dir.st_uid != os.geteuid()
+                or stat.S_IMODE(current_dir.st_mode) != 0o700
+                or not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
                 or before.st_uid != os.geteuid()
                 or stat.S_IMODE(before.st_mode) != 0o600
                 or (before.st_dev, before.st_ino) != (named.st_dev, named.st_ino)):
             raise UiJobError("JOURNAL_UNTRUSTED")
-        remaining = memoryview(raw)
-        while remaining:
-            count = os.write(fd, remaining)
-            if count <= 0:
-                raise UiJobError("JOURNAL_SHORT_WRITE")
-            remaining = remaining[count:]
+        # A single append syscall under the advisory writer lock avoids
+        # splitting one JSONL record across multiple writes. A short write
+        # leaves the journal ambiguous and must not be silently retried.
+        count = os.write(fd, raw)
+        if count != len(raw):
+            raise UiJobError("JOURNAL_SHORT_WRITE")
         os.fsync(fd)
+        # Ensure a newly created journal name is durable as well as its data.
+        fsync_dir(path.parent)
     finally:
         os.close(fd)
 

@@ -2588,3 +2588,14 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   injection and device acceptance; this source change does not prove them safe.
 - This is static implementation only: no tests/build/device actions or
   production gate changes. Existing release and BUSINESS gates remain CLOSED.
+
+### 2026-10-12 Sprint 1 journal multi-writer serialization
+
+- Journal writes now take an exclusive advisory lock on the verified canonical
+  inode, check the protected directory's identity after lock acquisition,
+  append each bounded JSONL record with a single syscall, fsync the file,
+  and fsync its containing directory for first creation. This reduces record
+  interleaving and unpersisted journal-name risk for cooperating writers.
+- No claim that advisory locks protect against non-cooperating writers or
+  malicious same-UID path replacement. A short write fails closed rather than
+  being retried into a potentially corrupt record. Source-only, not tested.
