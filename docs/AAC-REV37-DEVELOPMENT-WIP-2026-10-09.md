@@ -2655,3 +2655,13 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   intermediate directories. This does not remove same-UID race exposure;
   descriptor-relative directory traversal would be stronger if threat model
   expands. No tests or builds were executed.
+
+### 2026-10-12 Sprint 1 UI control-file atomic replacement
+
+- Removed the fixed `<target>.tmp` overwrite pattern from `ui_job.atomic_write`.
+  Use unpredictable owner-private temporary files, fsync file and directory,
+  validate owner-only destination and parent identity, reject symbolic parent
+  components and unsafe target inodes, and remove temporary files on failure.
+- Added source-only tests for create/replace, symlink targets, untrusted parent
+  mode, and symlink parent. No tests or builds executed. Remaining same-UID
+  TOCTOU and noncooperating-writer races are not claimed solved.

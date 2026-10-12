@@ -11,6 +11,7 @@ import re
 import secrets
 import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -64,15 +65,52 @@ def fsync_dir(path: Path) -> None:
 
 
 def atomic_write(path: Path, data: bytes, mode: int = 0o600) -> None:
+    """Replace one owner-private JSON/control file without a predictable tmp."""
+    if mode != 0o600:
+        raise UiJobError("ATOMIC_WRITE_MODE_UNSUPPORTED")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "wb") as f:
-        os.fchmod(f.fileno(), mode)
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
-    fsync_dir(path.parent)
+    directory = os.lstat(path.parent)
+    if (not stat.S_ISDIR(directory.st_mode)
+            or directory.st_uid != os.geteuid()
+            or stat.S_IMODE(directory.st_mode) != 0o700):
+        raise UiJobError("ATOMIC_WRITE_DIRECTORY_UNTRUSTED")
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise UiJobError("ATOMIC_WRITE_NOFOLLOW_UNAVAILABLE")
+    cursor = path.parent
+    while True:
+        if stat.S_ISLNK(os.lstat(cursor).st_mode):
+            raise UiJobError("ATOMIC_WRITE_DIRECTORY_SYMLINK")
+        if cursor == cursor.parent:
+            break
+        cursor = cursor.parent
+    fd, tmp_name = tempfile.mkstemp(prefix=".atomic-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            os.fchmod(stream.fileno(), mode)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            old = os.lstat(path)
+        except FileNotFoundError:
+            old = None
+        if old is not None and (
+            not stat.S_ISREG(old.st_mode) or old.st_nlink != 1
+            or old.st_uid != os.geteuid()
+            or stat.S_IMODE(old.st_mode) != 0o600
+        ):
+            raise UiJobError("ATOMIC_WRITE_TARGET_UNTRUSTED")
+        current = os.lstat(path.parent)
+        if ((directory.st_dev, directory.st_ino)
+                != (current.st_dev, current.st_ino)):
+            raise UiJobError("ATOMIC_WRITE_DIRECTORY_CHANGED")
+        os.replace(tmp_name, path)
+        fsync_dir(path.parent)
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
 
 
 def atomic_json(path: Path, obj: Any) -> None:
