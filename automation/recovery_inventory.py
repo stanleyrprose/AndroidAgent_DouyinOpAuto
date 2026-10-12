@@ -52,6 +52,8 @@ def inspect_active_exact_readonly(
                     == identity["effective_policy_sha256"]
                 and state.get("lifecycle_state") == state.get("phase")
                 and type(state.get("state_revision")) is int
+                and state["state_revision"] >= 0
+                and state.get("terminal") is False
             ):
                 return _blocked(job_id, "CAPABILITY_DURABLE_IDENTITY_CORRUPT")
             if (path / "result.json").exists():
@@ -60,12 +62,20 @@ def inspect_active_exact_readonly(
             witness_file = path / "backend-execution.json"
             if (binding_file.is_symlink() or witness_file.is_symlink()
                     or (path / "effect-boundary.json").is_symlink()
-                    or (path / "result.json").is_symlink()):
+                    or (path / "result.json").is_symlink()
+                    or (path / "cancel.json").is_symlink()):
                 return _blocked(job_id, "DURABLE_RECOVERY_PATH_UNTRUSTED")
             if not binding_file.exists() and not witness_file.exists():
                 if (state.get("phase") == "ADMITTED"
-                        and not state.get("mutation_uncertain")
-                        and not (path / "effect-boundary.json").exists()):
+                        and state.get("backend_submitted") is False
+                        and state.get("effect_uncertain") is False
+                        and state.get("mutation_uncertain") is False
+                        and all(not marker.exists() and not marker.is_symlink()
+                                for marker in (
+                                    path / "effect-boundary.json",
+                                    path / "cancel.json",
+                                    path / "result.json",
+                                ))):
                     return {
                         "status": "PRE_SUBMIT_NEVER_BOUND",
                         "capability_job_id": job_id,
@@ -85,21 +95,28 @@ def inspect_active_exact_readonly(
             if not (
                 suffix is not None
                 and exact == f"{job_id}--{suffix}-01"
+                and binding.get("backend_binding_version") == 1
+                and witness.get("backend_execution_version") == 1
                 and binding.get("capability_job_id") == job_id
                 and binding.get("request_sha256") == identity["request_sha256"]
                 and witness.get("capability_job_id") == job_id
                 and witness.get("backend_job_id") == exact
                 and witness.get("request_sha256")
                     == identity["request_sha256"]
+                and type(witness.get("attempt_serial")) is int
+                and witness["attempt_serial"] in {0, 1}
+                and type(witness.get("submission_possible")) is bool
+                and type(state.get("backend_submitted")) is bool
             ):
                 return _blocked(job_id, "BACKEND_DURABLE_IDENTITY_MISMATCH")
             possible = (
                 witness.get("submission_possible") is True
                 or witness.get("phase") != "NEVER_CREATED"
                 or witness.get("attempt_serial") != 0
-                or state.get("backend_submitted") is True
+                or state.get("backend_submitted") is not False
             )
             if (possible or (path / "effect-boundary.json").exists()
+                    or (path / "cancel.json").exists()
                     or state.get("effect_uncertain") is True
                     or state.get("mutation_uncertain") is True):
                 return {
@@ -109,7 +126,11 @@ def inspect_active_exact_readonly(
                 }
             if (witness.get("phase") == "NEVER_CREATED"
                     and witness.get("submission_possible") is False
-                    and witness.get("attempt_serial") == 0):
+                    and type(witness.get("attempt_serial")) is int
+                    and witness.get("attempt_serial") == 0
+                    and state.get("phase") in {"BACKEND_BOUND", "WAITING_RESOURCE"}
+                    and state.get("terminal") is False
+                    and not (path / "cancel.json").exists()):
                 return {
                     "status": "PRE_SUBMIT_BOUND_READ_ONLY",
                     "capability_job_id": job_id, "backend_job_id": exact,
@@ -170,16 +191,21 @@ def inspect_staged_bound_readonly(
                 and state.get("request_sha256") == request_hash
                 and state.get("effective_policy_sha256") == policy_hash
                 and state.get("phase") == "ADMITTED"
+                and type(state.get("state_revision")) is int
                 and state.get("state_revision") == 0
                 and state.get("backend_submitted") is False
                 and state.get("effect_uncertain") is False
                 and state.get("mutation_uncertain") is False
                 and not active.exists()
                 and not active.is_symlink()
-                and not (stage / "backend.json").exists()
-                and not (stage / "cancel.json").exists()
-                and not (stage / "effect-boundary.json").exists()
-                and not (stage / "result.json").exists()
+                and all(not marker.exists() and not marker.is_symlink()
+                        for marker in (
+                            stage / "backend.json",
+                            stage / "backend-execution.json",
+                            stage / "cancel.json",
+                            stage / "effect-boundary.json",
+                            stage / "result.json",
+                        ))
                 and (stage / "journal.jsonl").is_file()
                 and not (stage / "journal.jsonl").is_symlink()
             ):

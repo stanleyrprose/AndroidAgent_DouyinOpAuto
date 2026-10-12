@@ -282,6 +282,19 @@ def _read_json(path: Path) -> dict[str, Any]:
                   after.st_mtime_ns, after.st_ctime_ns),
               "DURABLE_STATE_CHANGED_DURING_READ")
         try:
+            current = os.stat(path, follow_symlinks=False)
+        except OSError as exc:
+            raise CapabilityStoreError(
+                "DURABLE_STATE_CHANGED_DURING_READ") from exc
+        _need(stat.S_ISREG(current.st_mode)
+              and current.st_nlink == 1
+              and current.st_uid == before.st_uid
+              and (current.st_dev, current.st_ino, current.st_size,
+                   current.st_mtime_ns, current.st_ctime_ns)
+              == (before.st_dev, before.st_ino, before.st_size,
+                  before.st_mtime_ns, before.st_ctime_ns),
+              "DURABLE_STATE_CHANGED_DURING_READ")
+        try:
             out = json.loads(raw, object_pairs_hook=_no_duplicate_keys)
         except (UnicodeError, ValueError) as exc:
             raise CapabilityStoreError("DURABLE_STATE_CORRUPT") from exc
@@ -628,6 +641,16 @@ class CapabilityStore:
             _need(not backend_file.is_symlink(),
                   "BACKEND_BINDING_PATH_UNTRUSTED")
             if backend_file.exists():
+                _need(state.get("phase") in {"BACKEND_BOUND", "WAITING_RESOURCE"}
+                      and state.get("backend_submitted") is False
+                      and state.get("terminal") is False
+                      and all(not marker.exists() and not marker.is_symlink()
+                              for marker in (
+                                  path / "effect-boundary.json",
+                                  path / "cancel.json",
+                                  path / "result.json",
+                              )),
+                      "BACKEND_REBIND_UNSAFE")
                 old = _read_json(backend_file)
                 execution = _read_json(path / "backend-execution.json")
                 _need(execution.get("backend_execution_version") == 1
@@ -639,10 +662,21 @@ class CapabilityStore:
                       and execution.get("submission_possible") is False
                       and execution.get("attempt_serial") == 0,
                       "BACKEND_EXECUTION_BINDING_BROKEN")
-                _need(all(old.get(k) == binding[k] for k in (
-                    "capability_job_id", "backend_type", "backend_job_id",
-                    "request_sha256")), "JOB_CONTRACT_VIOLATION")
+                _need(old.get("backend_binding_version") == 1
+                      and all(old.get(k) == binding[k] for k in (
+                          "capability_job_id", "backend_type",
+                          "backend_job_id", "request_sha256")),
+                      "JOB_CONTRACT_VIOLATION")
                 return old
+            _need(state.get("phase") == "ADMITTED"
+                  and state.get("backend_submitted") is False
+                  and state.get("terminal") is False
+                  and all(not marker.exists() and not marker.is_symlink()
+                          for marker in (
+                              path / "backend-execution.json",
+                              path / "effect-boundary.json",
+                              path / "cancel.json", path / "result.json",
+                          )), "BACKEND_FIRST_BIND_UNSAFE")
             _atomic_new(backend_file, binding)
             _atomic_new(path / "backend-execution.json", {
                 "backend_execution_version": 1,

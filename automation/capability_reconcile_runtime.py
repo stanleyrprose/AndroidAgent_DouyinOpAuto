@@ -103,12 +103,14 @@ def inspect_exact_outcome_readonly(
     if suffix is None or backend_id != f"{capability_job_id}--{suffix}-01":
         raise CapabilityStoreError("RECONCILE_BACKEND_ID_INVALID")
     execution = _read_json(active / "backend-execution.json")
-    if (execution.get("backend_execution_version") != 1
+    if (backend.get("backend_binding_version") != 1
+            or execution.get("backend_execution_version") != 1
             or execution.get("capability_job_id") != capability_job_id
             or execution.get("backend_job_id") != backend_id
             or execution.get("request_sha256") != identity["request_sha256"]
             or type(execution.get("attempt_serial")) is not int
-            or execution["attempt_serial"] not in {0, 1}):
+            or execution["attempt_serial"] not in {0, 1}
+            or type(execution.get("submission_possible")) is not bool):
         raise CapabilityStoreError("RECONCILE_EXECUTION_WITNESS_MISMATCH")
     possible = inspect_active_exact_readonly(
         capability_job_id, root=store.jobs)
@@ -237,6 +239,9 @@ def inspect_exact_outcome_readonly(
             and preview.get("external_effect_attempts") == 0
             and preview.get("external_effect_retry_allowed") is False
             and not (active / "effect-boundary.json").exists()
+            and not (active / "effect-boundary.json").is_symlink()
+            and not (active / "cancel.json").exists()
+            and not (active / "cancel.json").is_symlink()
         )
         if positive:
             from automation.resource_stop_observer import (

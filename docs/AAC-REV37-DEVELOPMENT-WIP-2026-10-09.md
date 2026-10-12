@@ -2357,3 +2357,30 @@ the read/hash. This protects precommit evidence from simple path replacement
 and concurrent in-place modification. It is not an accepted substitute for
 atomic immutable artifact sealing, native input-time proof or real-device
 integration. All production and TikTok effect gates remain CLOSED.
+
+### 2026-10-12 continued Sprint 2/3: crash classification and immutable state
+
+A second static implementation batch hardens the durable admission/recovery
+classification shared by Gateway and Coordinator:
+
+- `CapabilityStore.bind_backend` now refuses a FIRST bind unless the durable
+  job is still ADMITTED with no existing execution/effect/cancel/terminal
+  marker. A repeated bind is limited to the original bound/waiting job,
+  exact versioned backend/execution identity and proven NEVER_CREATED state.
+  A partially written Backend binding is never silently repaired as a new
+  Backend attempt.
+- `recovery_inventory` refuses to call a job PRE_SUBMIT_NEVER_BOUND unless
+  the ADMITTED state explicitly proves no submission, effect, mutation,
+  cancellation or terminal marker. The bound case checks versioned witness,
+  typed attempt counters, deterministic Backend ID and nonterminal phase.
+  Staged admission inspection rejects symlinked backend/execution/effect,
+  cancel and terminal marker paths.
+- `capability_reconcile_runtime` requires versioned backend/execution and
+  typed submission flags; a DRY_RUN positive receipt is disqualified by
+  any cancel or effect marker, including symlinked evidence.
+- Shared durable `_read_json` now verifies that the protected pathname still
+  refers to the same single-link inode after reading; inode/ctime/size
+  changes fail closed instead of returning a displaced state snapshot.
+
+These are static checks and implementation, NOT executed fault-injection
+acceptance. Production Gateway, D-G3 and TikTok COMMIT remain CLOSED.
