@@ -226,6 +226,21 @@ def _run_bound_settings_actions(
     )
     from pathlib import Path
 
+    # Settings Golden is strictly reversible: the subordinate helper must
+    # never be repurposed to carry a Publish or other external effect.
+    # Reject duplicate/missing action IDs before persisting any request.
+    from automation.ui_job import OBSERVATION_ACTIONS, LOCAL_MUTATION_ACTIONS
+    action_ids = [a.get("action_id") for a in actions]
+    _need(bool(actions) and len(actions) <= 50
+          and all(isinstance(x, str) and bool(x) for x in action_ids)
+          and len(set(action_ids)) == len(action_ids),
+          "SETTINGS_ACTION_IDENTITY_INVALID")
+    _need(all(a.get("action") in OBSERVATION_ACTIONS | LOCAL_MUTATION_ACTIONS
+              and (a.get("side_effect") == "REVERSIBLE_LOCAL"
+                   if a.get("action") in LOCAL_MUTATION_ACTIONS
+                   else a.get("side_effect", "OBSERVE_ONLY") == "OBSERVE_ONLY")
+              for a in actions), "SETTINGS_ACTION_EFFECT_CLASS_INVALID")
+
     current = resource_arbiter.assert_guard(dict(guard))
     _need(current.get("backend_job_id") == backend_job_id
           and current.get("capability_job_id") == job.job_id
