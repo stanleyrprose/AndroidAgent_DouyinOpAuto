@@ -2477,3 +2477,22 @@ A consolidated source-only hardening batch across Sprint 3 and Sprint 6:
   freshness policy instead of silently omitting them from the advisory view.
 
 No device operations, CI, tests, or release gates were activated.
+
+### 2026-10-12 Sprint 1/1A native resource and frame evidence batch
+
+- Native `Rev37NativeResourceOwner` no longer trusts a bare privileged
+  `cat` of the android_ui Claim. It now requires fixed-path root-owned,
+  0600, regular single-link inode metadata with bounded size and checks
+  device/inode/mtime/ctime before and after the bounded read. A symlink,
+  missing Claim, replacement, or unknown metadata denies classification.
+  This is a source-only candidate; shell stat/cat remains non-atomic and
+  must not be treated as final action-time proof without device validation.
+- `Rev37NativeFrameRegistry` additionally rejects expired screenshot
+  tokens at locator bind and one-shot consume. Its 1000ms bound is a
+  conservative rejection ceiling, not a calibrated route allowance;
+  the actual native JIT age is still unaccepted and D-G3 remains CLOSED.
+- Rev3.7 Frozen §40 explicitly limits implementation authorization to
+  Sprint 1/1A. Later Sprint 2–6 code remains dormant and is not an
+  authorization to activate Capability BUSINESS or release gates.
+
+No tests, Android build, UI actions, deployment or acceptance performed.

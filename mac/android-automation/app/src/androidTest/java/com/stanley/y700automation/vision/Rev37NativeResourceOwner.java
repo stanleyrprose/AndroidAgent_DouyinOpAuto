@@ -28,9 +28,10 @@ public final class Rev37NativeResourceOwner {
 
     private Rev37NativeResourceOwner() {}
 
-    static JSONObject readFixedClaim(Instrumentation instrumentation) {
-        if (instrumentation == null) return null;
-        String command = "su -c 'cat " + CLAIM + "'";
+    // Fixed literal shell operations only. The host-supplied claim ID is
+    // never interpolated into a privileged command.
+    private static String fixedShell(Instrumentation instrumentation,
+                                     String command) {
         try (ParcelFileDescriptor descriptor = instrumentation
                 .getUiAutomation().executeShellCommand(command)) {
             if (descriptor == null) return null;
@@ -45,7 +46,48 @@ public final class Rev37NativeResourceOwner {
                     raw.append(line).append('\n');
                 }
             }
-            JSONObject result = new JSONObject(raw.toString().trim());
+            return raw.toString();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String claimMetadata(Instrumentation instrumentation) {
+        // stat without -L rejects symlinks. The inode, link count,
+        // mtime and ctime must survive the entire fixed-path read.
+        String raw = fixedShell(instrumentation,
+                "su -c 'stat -c \"%u %a %F %d %i %h %s %Y %Z\" "
+                        + CLAIM + "'");
+        if (raw == null) return null;
+        String[] fields = raw.trim().split(" ");
+        if (fields.length != 10 || !"0".equals(fields[0])
+                || !"600".equals(fields[1])
+                || !"regular".equals(fields[2])
+                || !"file".equals(fields[3])
+                || !"1".equals(fields[6])) return null;
+        try {
+            long size = Long.parseLong(fields[7]);
+            if (size <= 0 || size > MAX_CHARS) return null;
+            for (int i : new int[]{4, 5, 8, 9}) {
+                if (Long.parseLong(fields[i]) < 0) return null;
+            }
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+        return raw.trim();
+    }
+
+    static JSONObject readFixedClaim(Instrumentation instrumentation) {
+        if (instrumentation == null) return null;
+        String before = claimMetadata(instrumentation);
+        if (before == null) return null;
+        String raw = fixedShell(instrumentation,
+                "su -c 'cat " + CLAIM + "'");
+        String after = claimMetadata(instrumentation);
+        if (raw == null || raw.trim().isEmpty()
+                || !before.equals(after)) return null;
+        try {
+            JSONObject result = new JSONObject(raw.trim());
             if (result.optInt("claim_version", -1) != 1
                     || !"android_ui".equals(
                             result.optString("resource", ""))

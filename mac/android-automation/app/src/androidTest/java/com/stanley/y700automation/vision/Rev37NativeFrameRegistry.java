@@ -37,6 +37,10 @@ public final class Rev37NativeFrameRegistry {
     // separately enabled by another boolean or caller threshold.
     private static final double MIN_SCORE = 0.90;
     private static final double MIN_MARGIN = 0.10;
+    // An additional conservative one-shot lifetime bound, NOT an accepted
+    // route max-frame-age or permission to dispatch. The mutation boundary
+    // still requires independently calibrated age and D-G3 acceptance.
+    private static final long MAX_UNACCEPTED_TOKEN_LIFETIME_MS = 1000L;
     private static String nonce;
     private static long generation;
     private static long fingerprint;
@@ -205,6 +209,12 @@ public final class Rev37NativeFrameRegistry {
                     || bounds[3] > issued.frame.height
                     || bounds[0] >= bounds[2] || bounds[1] >= bounds[3])
                 throw new IllegalStateException("LOCATOR_FRAME_MISMATCH");
+            long now = SystemClock.elapsedRealtimeNanos() / 1000000L;
+            if (issuedAt < 0 || now < issuedAt
+                    || now - issuedAt > MAX_UNACCEPTED_TOKEN_LIFETIME_MS) {
+                invalidate();
+                throw new IllegalStateException("LOCATOR_FRAME_STALE");
+            }
             locatorNonce = nonce;
             locatorBounds = bounds.clone();
             return new JSONObject()
@@ -282,7 +292,9 @@ public final class Rev37NativeFrameRegistry {
                             && locatorBounds[2] == area.optInt(2, -1)
                             && locatorBounds[3] == area.optInt(3, -1)
                             && SystemClock.elapsedRealtimeNanos() / 1000000L
-                                >= issuedAt;
+                                >= issuedAt
+                            && SystemClock.elapsedRealtimeNanos() / 1000000L
+                                - issuedAt <= MAX_UNACCEPTED_TOKEN_LIFETIME_MS;
                 }
             }
             invalidate();
