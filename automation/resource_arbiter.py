@@ -47,14 +47,29 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
     _ensure_runtime()
     tmp = path.with_name(path.name + ".tmp-" + secrets.token_hex(4))
     data = (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    with open(tmp, "wb") as f:
-        os.fchmod(f.fileno(), 0o600)
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
-    os.chmod(path, 0o600)
-    _fsync_dir(path.parent)
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise ResourceError("RESOURCE_NOFOLLOW_UNAVAILABLE")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        _ensure_runtime()
+        try:
+            existing = os.lstat(path)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None and (
+                not stat.S_ISREG(existing.st_mode)
+                or existing.st_uid != os.geteuid()
+                or existing.st_nlink != 1
+                or stat.S_IMODE(existing.st_mode) != 0o600):
+            raise ResourceError("RESOURCE_CLAIM_TARGET_UNTRUSTED")
+        os.replace(tmp, path)
+        _fsync_dir(path.parent)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _append_audit(row: dict[str, Any]) -> None:

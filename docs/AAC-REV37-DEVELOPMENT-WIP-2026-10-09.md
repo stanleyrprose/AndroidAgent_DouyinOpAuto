@@ -2574,3 +2574,17 @@ questions are not represented as PASS.
 
 Static source only; device concurrency/fault injection and end-to-end checks
 remain pending. D-G3 and external COMMIT gates remain CLOSED.
+
+### 2026-10-12 Sprint 1 resource Claim and mutation journal file-boundary batch
+
+- `resource_arbiter._atomic_json` now creates an exclusive no-follow temporary
+  inode with owner-only permissions, rejects untrusted canonical targets, and
+  removes the post-rename chmod that could act on a replaced pathname.
+- `ui_job.append_journal` now appends through a no-follow descriptor, verifies
+  regular/single-link owner-only inode identity against its canonical name,
+  bounds the serialized entry, and fsyncs the exact descriptor. It no longer
+  silently chmods an already existing journal. Existing non-atomic multi-
+  writer append and file replacement races still require consolidated fault
+  injection and device acceptance; this source change does not prove them safe.
+- This is static implementation only: no tests/build/device actions or
+  production gate changes. Existing release and BUSINESS gates remain CLOSED.
