@@ -370,50 +370,66 @@ def match_elements(observation: dict[str, Any], selector: dict[str, Any]) -> lis
         pid = row.get("parent_id")
         return by_id.get(pid) if pid else None
 
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        if not _match_simple(row, selector):
-            continue
-        ps = selector.get("has_parent")
-        if isinstance(ps, dict):
+    relations = ("has_parent", "has_ancestor", "has_child", "has_descendant")
+    simple = frozenset((
+        "resource_id", "class_name", "package", "text", "content_desc",
+        "text_contains", "content_desc_contains", "clickable", "enabled",
+        "selected", "checked", "checkable", "scrollable",
+    ))
+
+    def validate(spec: dict[str, Any], depth: int = 0) -> None:
+        if depth > 8 or not isinstance(spec, dict) or not spec:
+            raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: invalid selector")
+        if set(spec) - simple - set(relations):
+            raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: unsupported selector")
+        for key, value in spec.items():
+            if key in relations:
+                validate(value, depth + 1)
+            elif key in ("clickable", "enabled", "selected", "checked",
+                         "checkable", "scrollable"):
+                if type(value) is not bool:
+                    raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: invalid selector boolean")
+            elif not isinstance(value, str):
+                raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: invalid selector text")
+
+    validate(selector)
+
+    def matches(row: dict[str, Any], spec: dict[str, Any], depth: int = 0) -> bool:
+        if depth > 8 or not _match_simple(row, spec):
+            return False
+        if "has_parent" in spec:
             p = parent(row)
-            if p is None or not _match_simple(p, ps):
-                continue
-        anc = selector.get("has_ancestor")
-        if isinstance(anc, dict):
+            if p is None or not matches(p, spec["has_parent"], depth + 1):
+                return False
+        if "has_ancestor" in spec:
             p = parent(row)
             found = False
-            seen: set[str] = set()
             while p is not None:
-                node_id = p["node_id"]
-                if node_id in seen:
-                    raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: cyclic ancestry")
-                seen.add(node_id)
-                if _match_simple(p, anc):
+                if matches(p, spec["has_ancestor"], depth + 1):
                     found = True
                     break
                 p = parent(p)
             if not found:
-                continue
-        desc = selector.get("has_descendant")
-        if isinstance(desc, dict):
-            stack = list(children.get(row.get("node_id"), []))
+                return False
+        if "has_child" in spec and not any(
+            matches(child, spec["has_child"], depth + 1)
+            for child in children.get(row["node_id"], [])
+        ):
+            return False
+        if "has_descendant" in spec:
+            stack = list(children.get(row["node_id"], []))
             found = False
-            seen: set[str] = set()
             while stack:
                 child = stack.pop()
-                node_id = child["node_id"]
-                if node_id in seen:
-                    raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: cyclic descendant")
-                seen.add(node_id)
-                if _match_simple(child, desc):
+                if matches(child, spec["has_descendant"], depth + 1):
                     found = True
                     break
-                stack.extend(children.get(node_id, []))
+                stack.extend(children.get(child["node_id"], []))
             if not found:
-                continue
-        out.append(row)
-    return out
+                return False
+        return True
+
+    return [row for row in rows if matches(row, selector)]
 
 
 def profile_for_action(action: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -438,10 +454,10 @@ def _selector_projection(selector: dict[str, Any]) -> dict[str, Any]:
     allowed = (
         "resource_id", "class_name", "package", "text", "content_desc",
         "text_contains", "content_desc_contains",
-        "clickable", "enabled", "checked", "selected",
+        "clickable", "enabled", "checked", "selected", "checkable", "scrollable",
     )
     out = {k: selector[k] for k in allowed if k in selector}
-    for relation in ("has_parent", "has_ancestor", "has_descendant"):
+    for relation in ("has_parent", "has_ancestor", "has_child", "has_descendant"):
         nested = selector.get(relation)
         if isinstance(nested, dict):
             out[relation] = _selector_projection(nested)

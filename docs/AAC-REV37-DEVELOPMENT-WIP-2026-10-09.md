@@ -2612,3 +2612,16 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   malformed parent graphs, and valid ancestor/descendant matching. No tests
   or Android build were executed. Device observation compatibility and frozen
   semantic vector acceptance remain pending.
+
+### 2026-10-12 Sprint 1 native/Python selector parity
+
+- Compared the native `buildSelector` and native accepted selector keys with
+  the semantic-v1 Python fingerprint matcher. Fixed Python's silent omission
+  of `has_child`, nested relations, `checkable`, and `scrollable` projection.
+- Matching now validates selector keys and value types, rejects unknown keys
+  and malformed relation subtrees, and supports nested relation matching up
+  to a bounded depth. Malformed observations still fail closed before matching.
+- Added source-only regression candidates for child-vs-descendant semantics,
+  nested selectors, unsupported fields, and fingerprint projection.
+- This is not 5,000 lines of modifications: the batch is limited to necessary
+  source changes. No tests/build/CI/PR/merge/deploy or device action executed.

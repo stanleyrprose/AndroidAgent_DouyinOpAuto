@@ -37,3 +37,37 @@ class SemanticGraphIntegrityTests(unittest.TestCase):
             obs, {"text": "Leaf", "has_ancestor": {"text": "Parent"}})], ["leaf"])
         self.assertEqual([n["node_id"] for n in si.match_elements(
             obs, {"text": "Parent", "has_descendant": {"text": "Leaf"}})], ["root"])
+
+class NestedSelectorParityTests(unittest.TestCase):
+    def setUp(self):
+        self.obs = {"elements": [
+            {"node_id": "root", "parent_id": None, "text": "Root", "enabled": True},
+            {"node_id": "child", "parent_id": "root", "text": "Child", "enabled": True},
+            {"node_id": "leaf", "parent_id": "child", "text": "Leaf", "enabled": True},
+        ]}
+
+    def test_direct_child_differs_from_descendant(self):
+        self.assertEqual(si.match_elements(self.obs, {
+            "text": "Root", "has_child": {"text": "Leaf"}}), [])
+        self.assertEqual(len(si.match_elements(self.obs, {
+            "text": "Root", "has_descendant": {"text": "Leaf"}})), 1)
+
+    def test_nested_relations(self):
+        result = si.match_elements(self.obs, {
+            "text": "Root", "has_child": {
+                "text": "Child", "has_child": {"text": "Leaf"}}})
+        self.assertEqual([row["node_id"] for row in result], ["root"])
+
+    def test_unknown_or_malformed_selectors_fail_closed(self):
+        for selector in ({"unknown_key": "ignored"},
+                         {"has_child": "invalid"},
+                         {"enabled": "true"},
+                         {"has_child": {}},
+                         {"text": None}):
+            with self.subTest(selector=selector):
+                with self.assertRaises(si.StateIntegrityError):
+                    si.match_elements(self.obs, selector)
+
+    def test_fingerprint_selector_projection_preserves_child(self):
+        selector = {"text": "Root", "has_child": {"text": "Child"}}
+        self.assertEqual(si._selector_projection(selector), selector)
