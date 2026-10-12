@@ -45,6 +45,9 @@ public final class Rev37NativeStateObserver {
             "topResumedActivity=ActivityRecord\\{[^\\n]*?\\su\\d+\\s+([^\\s/]+)/([^\\s]+)");
     private static final Pattern EPOCH = Pattern.compile("^epoch-[0-9a-f]{32}$");
     private static final int MAX_CAPTURE_CHARS = 8192;
+    // Conservative read-only observation budget, not a calibrated JIT
+    // frame age or authorization to dispatch any UI mutation.
+    private static final long MAX_OBSERVATION_MS = 750L;
 
     private Rev37NativeStateObserver() {}
 
@@ -192,6 +195,7 @@ public final class Rev37NativeStateObserver {
         if (instrumentation == null || device == null || targetBounds == null
                 || expectedPackage == null || expectedPackage.isEmpty())
             return unavailable("FRAME_UNAVAILABLE");
+        long observationStartedMs = SystemClock.elapsedRealtimeNanos() / 1_000_000L;
         // The caller cannot attest that no modal is present: require a
         // complete accepted, versioned native watchlist observed right now.
         Rev37NativeAppContract.Result app =
@@ -253,6 +257,14 @@ public final class Rev37NativeStateObserver {
                 instrumentation, expectedPackage, targetBounds);
         if (!"READ_ONLY_WINDOW_INVENTORY_CLASSIFIED".equals(finalWindowsReason))
             return unavailable(finalWindowsReason);
+        Rev37NativeModalGuard.Verdict finalModal = Rev37NativeModalGuard.observe(
+                device, frozenRouteContractId, expectedPackage);
+        if (!finalModal.readOnlyClear())
+            return unavailable(finalModal.code);
+        long observationFinishedMs = SystemClock.elapsedRealtimeNanos() / 1_000_000L;
+        if (observationFinishedMs < observationStartedMs
+                || observationFinishedMs - observationStartedMs > MAX_OBSERVATION_MS)
+            return unavailable("STATE_OBSERVATION_STALE");
         String activity = component.substring(expectedPackage.length() + 1);
         try {
             JSONObject current = new JSONObject()
