@@ -60,12 +60,21 @@ def _private_bytes(path: Path, limit: int) -> bytes | None:
         os.close(fd)
 
 
+def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate evidence key")
+        result[key] = value
+    return result
+
+
 def _json_object(path: Path) -> dict[str, Any] | None:
     raw = _private_bytes(path, 1024 * 1024)
     if raw is None:
         return None
     try:
-        obj = json.loads(raw)
+        obj = json.loads(raw, object_pairs_hook=_unique_pairs)
     except (UnicodeError, ValueError) as exc:
         raise RecoveryEvidenceError("RECOVERY_JSON_INVALID") from exc
     if not isinstance(obj, dict):
@@ -85,7 +94,7 @@ def _journal(path: Path) -> list[dict[str, Any]] | None:
     result = []
     for line in lines:
         try:
-            item = json.loads(line)
+            item = json.loads(line, object_pairs_hook=_unique_pairs)
         except (UnicodeError, ValueError) as exc:
             raise RecoveryEvidenceError("RECOVERY_JOURNAL_INVALID") from exc
         if not isinstance(item, dict) or not isinstance(item.get("phase"), str):
@@ -129,18 +138,50 @@ def inspect_job(job_dir: Path, *, expected_job_id: str | None = None) -> dict[st
     if result is not None and (result.get("job_id") != job_id
                                or result.get("session_id") != session):
         raise RecoveryEvidenceError("RECOVERY_RESULT_IDENTITY_MISMATCH")
-    # A successful job receipt is insufficient to clear an unmatched PREPARED.
-    outstanding = {}
-    for row in prepared:
+    # Validate mutation ordering in the actual append sequence. Grouping all
+    # PREPARED before all COMMITTED would accept a COMMITTED row written first.
+    actions = request.get("actions")
+    if not isinstance(actions, list) or len(actions) > 2048:
+        raise RecoveryEvidenceError("RECOVERY_ACTIONS_INVALID")
+    outstanding: dict[int, dict[str, Any]] = {}
+    seen_prepared: set[int] = set()
+    for row in journal:
+        phase = row.get("phase")
+        if phase not in {"MUTATION_PREPARED", "MUTATION_COMMITTED", "MUTATION_AMBIGUOUS"}:
+            continue
+        if row.get("job_id") != job_id or row.get("session_id") != session:
+            raise RecoveryEvidenceError("RECOVERY_MUTATION_IDENTITY_MISMATCH")
         index = row.get("action_index")
-        if type(index) is not int or index < 0 or index in outstanding:
-            raise RecoveryEvidenceError("RECOVERY_PREPARED_SEQUENCE_INVALID")
-        outstanding[index] = row
-    for row in committed:
-        index = row.get("action_index")
-        if type(index) is not int or index not in outstanding:
-            raise RecoveryEvidenceError("RECOVERY_COMMIT_WITHOUT_PREPARE")
-        outstanding.pop(index)
+        if type(index) is not int or not 0 <= index < len(actions):
+            raise RecoveryEvidenceError("RECOVERY_MUTATION_INDEX_INVALID")
+        action = actions[index]
+        if not isinstance(action, dict) or row.get("action_id") != action.get("action_id"):
+            raise RecoveryEvidenceError("RECOVERY_MUTATION_ACTION_MISMATCH")
+        if phase == "MUTATION_PREPARED":
+            if index in seen_prepared:
+                raise RecoveryEvidenceError("RECOVERY_PREPARED_SEQUENCE_INVALID")
+            seen_prepared.add(index)
+            outstanding[index] = row
+        elif phase == "MUTATION_COMMITTED":
+            prior = outstanding.pop(index, None)
+            if prior is None:
+                raise RecoveryEvidenceError("RECOVERY_COMMIT_WITHOUT_PREPARE")
+            if (row.get("state_epoch") != prior.get("state_epoch")
+                    or type(row.get("revision_before")) is not int
+                    or row.get("revision_before") != prior.get("revision_before")
+                    or type(row.get("revision_after")) is not int
+                    or row["revision_after"] != row["revision_before"] + 1):
+                raise RecoveryEvidenceError("RECOVERY_COMMIT_AUTHORITY_MISMATCH")
+    # Checkpoint cannot independently certify an uncertain mutation.
+    if checkpoint is not None:
+        if (checkpoint.get("job_id") != job_id
+                or checkpoint.get("session_id") != session):
+            raise RecoveryEvidenceError("RECOVERY_CHECKPOINT_IDENTITY_MISMATCH")
+        completed = checkpoint.get("last_completed_action_index")
+        if type(completed) is not int or completed < -1 or completed >= len(actions):
+            raise RecoveryEvidenceError("RECOVERY_CHECKPOINT_INDEX_INVALID")
+        if completed >= 0 and checkpoint.get("last_completed_action_id") != actions[completed].get("action_id"):
+            raise RecoveryEvidenceError("RECOVERY_CHECKPOINT_ACTION_MISMATCH")
     reasons = []
     if outstanding:
         reasons.append("PREPARED_OUTCOME_UNRESOLVED")

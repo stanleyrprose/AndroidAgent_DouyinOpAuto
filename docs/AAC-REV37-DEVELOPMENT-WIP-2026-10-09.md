@@ -2828,3 +2828,14 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   invalid revision ordering and mismatched checkpoint identity.
 - Recovery gate, positive stop proof, Claim cleanup, journal durability and
   Android restart acceptance remain CLOSED / unverified.
+
+### 2026-10-12 canonical recovery inspector ordering hardening
+
+- Recovery inspector now processes PREPARED/COMMITTED in actual journal order,
+  rejecting commit-before-prepare, repeated prepare, out-of-range indices,
+  action identity drift and inconsistent epoch/revision transitions.
+- JSON evidence rejects duplicate keys rather than accepting last-wins
+  parser behavior. Checkpoint identity and completed-action index are checked,
+  but cannot authorize replay, even when `safe_to_resume` is true.
+- Added six unexecuted regression candidates. Native stop proof, canonical
+  Claim release, crash integration and deployment acceptance remain pending.
