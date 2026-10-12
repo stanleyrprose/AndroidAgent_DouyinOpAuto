@@ -451,7 +451,35 @@ def _run_mutation(
 
     postcondition_kind = str(action_data.get("postcondition_kind") or "UNSPECIFIED")
     revision_before = int(proof["revision"])
-    before, after = state_integrity.advance_revision()
+    try:
+        before, after = state_integrity.advance_revision(
+            expected_epoch=proof["state_epoch"],
+            expected_revision=revision_before,
+        )
+    except state_integrity.StateIntegrityError as exc:
+        # The driver may already have mutated Android. Never turn a
+        # post-dispatch CAS failure into BLOCKED/zero-attempt or retry.
+        journal_append({
+            "timestamp": now_iso(),
+            "phase": "MUTATION_AMBIGUOUS",
+            "job_id": req["job_id"],
+            "session_id": req["session_id"],
+            "action_index": index,
+            "action_id": action.get("action_id"),
+            "reason": "STATE_REVISION_ORDERING_FAILURE",
+            "retry_allowed": False,
+        })
+        terminal = {
+            "status": "RECONCILE_REQUIRED",
+            "job_id": req["job_id"],
+            "session_id": req["session_id"],
+            "protocol_version": 2,
+            "actions": results + [action_result],
+            "error": {"code": "STATE_REVISION_ORDERING_FAILURE",
+                      "retryable": False},
+            "preflight": driver.get("preflight"),
+        }
+        return action_result, terminal, driver.get("preflight")
     if before != revision_before or after != revision_before + 1:
         raise CoreV2Error("STATE_REVISION_ORDERING_FAILURE")
 

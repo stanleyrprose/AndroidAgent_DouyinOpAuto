@@ -96,7 +96,12 @@ def _state_writer_lock():
         fcntl.flock(fd, fcntl.LOCK_EX)
         named = os.stat(lock_path, follow_symlinks=False)
         directory = os.lstat(STATE_DIR)
-        if ((info.st_dev, info.st_ino) != (named.st_dev, named.st_ino)
+        locked = os.fstat(fd)
+        if ((info.st_dev, info.st_ino, info.st_nlink)
+                != (locked.st_dev, locked.st_ino, locked.st_nlink)
+                or locked.st_nlink != 1
+                or (info.st_dev, info.st_ino) != (named.st_dev, named.st_ino)
+                or (info.st_dev, info.st_ino) != (locked.st_dev, locked.st_ino)
                 or not stat.S_ISDIR(directory.st_mode)
                 or directory.st_uid != os.geteuid()
                 or stat.S_IMODE(directory.st_mode) != 0o700):
@@ -118,6 +123,19 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
             f.write(raw)
             f.flush()
             os.fsync(f.fileno())
+        _ensure_dir()
+        # The target must still be a protected single-link regular inode.
+        # Never silently replace a symlink or hardlinked authority path.
+        try:
+            previous = os.lstat(path)
+        except FileNotFoundError:
+            previous = None
+        if previous is not None and (
+                not stat.S_ISREG(previous.st_mode)
+                or previous.st_uid != os.geteuid()
+                or previous.st_nlink != 1
+                or stat.S_IMODE(previous.st_mode) != 0o600):
+            raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: untrusted target")
         os.replace(tmp, path)
         _fsync_dir(path.parent)
     finally:
@@ -545,10 +563,26 @@ def assert_token(
     return token
 
 
-def advance_revision() -> tuple[int, int]:
+def advance_revision(*, expected_epoch: str | None = None,
+                     expected_revision: int | None = None) -> tuple[int, int]:
+    """Durably advance only if the supplied observation still owns the epoch.
+
+    Legacy callers may omit expectations; mutation boundaries must pass both.
+    """
+    if expected_revision is not None and (
+            type(expected_revision) is not int or expected_revision < 0):
+        raise StateIntegrityError("STALE_STATE_REVISION")
+    if expected_epoch is not None and (
+            type(expected_epoch) is not str or
+            re.fullmatch(r"epoch-[0-9a-f]{32}", expected_epoch) is None):
+        raise StateIntegrityError("STALE_STATE_EPOCH")
     load_state()  # Initialize before acquiring the writer lock.
     with _state_writer_lock():
         state = _validate_state(_read_existing_state())
+        if expected_epoch is not None and state["state_epoch"] != expected_epoch:
+            raise StateIntegrityError("STALE_STATE_EPOCH")
+        if expected_revision is not None and state["revision"] != expected_revision:
+            raise StateIntegrityError("STALE_STATE_REVISION")
         before = state["revision"]
         after = before + 1
         updated = dict(state)

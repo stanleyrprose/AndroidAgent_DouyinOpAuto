@@ -2558,3 +2558,19 @@ questions are not represented as PASS.
 - Remaining acceptance: real-device lock/rename crash cases, simultaneous
   external writers not following this protocol, and compatibility with
   canonical root-owned runtime files. Source-only, no tests or builds.
+
+### 2026-10-12 Sprint 1 mutation revision compare-and-swap integration
+
+- `state_integrity.advance_revision` now supports atomic expected epoch and
+  revision comparisons under its cross-process writer lock. A stale observed
+  revision can no longer increment another actor's authority revision and
+  only discover the mismatch *after* the write.
+- `ui_core_v2` passes the PREPARED proof epoch/revision into that compare-and-
+  swap. A post-dispatch mismatch is `RECONCILE_REQUIRED` with an ambiguous
+  journal marker and no retry, never a fabricated zero-attempt BLOCKED.
+- Updated the existing revision-ordering test fixture callback signature to
+  match the new expected-revision API; **tests were not run**.
+- Hardened state lock inode continuity and atomic replacement target checks.
+
+Static source only; device concurrency/fault injection and end-to-end checks
+remain pending. D-G3 and external COMMIT gates remain CLOSED.

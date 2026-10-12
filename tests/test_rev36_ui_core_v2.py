@@ -258,8 +258,9 @@ class Rev36CoreV2Tests(unittest.TestCase):
             revision_written = {"value": False}
             real_advance = core.state_integrity.advance_revision
 
-            def tracked_advance():
-                pair = real_advance()
+            def tracked_advance(*, expected_epoch=None, expected_revision=None):
+                pair = real_advance(expected_epoch=expected_epoch,
+                                    expected_revision=expected_revision)
                 revision_written["value"] = True
                 return pair
 
