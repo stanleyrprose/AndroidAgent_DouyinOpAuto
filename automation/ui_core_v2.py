@@ -165,11 +165,21 @@ def observe_state(
         ],
         label,
     )
-    actions = driver.get("actions") or []
-    if driver.get("status") != "PASS" or len(actions) < 2:
+    actions = driver.get("actions")
+    if (driver.get("status") != "PASS"
+            or not isinstance(actions, list) or len(actions) != 2
+            or any(not isinstance(row, dict) for row in actions)
+            or actions[0].get("action_id") != f"{label}-health"
+            or actions[0].get("action") != "health"
+            or actions[0].get("status") != "PASS"
+            or actions[1].get("action_id") != f"{label}-observe"
+            or actions[1].get("action") != "observe"
+            or actions[1].get("status") != "PASS"
+            or not isinstance(actions[0].get("data"), dict)
+            or not isinstance(actions[1].get("data"), dict)):
         raise CoreV2Error("STATE_FINGERPRINT_UNAVAILABLE")
-    health = actions[0].get("data") or {}
-    observation = actions[1].get("data") or {}
+    health = actions[0]["data"]
+    observation = actions[1]["data"]
     overlay, overlay_pkg, overlay_class = classify_blocking_overlay(observation)
     try:
         snapshot, profile_id = state_integrity.project_snapshot(
@@ -266,15 +276,25 @@ def _driver_action_result(
     action: dict[str, Any],
     index: int,
 ) -> dict[str, Any]:
-    rows = driver.get("actions") or []
-    if rows:
+    rows = driver.get("actions")
+    expected_id = action.get("action_id", f"action-{index}")
+    if (isinstance(rows, list) and len(rows) == 1
+            and isinstance(rows[0], dict)
+            and rows[0].get("action_id") == expected_id
+            and rows[0].get("action") == action.get("action")
+            and rows[0].get("status") in {"PASS", "FAILED", "BLOCKED"}
+            and (driver.get("status") == "PASS"
+                 or rows[0].get("status") != "PASS")):
         return rows[0]
+    # A driver aggregate failure, missing/extra action, or mismatched
+    # identity must never be interpreted as a successful mutation. For
+    # PREPARED mutations the caller enters RECONCILE_REQUIRED, not retry.
     return {
-        "action_id": action.get("action_id", f"action-{index}"),
+        "action_id": expected_id,
         "action": action.get("action"),
         "status": "FAILED",
-        "error": driver.get("error") or {
-            "code": "DRIVER_CRASHED",
+        "error": {
+            "code": "DRIVER_ACTION_RECEIPT_UNTRUSTED",
             "retryable": False,
         },
     }
