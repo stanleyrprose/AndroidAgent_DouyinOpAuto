@@ -2496,3 +2496,19 @@ No device operations, CI, tests, or release gates were activated.
   authorization to activate Capability BUSINESS or release gates.
 
 No tests, Android build, UI actions, deployment or acceptance performed.
+
+### 2026-10-12 Sprint 1 authority consistency follow-up
+
+- `resource_arbiter.read_claim` and `_lineage` now fail closed when the
+  canonical Claim or audit journal has a hard link, when no-follow support
+  is missing, or when the opened inode is replaced/changed before the
+  bounded read completes. The comparison includes dev/inode/size/mtime/ctime;
+  `read_claim` also rechecks the canonical runtime directory identity.
+- The append-only audit writer rejects hard-linked journal files before
+  writing, preserving the single-inode authority assumption.
+- The native read-only JIT observer rechecks boot identity and canonical
+  State Integrity epoch/revision *after* its final modal/window inventory,
+  preventing a late mutation from producing an apparently fresh frame.
+
+These are source-only candidates. No acceptance, compilation, fault-injection,
+CI, device mutation, or production release was performed. D-G3 remains CLOSED.

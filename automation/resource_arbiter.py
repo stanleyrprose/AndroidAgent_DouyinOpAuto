@@ -75,6 +75,7 @@ def _append_audit(row: dict[str, Any]) -> None:
         meta = os.fstat(fd)
         if (not stat.S_ISREG(meta.st_mode)
                 or meta.st_uid != os.geteuid()
+                or meta.st_nlink != 1
                 or stat.S_IMODE(meta.st_mode) != 0o600):
             raise ResourceError("RESOURCE_AUDIT_UNTRUSTED")
         remaining = memoryview(raw)
@@ -139,10 +140,12 @@ def read_claim() -> dict[str, Any] | None:
             or stat.S_IMODE(directory.st_mode) != 0o700):
         raise ResourceError(
             "RESOURCE_STATE_INTEGRITY_FAILURE: runtime root untrusted")
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise ResourceError("RESOURCE_STATE_INTEGRITY_FAILURE: nofollow unavailable")
     try:
         fd = os.open(
             CLAIM_PATH,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            os.O_RDONLY | os.O_NOFOLLOW,
         )
     except FileNotFoundError as exc:
         if exc.filename != str(CLAIM_PATH):
@@ -156,6 +159,7 @@ def read_claim() -> dict[str, Any] | None:
         before = os.fstat(fd)
         if (not stat.S_ISREG(before.st_mode)
                 or before.st_uid != 0
+                or before.st_nlink != 1
                 or stat.S_IMODE(before.st_mode) != 0o600
                 or not 0 < before.st_size <= 8192):
             raise ResourceError(
@@ -167,11 +171,22 @@ def read_claim() -> dict[str, Any] | None:
                 break
             raw.extend(part)
         after = os.fstat(fd)
-        if (len(raw) != before.st_size
+        try:
+            current = os.stat(CLAIM_PATH, follow_symlinks=False)
+            runtime_after = os.lstat(RUNTIME)
+        except OSError as exc:
+            raise ResourceError("RESOURCE_STATE_INTEGRITY_FAILURE: claim path changed") from exc
+        if ((directory.st_dev, directory.st_ino) != (runtime_after.st_dev, runtime_after.st_ino)
                 or (before.st_dev, before.st_ino, before.st_size,
-                    before.st_mtime_ns)
+                    before.st_mtime_ns, before.st_ctime_ns)
+                != (current.st_dev, current.st_ino, current.st_size,
+                    current.st_mtime_ns, current.st_ctime_ns)
+                or not stat.S_ISREG(current.st_mode)
+                or len(raw) != before.st_size
+                or (before.st_dev, before.st_ino, before.st_size,
+                    before.st_mtime_ns, before.st_ctime_ns)
                 != (after.st_dev, after.st_ino, after.st_size,
-                    after.st_mtime_ns)):
+                    after.st_mtime_ns, after.st_ctime_ns)):
             raise ResourceError(
                 "RESOURCE_STATE_INTEGRITY_FAILURE: claim changed")
         try:
@@ -199,10 +214,12 @@ def _lineage(owner_id: str) -> tuple[int, str | None]:
     accepted snapshot protocol; silently truncating history is forbidden.
     """
     maximum = 32 * 1024 * 1024
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise ResourceError("RESOURCE_STATE_INTEGRITY_FAILURE: nofollow unavailable")
     try:
         fd = os.open(
             AUDIT_PATH,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            os.O_RDONLY | os.O_NOFOLLOW)
     except FileNotFoundError:
         return 1, None
     except OSError as exc:
@@ -212,6 +229,7 @@ def _lineage(owner_id: str) -> tuple[int, str | None]:
         first = os.fstat(fd)
         if (not stat.S_ISREG(first.st_mode)
                 or first.st_uid != os.geteuid()
+                or first.st_nlink != 1
                 or stat.S_IMODE(first.st_mode) != 0o600
                 or first.st_size > maximum):
             raise ResourceError(
@@ -223,11 +241,20 @@ def _lineage(owner_id: str) -> tuple[int, str | None]:
                 break
             data.extend(part)
         last = os.fstat(fd)
-        if (len(data) != first.st_size
+        try:
+            current = os.stat(AUDIT_PATH, follow_symlinks=False)
+        except OSError as exc:
+            raise ResourceError("RESOURCE_STATE_INTEGRITY_FAILURE: claim audit path changed") from exc
+        if ((first.st_dev, first.st_ino, first.st_size,
+             first.st_mtime_ns, first.st_ctime_ns)
+                != (current.st_dev, current.st_ino, current.st_size,
+                    current.st_mtime_ns, current.st_ctime_ns)
+                or not stat.S_ISREG(current.st_mode)
+                or len(data) != first.st_size
                 or (first.st_dev, first.st_ino, first.st_size,
-                    first.st_mtime_ns)
+                    first.st_mtime_ns, first.st_ctime_ns)
                 != (last.st_dev, last.st_ino, last.st_size,
-                    last.st_mtime_ns)):
+                    last.st_mtime_ns, last.st_ctime_ns)):
             raise ResourceError(
                 "RESOURCE_STATE_INTEGRITY_FAILURE: claim audit changed")
     finally:

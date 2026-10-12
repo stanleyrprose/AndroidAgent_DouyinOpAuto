@@ -311,6 +311,19 @@ public final class Rev37NativeStateObserver {
                 || widthBefore != device.getDisplayWidth()
                 || heightBefore != device.getDisplayHeight())
             return unavailable("FRAME_FOREGROUND_DRIFT");
+        // The second window/modal walk may race an external Core mutation.
+        // Re-read the authoritative SOT and boot identity after that walk;
+        // never issue a token from a state observed before the last guard.
+        JSONObject finalState = rootState(instrumentation);
+        String finalBoot = fixedShell(instrumentation,
+                "cat /proc/sys/kernel/random/boot_id");
+        if (finalState == null || finalBoot == null
+                || !boot.equals(finalBoot.trim())
+                || !stateAfter.optString("state_epoch").equals(
+                        finalState.optString("state_epoch"))
+                || stateAfter.optInt("revision", -1)
+                        != finalState.optInt("revision", -2))
+            return unavailable("FRAME_REVISION_STALE");
         long observationFinishedMs = SystemClock.elapsedRealtimeNanos() / 1_000_000L;
         if (observationFinishedMs < observationStartedMs
                 || observationFinishedMs - observationStartedMs > MAX_OBSERVATION_MS)
