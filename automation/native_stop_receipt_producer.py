@@ -131,6 +131,8 @@ def publish_generation_bound_stop_receipt(
           and physical.get("ui_execution_generation") == generation
           and physical.get("boot_id") == after.boot_id
           and physical.get("state_epoch") == after.state_epoch
+          and type(physical.get("state_revision")) is int
+          and physical.get("state_revision") == after.revision
           and physical.get("native_ui_subjobs_absent") is True
           and physical.get("linux_child_mutators_absent") is True
           and physical.get("backend_terminal_positive") is True
