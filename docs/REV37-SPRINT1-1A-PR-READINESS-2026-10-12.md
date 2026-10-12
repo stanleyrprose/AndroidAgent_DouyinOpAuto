@@ -44,3 +44,7 @@ Authority: `docs/PRD-Y700-AAC-v0.6-Rev3.7-Frozen.md`, sections 40.2, 40.2A, 46.2
 - Rev3.6 compatibility modules isolated per process (module reloads alter process-global resource paths): 7 + 13 + 19 + 5 + 4 = **48 PASS** after repairing the nested lease fixture to mock `assert_guard` alongside `acquire_android_ui`. Production ownership enforcement unchanged.
 - Production real-device D-G3 remains **unverified**; visual mutation activation prohibited. Fixture PASS does not mean production PASS.
 - These checks support opening a **review/CI integration PR**, not production acceptance or merge before required CI/gates.
+
+## PR #56 CI remediation (2026-10-13)
+
+Initial GitHub Actions `source` job failed in the Rev3.6 ownership tests because GitHub runner is non-root while canonical Claim validation requires UID 0; tests also reload process-global resource modules. The workflow now runs only these ownership-related test modules as separate root processes, preserving production checks. Await new CI results before merge.
