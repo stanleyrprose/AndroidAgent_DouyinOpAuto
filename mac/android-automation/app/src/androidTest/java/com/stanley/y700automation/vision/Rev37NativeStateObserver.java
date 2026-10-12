@@ -238,6 +238,14 @@ public final class Rev37NativeStateObserver {
                 || stateBefore.optInt("revision", -1)
                 != stateAfter.optInt("revision", -2))
             return unavailable("FRAME_REVISION_STALE");
+        // Window enumeration and root SOT reads may take long enough for
+        // Android to switch the foreground Activity. Never return a mixed
+        // snapshot assembled from a prior Activity and later SOT revision.
+        String componentAfter = foregroundComponent(instrumentation);
+        if (!component.equals(componentAfter)
+                || !expectedPackage.equals(device.getCurrentPackageName())
+                || !power.isInteractive() || keyguard.isKeyguardLocked())
+            return unavailable("FRAME_FOREGROUND_DRIFT");
         String activity = component.substring(expectedPackage.length() + 1);
         try {
             JSONObject current = new JSONObject()
