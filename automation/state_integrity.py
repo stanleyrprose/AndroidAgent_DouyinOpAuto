@@ -5,6 +5,8 @@ import hashlib
 import json
 import os
 import secrets
+import stat
+import re
 import time
 import unicodedata
 from pathlib import Path
@@ -63,8 +65,14 @@ def _fsync_dir(path: Path) -> None:
 
 
 def _ensure_dir() -> None:
+    if STATE_DIR.is_symlink():
+        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: state directory symlink")
     STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(STATE_DIR, 0o700)
+    info = os.lstat(STATE_DIR)
+    if (not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.geteuid()
+            or stat.S_IMODE(info.st_mode) != 0o700):
+        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: state directory untrusted")
 
 
 def _atomic_json(path: Path, value: dict[str, Any]) -> None:
@@ -77,7 +85,6 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)
-    os.chmod(path, 0o600)
     _fsync_dir(path.parent)
 
 
@@ -95,9 +102,54 @@ def _boottime_ms() -> int:
         raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: CLOCK_BOOTTIME") from exc
 
 
-def load_state() -> dict[str, Any]:
+def _unique_state_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: duplicate state key")
+        result[key] = value
+    return result
+
+
+def _read_existing_state() -> dict[str, Any]:
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: nofollow unavailable")
+    directory_before = os.lstat(STATE_DIR)
+    fd = os.open(STATE_PATH, os.O_RDONLY | os.O_NOFOLLOW)
     try:
-        state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                or before.st_uid != os.geteuid()
+                or stat.S_IMODE(before.st_mode) != 0o600
+                or not 0 < before.st_size <= 8192):
+            raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: untrusted state")
+        raw = bytearray()
+        while len(raw) <= 8192:
+            part = os.read(fd, min(4096, 8193 - len(raw)))
+            if not part:
+                break
+            raw.extend(part)
+        after = os.fstat(fd)
+        current = os.stat(STATE_PATH, follow_symlinks=False)
+        directory_after = os.lstat(STATE_DIR)
+        def generation(info: os.stat_result) -> tuple[int, int, int, int, int]:
+            return (info.st_dev, info.st_ino, info.st_size,
+                    info.st_mtime_ns, info.st_ctime_ns)
+        if ((directory_before.st_dev, directory_before.st_ino)
+                != (directory_after.st_dev, directory_after.st_ino)
+                or len(raw) != before.st_size or generation(before) != generation(after)
+                or generation(before) != generation(current)
+                or not stat.S_ISREG(current.st_mode)):
+            raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: state changed")
+        return json.loads(bytes(raw), object_pairs_hook=_unique_state_keys)
+    finally:
+        os.close(fd)
+
+
+def load_state() -> dict[str, Any]:
+    _ensure_dir()
+    try:
+        state = _read_existing_state()
     except FileNotFoundError:
         state = {
             "state_version": 1,
@@ -109,13 +161,16 @@ def load_state() -> dict[str, Any]:
         }
         _atomic_json(STATE_PATH, state)
         return state
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, UnicodeError) as exc:
         raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: device-state corrupt") from exc
     if (
         not isinstance(state, dict)
+        or type(state.get("state_version")) is not int
         or state.get("state_version") != 1
+        or state.get("fingerprint_version") != FINGERPRINT_VERSION
         or not isinstance(state.get("state_epoch"), str)
-        or not isinstance(state.get("revision"), int)
+        or re.fullmatch(r"epoch-[0-9a-f]{32}", state["state_epoch"]) is None
+        or type(state.get("revision")) is not int
         or state.get("revision", -1) < 0
     ):
         raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: invalid device-state")

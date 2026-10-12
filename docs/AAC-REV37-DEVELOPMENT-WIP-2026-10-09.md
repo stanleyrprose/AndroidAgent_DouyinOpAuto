@@ -2512,3 +2512,18 @@ No tests, Android build, UI actions, deployment or acceptance performed.
 
 These are source-only candidates. No acceptance, compilation, fault-injection,
 CI, device mutation, or production release was performed. D-G3 remains CLOSED.
+
+### 2026-10-12 Sprint 1 canonical State Integrity writer/read-path hardening
+
+- The existing `state_integrity.load_state` reader no longer trusts an
+  unrestricted `Path.read_text` on a canonical authority file. It requires
+  a protected state directory, nofollow file open, one link, owner/mode,
+  bounded bytes, stable fd/path inode and mtime/ctime, unique JSON keys,
+  exact epoch format and non-boolean revision.
+- Directory preparation no longer chmods an existing untrusted directory;
+  atomic state replacement no longer chmods the final pathname after rename.
+  Existing missing-state initialization behavior remains, and is **not**
+  permission for the read-only authoritative observer to initialize state.
+- This is a source-only compatibility candidate. Consolidated unit,
+  concurrency, crash and real-device verification remain deferred under
+  the explicit no-tests/no-builds instruction.
