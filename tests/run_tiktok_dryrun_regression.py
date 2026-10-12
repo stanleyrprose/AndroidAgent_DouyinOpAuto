@@ -8,6 +8,7 @@ publish button reachable -> evidence. The generic controller exposes no COMMIT.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -131,6 +132,19 @@ def main() -> int:
         raise SystemExit("job_id mismatch")
     if manifest["publish_mode"] != "DRY_RUN":
         raise SystemExit("regression gate requires publish_mode=DRY_RUN")
+
+    # Verify every READY artifact before staging or touching TikTok UI.
+    # A manifest contract validates digest syntax, not file content.
+    for filename, expected in manifest["sha256"].items():
+        artifact = job / filename
+        if not artifact.is_file() or artifact.is_symlink():
+            raise SystemExit(f"READY artifact missing or unsafe: {filename}")
+        digest = hashlib.sha256()
+        with artifact.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != expected.lower():
+            raise SystemExit(f"READY artifact checksum mismatch: {filename}")
 
     metadata = load_metadata(job, manifest)
     caption = read_text(job / manifest["caption_file"])

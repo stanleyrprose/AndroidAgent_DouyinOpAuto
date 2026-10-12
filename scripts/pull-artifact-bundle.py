@@ -5,7 +5,6 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
@@ -83,26 +82,48 @@ def main():
     root.mkdir(parents=True, exist_ok=True)
     final_dir = root / job_id
     if final_dir.exists():
-        shutil.rmtree(final_dir)
+        raise RuntimeError("verified job already exists; refusing overwrite")
 
-    staging = Path(tempfile.mkdtemp(prefix=f".{job_id}.", dir=root))
+    # Stable staging survives interrupted transfers; never reuse bytes from a different manifest.
+    staging = root / ("." + job_id + ".partial")
+    # Capability URLs expire; immutable file name, size and SHA define identity.
+    stable = [{key: item[key] for key in ("name", "size", "sha256")} for item in artifacts]
+    identity = hashlib.sha256(json.dumps(stable, sort_keys=True).encode()).hexdigest()
+    marker = staging / ".identity"
+    if staging.exists() and (staging.is_symlink() or not staging.is_dir()):
+        raise RuntimeError("unsafe partial directory")
+    if staging.exists() and (not marker.is_file() or marker.read_text() != identity):
+        shutil.rmtree(staging)
+    staging.mkdir(exist_ok=True)
+    marker.write_text(identity)
     try:
         for item in artifacts:
             partial = staging / (item["name"] + ".part")
-            curl_download(item["url"], partial, args.timeout)
-            if partial.stat().st_size != item["size"]:
-                raise RuntimeError(f"size mismatch for {item['name']}")
-            if sha256_file(partial) != item["sha256"]:
-                raise RuntimeError(f"sha256 mismatch for {item['name']}")
+            if partial.is_symlink():
+                raise RuntimeError("unsafe partial file")
+            if partial.exists() and partial.stat().st_size > item["size"]:
+                partial.unlink()
+            if not partial.exists() or partial.stat().st_size < item["size"]:
+                if partial.exists() and partial.stat().st_size:
+                    headers = subprocess.check_output(["curl", "-fsSI", "--connect-timeout", "15", item["url"]], timeout=30).decode("utf-8")
+                    etags = [line.split(":", 1)[1].strip().strip('"').lower() for line in headers.splitlines() if line.lower().startswith("etag:")]
+                    if not etags or etags[-1] != item["sha256"]:
+                        partial.unlink()
+                curl_download(item["url"], partial, args.timeout)
+            if partial.stat().st_size != item["size"] or sha256_file(partial) != item["sha256"]:
+                # A mismatched partial must never be reused on the next attempt.
+                partial.unlink(missing_ok=True)
+                raise RuntimeError(f"size/sha256 mismatch for {item['name']}")
             os.replace(partial, staging / item["name"])
         (staging / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         (staging / ".complete").write_text("verified\n", encoding="utf-8")
+        marker.unlink(missing_ok=True)
         os.replace(staging, final_dir)
         staging = None
         print(json.dumps({"status": "PASS", "job_id": job_id, "path": str(final_dir)}))
     finally:
-        if staging is not None and staging.exists():
-            shutil.rmtree(staging, ignore_errors=True)
+        # Intentionally retain .part files after interruption for next attempt.
+        pass
 
 if __name__ == "__main__":
     main()

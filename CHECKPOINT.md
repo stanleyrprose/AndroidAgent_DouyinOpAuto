@@ -1113,3 +1113,20 @@ Scope: close instrumentation launch/evidence/health-check issues only. Frozen OC
 - Canonical runtime evidence (not committed): `/opt/y700/runtime/ocr-v2/ocr-v2-component-gate-20261008-093430.json`, `GATE_PASS`; warm 200-run P50/P95 **42.63/50.28 ms**, load/unload **1/0**, in-flight **0**, thermal delta approximately **+0.2 C**. Cold 20-run P50/P95 **64.39/116.93 ms**.
 - Production stable symlink switched from `y700-agent-release-3835b77` to `y700-agent-release-0c2a1d6`, old release retained as rollback. Post-deployment SOT HEALTHY, one bridge executor, Cloudflare 4 connections, CodexPro/Bridge HEALTHY, and unwrapped `am help` PASS.
 - Cloudflare long-duration fault-injection acceptance and v0.6 Phase-1 authorization remain independent gates. This OCR runner fix does not expand their scope.
+
+## Douyin → TikTok Burmese Dynamic Subtitles v0.4 — CODE VALIDATED / BUSINESS GATES PENDING (2026-10-10)
+
+- Scope: Mac production-pipeline opt-in implementation only, PR #42. No Y700/TikTok/publisher code, CI workflow trigger, or production runtime deployment changed.
+- Git feature branch `feat/burmese-dynamic-subtitles-v04`, commits `7fbc12e` and `8ebfe88` (before final review fixes); branch pushes did not trigger GitHub CI; PR creation is the first CI trigger.
+- Implementation: Apple Vision Chinese OCR, bounded frame sampling and explicit coverage diagnostics, deterministic ASR/OCR event ledger, immutable timed source IDs, constrained Myanmar translation IDs, timeline SOT plus legacy localization projection, Swift batch Myanmar shaping and FFmpeg cue overlays, pre-export fail-closed quality checks, Telegram quality outbox and offline inspection.
+- Local acceptance: 44 Mac Python tests PASS, including 19 new tests without third-party packages; Swift OCR and batch renderer compile/typecheck PASS; 6-second synthetic visual-only source gives three independent OCR events and timed Myanmar overlay cues; final MP4 duration 6.000 seconds, local Q3 PASS; contact image manually inspected.
+- **NOT accepted**: real 24+2 Douyin sample GT recall/precision KPI, field OCR benchmarking, Myanmar native-speaking semantic/shaping review, R0/R2 human release gates, zero-touch production activation, and any real TikTok COMMIT. These gates MUST remain independent; Git merge does not authorize production dynamic mode.
+- Activation guard: dynamic mode disabled by default; legacy subtitle workflow and DIRECT_DOWNLOAD unchanged. Without later accepted R0/R2 evidence and separate production authorization, do not set `Y700_SUBTITLE_MODE=dynamic_v04` or issue `--dynamic-subtitles` for real publishing.
+
+## Y700 Antigravity CLI via Bangkok VPS — DEVICE BASELINE PASS (accepted 2026-10-11)
+
+- Scope: independently operating Y700's official `agy 1.3.3` via `agy-bkk`, Debian chroot, on-demand Privoxy + SSH SOCKS5/autossh egress through the pre-existing Bangkok VPS; Mac mini and USB are not in the runtime dependency chain.
+- Evidence: Y700 dedicated SSH key authentication PASS; loopback SSH SOCKS5/Privoxy listeners present; proxy exit matched the intended Bangkok VPS while direct exit differed; `agy-bkk --version` PASS; authenticated `gemini-3.8-flash-low` model returned `Y700_BKK_GEMINI_OK`; owner confirmed successful interactive use.
+- Security: private SSH keys, Google OAuth tokens, account/VPS identifiers and runtime-only settings remain outside Git. The launcher checks expected egress before invoking agy and fails closed on unavailable proxy.
+- Boundary: no reboot, Android sleep/background-kill, Wi-Fi/hotspot transition or long-duration OAuth renewal acceptance is claimed. No Android global network or publisher/automation authorization changed; startup remains on demand.
+- Public-safe runbook and evidence: `docs/Y700-AGY-BKK-VERIFIED-BASELINE-2026-10-11.md`. Documentation records the accepted live-device state; it is not a byte-for-byte deployment artifact for private runtime configuration.
