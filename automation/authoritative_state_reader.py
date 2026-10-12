@@ -76,27 +76,39 @@ def _object_unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return out
 
 
-def _read_fixed_state() -> tuple[str, int, tuple[int, int, int, int]]:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+def _read_fixed_state() -> tuple[str, int, tuple[int, int, int, int, int]]:
+    _require(hasattr(os, "O_NOFOLLOW"), "SOT_NOFOLLOW_UNAVAILABLE")
+    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
     try:
         fd = os.open(STATE_PATH, flags)
     except OSError as exc:
         raise AuthorityUnavailable("SOT_UNAVAILABLE") from exc
     try:
         pre = os.fstat(fd)
-        _require(stat.S_ISREG(pre.st_mode), "SOT_NOT_REGULAR")
+        _require(stat.S_ISREG(pre.st_mode) and pre.st_nlink == 1,
+                 "SOT_NOT_REGULAR")
         _require(pre.st_uid == 0 and stat.S_IMODE(pre.st_mode) == 0o600,
                  "SOT_PERMISSIONS_INVALID")
         _require(0 < pre.st_size <= _SOT_MAX_BYTES, "SOT_SIZE_INVALID")
-        with os.fdopen(os.dup(fd), "rb") as file:
-            raw = file.read(_SOT_MAX_BYTES + 1)
-        post = os.fstat(fd)
-        generation = (pre.st_dev, pre.st_ino, pre.st_mtime_ns, pre.st_size)
-        _require(generation == (
-            post.st_dev, post.st_ino, post.st_mtime_ns, post.st_size
-        ) and len(raw) == pre.st_size, "SOT_CHANGED_DURING_READ")
+        raw = bytearray()
         try:
-            data = json.loads(raw, object_pairs_hook=_object_unique)
+            while len(raw) <= _SOT_MAX_BYTES:
+                part = os.read(fd, min(4096, _SOT_MAX_BYTES + 1 - len(raw)))
+                if not part:
+                    break
+                raw.extend(part)
+        except OSError as exc:
+            raise AuthorityUnavailable("SOT_READ_FAILED") from exc
+        post = os.fstat(fd)
+        generation = (pre.st_dev, pre.st_ino, pre.st_mtime_ns,
+                      pre.st_ctime_ns, pre.st_size)
+        _require(generation == (
+            post.st_dev, post.st_ino, post.st_mtime_ns,
+            post.st_ctime_ns, post.st_size
+        ) and post.st_nlink == 1 and len(raw) == pre.st_size,
+                 "SOT_CHANGED_DURING_READ")
+        try:
+            data = json.loads(bytes(raw), object_pairs_hook=_object_unique)
         except (ValueError, UnicodeError) as exc:
             raise AuthorityUnavailable("SOT_MALFORMED") from exc
         _require(isinstance(data, dict) and
