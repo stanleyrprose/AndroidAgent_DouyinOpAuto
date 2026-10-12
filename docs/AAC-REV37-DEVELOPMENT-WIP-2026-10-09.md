@@ -2892,3 +2892,7 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
 - These identity checks do not call Capability Reconcile Runtime or
   Resource release. Source-only regression candidates cover backend drift,
   Claim replacement generation and Capability ID mismatch.
+
+### 2026-10-12 PR scope correction
+
+The frozen authority limits production implementation to Sprint 1/1A. A prior WIP claim of all-sprint authorization is superseded for PR planning. See `docs/REV37-SPRINT1-1A-PR-READINESS-2026-10-12.md`. No tests, PR, CI or deployment performed.
