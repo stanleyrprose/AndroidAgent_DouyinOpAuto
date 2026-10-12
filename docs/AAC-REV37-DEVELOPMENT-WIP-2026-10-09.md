@@ -2541,3 +2541,20 @@ CI, device mutation, or production release was performed. D-G3 remains CLOSED.
 This batch is static-only. No test, build, PR, CI, deployment, or gate
 activation. Remaining initialization/concurrency and device acceptance
 questions are not represented as PASS.
+
+### 2026-10-12 Sprint 1 state initialization and revision concurrency
+
+- `state_integrity` now uses a protected, single-link `device-state.lock`
+  with an exclusive advisory flock for initial creation, revision advance,
+  and epoch rollover. The entire read-modify-write transition occurs under
+  that writer lock, preventing cooperating processes from losing increments.
+- First initialization publishes a fsynced temporary inode with a
+  no-replace canonical hard link; another initializer cannot be overwritten.
+  Readers may conservatively reject the transient two-link window, and
+  initialization remains denied on invalid canonical state.
+- State writer temporary files now use exclusive nofollow creation and
+  cleanup. State validation is shared by the public reader and the locked
+  revision/epoch paths; the locked paths do not recursively acquire the lock.
+- Remaining acceptance: real-device lock/rename crash cases, simultaneous
+  external writers not following this protocol, and compatibility with
+  canonical root-owned runtime files. Source-only, no tests or builds.

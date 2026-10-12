@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import fcntl
+from contextlib import contextmanager
 import json
 import os
 import secrets
@@ -75,17 +77,76 @@ def _ensure_dir() -> None:
         raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: state directory untrusted")
 
 
+@contextmanager
+def _state_writer_lock():
+    """Serialize initialization and revision transitions across processes."""
+    _ensure_dir()
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: nofollow unavailable")
+    lock_path = STATE_DIR / "device-state.lock"
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(fd)
+        named = os.stat(lock_path, follow_symlinks=False)
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+                or (info.st_dev, info.st_ino) != (named.st_dev, named.st_ino)):
+            raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: untrusted state lock")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        named = os.stat(lock_path, follow_symlinks=False)
+        directory = os.lstat(STATE_DIR)
+        if ((info.st_dev, info.st_ino) != (named.st_dev, named.st_ino)
+                or not stat.S_ISDIR(directory.st_mode)
+                or directory.st_uid != os.geteuid()
+                or stat.S_IMODE(directory.st_mode) != 0o700):
+            raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: state lock replaced")
+        yield
+    finally:
+        os.close(fd)
+
+
 def _atomic_json(path: Path, value: dict[str, Any]) -> None:
     _ensure_dir()
     tmp = path.with_name(path.name + ".tmp-" + secrets.token_hex(4))
     raw = (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    with open(tmp, "wb") as f:
-        os.fchmod(f.fileno(), 0o600)
-        f.write(raw)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
-    _fsync_dir(path.parent)
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: nofollow unavailable")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(raw)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        _fsync_dir(path.parent)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _create_initial_state(value: dict[str, Any]) -> None:
+    """Install a new authority state only if its canonical path is absent."""
+    _ensure_dir()
+    raw = (json.dumps(value, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":")) + "\n").encode("utf-8")
+    temporary = STATE_PATH.with_name(STATE_PATH.name + ".init-" + secrets.token_hex(12))
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: nofollow unavailable")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Link the complete inode into place without replacing another
+        # initializer's canonical state. The temporary extra link is removed
+        # before any caller is allowed to consume the new authority.
+        os.link(temporary, STATE_PATH, follow_symlinks=False)
+        temporary.unlink()
+        _fsync_dir(STATE_DIR)
+    finally:
+        temporary.unlink(missing_ok=True)
+
 
 
 def _boot_id() -> str:
@@ -146,23 +207,7 @@ def _read_existing_state() -> dict[str, Any]:
         os.close(fd)
 
 
-def load_state() -> dict[str, Any]:
-    _ensure_dir()
-    try:
-        state = _read_existing_state()
-    except FileNotFoundError:
-        state = {
-            "state_version": 1,
-            "state_epoch": "epoch-" + secrets.token_hex(16),
-            "revision": 0,
-            "fingerprint_version": FINGERPRINT_VERSION,
-            "initialized_at": _now_iso(),
-            "updated_at": _now_iso(),
-        }
-        _atomic_json(STATE_PATH, state)
-        return state
-    except (OSError, ValueError, UnicodeError) as exc:
-        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: device-state corrupt") from exc
+def _validate_state(state: Any) -> dict[str, Any]:
     if (
         not isinstance(state, dict)
         or type(state.get("state_version")) is not int
@@ -175,6 +220,30 @@ def load_state() -> dict[str, Any]:
     ):
         raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: invalid device-state")
     return state
+
+
+def load_state() -> dict[str, Any]:
+    _ensure_dir()
+    try:
+        state = _read_existing_state()
+    except FileNotFoundError:
+        with _state_writer_lock():
+            try:
+                return _validate_state(_read_existing_state())
+            except FileNotFoundError:
+                state = {
+                    "state_version": 1,
+                    "state_epoch": "epoch-" + secrets.token_hex(16),
+                    "revision": 0,
+                    "fingerprint_version": FINGERPRINT_VERSION,
+                    "initialized_at": _now_iso(),
+                    "updated_at": _now_iso(),
+                }
+                _create_initial_state(state)
+                return state
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: device-state corrupt") from exc
+    return _validate_state(state)
 
 
 def _normalize(value: Any) -> Any:
@@ -477,22 +546,26 @@ def assert_token(
 
 
 def advance_revision() -> tuple[int, int]:
-    state = load_state()
-    before = int(state["revision"])
-    after = before + 1
-    updated = dict(state)
-    updated["revision"] = after
-    updated["updated_at"] = _now_iso()
-    _atomic_json(STATE_PATH, updated)
-    return before, after
+    load_state()  # Initialize before acquiring the writer lock.
+    with _state_writer_lock():
+        state = _validate_state(_read_existing_state())
+        before = state["revision"]
+        after = before + 1
+        updated = dict(state)
+        updated["revision"] = after
+        updated["updated_at"] = _now_iso()
+        _atomic_json(STATE_PATH, updated)
+        return before, after
 
 
 def bump_epoch(reason: str) -> dict[str, Any]:
-    state = load_state()
-    updated = dict(state)
-    updated["state_epoch"] = "epoch-" + secrets.token_hex(16)
-    updated["revision"] = 0
-    updated["updated_at"] = _now_iso()
-    updated["invalidation_reason"] = str(reason)[:256]
-    _atomic_json(STATE_PATH, updated)
-    return updated
+    load_state()  # Initialize before acquiring the writer lock.
+    with _state_writer_lock():
+        state = _validate_state(_read_existing_state())
+        updated = dict(state)
+        updated["state_epoch"] = "epoch-" + secrets.token_hex(16)
+        updated["revision"] = 0
+        updated["updated_at"] = _now_iso()
+        updated["invalidation_reason"] = str(reason)[:256]
+        _atomic_json(STATE_PATH, updated)
+        return updated
