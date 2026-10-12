@@ -116,6 +116,7 @@ def positive_synchronous_ui_quiescence(
                 == claim["ui_execution_generation"]
             and receipt.get("boot_id") == state.boot_id
             and receipt.get("state_epoch") == state.state_epoch
+            and receipt.get("state_revision") == state.revision
             and receipt.get("native_ui_subjobs_absent") is True
             and receipt.get("linux_child_mutators_absent") is True
             and receipt.get("all_subordinates_terminal_positive") is True
@@ -204,6 +205,7 @@ def inspect_exact_stop_readonly(claim_id: str) -> dict[str, Any]:
                 type(observed_ms) is int
                 and 0 <= state.observed_boottime_ms - observed_ms <= 1000
                 and receipt.get("state_epoch") == state.state_epoch
+                and receipt.get("state_revision") == state.revision
                 and receipt.get("native_stop_receipt_version") == 1
                 and receipt.get("source") == "Y700_NATIVE_DRIVER_AND_BRIDGE"
                 and receipt.get("claim_id") == claim_id
