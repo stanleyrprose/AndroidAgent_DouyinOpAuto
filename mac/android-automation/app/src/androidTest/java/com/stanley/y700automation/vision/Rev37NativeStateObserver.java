@@ -93,25 +93,54 @@ public final class Rev37NativeStateObserver {
         if (raw == null) return null;
         Matcher match = TOP.matcher(raw);
         if (!match.find()) return null;
-        return match.group(1) + "/" + match.group(2);
+        String component = match.group(1) + "/" + match.group(2);
+        // Multiple resumed activities in the same service snapshot are
+        // ambiguous for a single-display exact foreground contract.
+        if (match.find()) return null;
+        return component;
+    }
+
+    private static String rootStateMetadata(Instrumentation i) {
+        // GNU stat without -L observes the inode at the fixed path, so a
+        // symlink is never accepted as the root-owned SOT. Metadata is
+        // rechecked around the fixed-path read to detect replacement.
+        String raw = fixedShell(i, "su -c 'stat -c \"%u %a %F %d %i %s %Y\" "
+                + SOT + "'");
+        if (raw == null) return null;
+        String[] fields = raw.trim().split(" ");
+        if (fields.length != 8 || !"0".equals(fields[0])
+                || !"600".equals(fields[1])
+                || !"regular".equals(fields[2])
+                || !"file".equals(fields[3])) return null;
+        try {
+            long size = Long.parseLong(fields[6]);
+            if (size <= 0 || size > MAX_CAPTURE_CHARS) return null;
+            for (int index : new int[]{4, 5, 7}) {
+                if (Long.parseLong(fields[index]) < 0) return null;
+            }
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+        return raw.trim();
     }
 
     private static JSONObject rootState(Instrumentation i) {
-        // Fixed literal command only. A workflow or LLM may not control a
-        // path or a shell argument. If su/root unavailable, fail closed.
+        // The trusted host SOT is fixed, root-owned, mode 0600 and regular.
+        // A raw su cat result without filesystem identity is insufficient.
+        String metadataBefore = rootStateMetadata(i);
+        if (metadataBefore == null) return null;
         String raw = fixedShell(i, "su -c 'cat " + SOT + "'");
-        if (raw == null || raw.trim().isEmpty()) return null;
+        String metadataAfter = rootStateMetadata(i);
+        if (raw == null || raw.trim().isEmpty()
+                || !metadataBefore.equals(metadataAfter)) return null;
         try {
             JSONObject state = new JSONObject(raw.trim());
             if (state.optInt("state_version", -1) != 1
                     || !"semantic-v1".equals(
                             state.optString("fingerprint_version", ""))
                     || !EPOCH.matcher(state.optString("state_epoch", "")).matches()
-                    || !state.has("revision")
                     || !(state.opt("revision") instanceof Integer)
-                    || state.optInt("revision", -1) < 0) {
-                return null;
-            }
+                    || state.optInt("revision", -1) < 0) return null;
             return state;
         } catch (Exception ignored) {
             return null;
@@ -264,6 +293,11 @@ public final class Rev37NativeStateObserver {
                 device, frozenRouteContractId, expectedPackage);
         if (!finalModal.readOnlyClear())
             return unavailable(finalModal.code);
+        // The second window walk and semantic selectors are also async
+        // reads. Reobserve Activity before issuing the final snapshot.
+        if (!component.equals(foregroundComponent(instrumentation))
+                || !expectedPackage.equals(device.getCurrentPackageName()))
+            return unavailable("FRAME_FOREGROUND_DRIFT");
         long observationFinishedMs = SystemClock.elapsedRealtimeNanos() / 1_000_000L;
         if (observationFinishedMs < observationStartedMs
                 || observationFinishedMs - observationStartedMs > MAX_OBSERVATION_MS)
