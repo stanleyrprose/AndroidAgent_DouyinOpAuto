@@ -2839,3 +2839,15 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   but cannot authorize replay, even when `safe_to_resume` is true.
 - Added six unexecuted regression candidates. Native stop proof, canonical
   Claim release, crash integration and deployment acceptance remain pending.
+
+### 2026-10-12 UI recovery inspector integration repair
+
+- Fixed `ui_job.inspect_recovery` calling nonexistent `classify`: now invokes
+  the actual read-only `inspect_job` entrypoint and correlates the result
+  with the canonical Claim without mutating either source.
+- Missing/corrupt Claim and inspector failures produce non-replayable,
+  non-dispatchable reconciliation reports; a Claim already marked for
+  reconciliation cannot be silently treated as clean.
+- Added five source-only integration regression candidates. This is not a
+  positive stop proof or authorization to release Claim, recover a job,
+  or execute a TikTok publish action.

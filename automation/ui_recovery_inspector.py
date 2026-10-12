@@ -207,3 +207,26 @@ def inspect_job(job_dir: Path, *, expected_job_id: str | None = None) -> dict[st
         "claim_release_authorized": False,
         "mutation_dispatch_allowed": False,
     }
+
+
+def correlate_claim(evidence: dict[str, Any], *, claim: dict[str, Any] | None) -> dict[str, Any]:
+    """Read-only correlation; a missing Claim is never a release permit."""
+    reasons = list(evidence["reason_codes"])
+    if claim is None:
+        reasons.append("CANONICAL_CLAIM_MISSING_OR_RELEASED")
+    elif (claim.get("resource") != "android_ui"
+          or not isinstance(claim.get("claim_id"), str)
+          or not claim.get("claim_id")):
+        reasons.append("CANONICAL_CLAIM_INVALID")
+    elif claim.get("reconcile_required") is True:
+        reasons.append("CANONICAL_CLAIM_RECONCILE_REQUIRED")
+    # Exact job/claim association is not inferred from PID or checkpoint.
+    # This diagnostic cannot promote an apparently clean terminal receipt.
+    return {
+        **evidence,
+        "classification": "RECONCILE_REQUIRED" if reasons else evidence["classification"],
+        "reason_codes": reasons,
+        "automatic_replay_allowed": False,
+        "claim_release_authorized": False,
+        "mutation_dispatch_allowed": False,
+    }
