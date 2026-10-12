@@ -44,7 +44,9 @@ def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _strict_json(path: Path, max_bytes: int = 8192) -> dict[str, Any]:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    _need(hasattr(os, "O_NOFOLLOW"),
+          "GATEWAY_BOUNDARY_NOFOLLOW_UNAVAILABLE")
+    flags = os.O_RDONLY | os.O_NOFOLLOW
     try:
         fd = os.open(path, flags)
     except OSError as exc:
@@ -52,6 +54,7 @@ def _strict_json(path: Path, max_bytes: int = 8192) -> dict[str, Any]:
     try:
         st = os.fstat(fd)
         _need(stat.S_ISREG(st.st_mode)
+              and st.st_nlink == 1
               and st.st_uid == 0
               and 0 < st.st_size <= max_bytes
               and stat.S_IMODE(st.st_mode) == 0o600,
@@ -60,8 +63,19 @@ def _strict_json(path: Path, max_bytes: int = 8192) -> dict[str, Any]:
             raw = file.read(max_bytes + 1)
         after = os.fstat(fd)
         _need(len(raw) == st.st_size
-              and (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
-              == (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns),
+              and (st.st_dev, st.st_ino, st.st_size,
+                   st.st_mtime_ns, st.st_ctime_ns)
+              == (after.st_dev, after.st_ino, after.st_size,
+                  after.st_mtime_ns, after.st_ctime_ns),
+              "GATEWAY_BOUNDARY_FILE_CHANGED")
+        try:
+            current = os.stat(path, follow_symlinks=False)
+        except OSError as exc:
+            raise PublisherBoundaryError("GATEWAY_BOUNDARY_FILE_CHANGED") from exc
+        _need(stat.S_ISREG(current.st_mode)
+              and current.st_nlink == 1
+              and (current.st_dev, current.st_ino)
+                  == (st.st_dev, st.st_ino),
               "GATEWAY_BOUNDARY_FILE_CHANGED")
         try:
             obj = json.loads(raw, object_pairs_hook=_unique_pairs)
@@ -77,9 +91,12 @@ def _hash_file(path: Path) -> str:
     """Hash one stable non-symlink regular inode, not a changing path."""
     fd = -1
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        _need(hasattr(os, "O_NOFOLLOW"),
+              "PUBLISHER_MEDIA_NOFOLLOW_UNAVAILABLE")
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
         before = os.fstat(fd)
         _need(stat.S_ISREG(before.st_mode)
+              and before.st_nlink == 1
               and (stat.S_IMODE(before.st_mode) & 0o022) == 0,
               "PUBLISHER_MEDIA_IDENTITY_UNAVAILABLE")
         digest = hashlib.sha256()
@@ -93,9 +110,15 @@ def _hash_file(path: Path) -> str:
         after = os.fstat(fd)
         _need(consumed == before.st_size
               and (before.st_dev, before.st_ino,
-                   before.st_size, before.st_mtime_ns)
+                   before.st_size, before.st_mtime_ns, before.st_ctime_ns)
               == (after.st_dev, after.st_ino,
-                  after.st_size, after.st_mtime_ns),
+                  after.st_size, after.st_mtime_ns, after.st_ctime_ns),
+              "PUBLISHER_MEDIA_CHANGED_DURING_HASH")
+        current = os.stat(path, follow_symlinks=False)
+        _need(stat.S_ISREG(current.st_mode)
+              and current.st_nlink == 1
+              and (current.st_dev, current.st_ino)
+                  == (before.st_dev, before.st_ino),
               "PUBLISHER_MEDIA_CHANGED_DURING_HASH")
         return digest.hexdigest()
     except OSError as exc:

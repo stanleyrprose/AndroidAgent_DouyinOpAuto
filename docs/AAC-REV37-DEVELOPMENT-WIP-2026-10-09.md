@@ -2346,3 +2346,14 @@ checks exact Backend ID, approval request/policy/artifact/visibility identity.
 These are static source protections only: native action-boundary evidence,
 physical TikTok app version/signature, real JIT frame age and final effect
 verifier are NOT accepted or exercised. All release gates remain CLOSED.
+
+### Publisher precommit filesystem provenance follow-through
+
+`publisher_boundary_guard.py` now requires `O_NOFOLLOW` rather than
+silently falling back to an ordinary open, rejects hardlinked protected
+JSON/media evidence, compares ctime as well as size/mtime during reads,
+and checks that the pathname still points at the same regular inode after
+the read/hash. This protects precommit evidence from simple path replacement
+and concurrent in-place modification. It is not an accepted substitute for
+atomic immutable artifact sealing, native input-time proof or real-device
+integration. All production and TikTok effect gates remain CLOSED.
