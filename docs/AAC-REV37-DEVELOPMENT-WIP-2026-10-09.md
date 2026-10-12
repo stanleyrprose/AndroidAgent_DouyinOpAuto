@@ -2771,3 +2771,16 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   session during liveness handling.
 - Added source-only fault-injection regression candidate. No test, native
   execution, CI, PR, merge, or deployment acceptance is claimed.
+
+### 2026-10-12 PREPARED Claim retention integration
+
+- `ui_job` now persists `reconcile_required` on the canonical Android UI
+  Claim before publishing a `RECONCILE_REQUIRED` result for any prepared
+  mutation. Native session terminality is not evidence of mutation success.
+- The returned receipt advertises `retain_resource_claim` only after the
+  canonical Claim mark succeeds. A missing/mismatched Claim fails closed;
+  it is not silently converted to a PASS or a replayable job.
+- Five source-only regression candidates cover retention, unprepared work,
+  successful work, missing guard and failed durable marking. Consolidated
+  fault injection, restart/recovery, ownership and real Y700 acceptance remain
+  pending; no runtime gate is opened by this source change.

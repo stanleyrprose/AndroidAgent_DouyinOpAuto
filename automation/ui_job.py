@@ -843,6 +843,30 @@ def enforce_driver_session_liveness(
     }
 
 
+def fence_prepared_reconciliation(
+    result: dict[str, Any],
+    *,
+    mutation_prepared: bool,
+    resource_guard: Any,
+) -> dict[str, Any]:
+    """Durably retain the canonical Claim for uncertain prepared mutations.
+
+    A terminal native session only proves the process stopped, not whether
+    Android accepted an input or whether the journal/checkpoint is durable.
+    This fence is independent of driver liveness and is never controlled by
+    a workflow-supplied retain flag.
+    """
+    if not mutation_prepared or result.get("status") != "RECONCILE_REQUIRED":
+        return result
+    if not isinstance(resource_guard, dict):
+        raise UiJobError("RECONCILE_CLAIM_GUARD_UNAVAILABLE")
+    resource_arbiter.mark_reconcile_required(
+        resource_guard,
+        reason="PREPARED_MUTATION_OUTCOME_OR_DURABILITY_UNCERTAIN",
+    )
+    return {**result, "retain_resource_claim": True}
+
+
 def run_workflow(path: Path, *, internal_backend: bool = False) -> dict[str, Any]:
     req = read_json(path)
     if not isinstance(req, dict):
@@ -1149,6 +1173,14 @@ def run_workflow(path: Path, *, internal_backend: bool = False) -> dict[str, Any
                 session_terminal=session_terminal,
                 job_id=job_id,
                 session_id=req["session_id"],
+            )
+            # A terminal session does not resolve a PREPARED mutation whose
+            # result or durability is uncertain. Fence the canonical Claim
+            # before publishing any final result or clearing job signals.
+            result = fence_prepared_reconciliation(
+                result,
+                mutation_prepared=mutation_prepared,
+                resource_guard=req.get("resource_guard"),
             )
 
         if isinstance(req.get("vision"), dict):
