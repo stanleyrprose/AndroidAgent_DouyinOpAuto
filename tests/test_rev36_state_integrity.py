@@ -244,10 +244,9 @@ class StateIntegritySprint1Tests(unittest.TestCase):
                 )
 
 
-if __name__ == "__main__":
-    unittest.main()
+class AuthorityLossRegressionTests(unittest.TestCase):
+    load = StateIntegritySprint1Tests.load
 
-class AuthorityLossRegressionTests(StateIntegritySprint1Tests):
     def test_missing_canonical_state_after_initialization_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
             si = self.load(Path(td))
@@ -266,3 +265,30 @@ class AuthorityLossRegressionTests(StateIntegritySprint1Tests):
             with self.assertRaisesRegex(si.StateIntegrityError, "canonical state missing"):
                 si.load_state()
             self.assertFalse(si.STATE_PATH.exists())
+
+class MarkerTrustRegressionTests(unittest.TestCase):
+    load = StateIntegritySprint1Tests.load
+
+    def test_untrusted_marker_is_not_treated_as_absent(self):
+        with tempfile.TemporaryDirectory() as td:
+            si = self.load(Path(td))
+            si._ensure_dir()
+            si.STATE_INITIALIZED_MARKER.write_bytes(b"wrong")
+            with self.assertRaisesRegex(si.StateIntegrityError, "marker untrusted"):
+                si.load_state()
+            self.assertFalse(si.STATE_PATH.exists())
+
+    def test_symlinked_marker_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            si = self.load(Path(td))
+            si._ensure_dir()
+            victim = si.STATE_DIR / "victim"
+            victim.write_bytes(b"initialized\n")
+            si.STATE_INITIALIZED_MARKER.symlink_to(victim)
+            with self.assertRaises((si.StateIntegrityError, OSError)):
+                si.load_state()
+            self.assertFalse(si.STATE_PATH.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

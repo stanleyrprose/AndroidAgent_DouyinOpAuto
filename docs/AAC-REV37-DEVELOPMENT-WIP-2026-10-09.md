@@ -2696,3 +2696,13 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
 - Added unexecuted regression candidates for deletion and interrupted first
   publication. Existing deployments initialized before this marker need a
   separately reviewed migration/backfill strategy; source-only, not accepted.
+
+### 2026-10-12 authority marker validation follow-up
+
+- Initialization marker is now read with O_NOFOLLOW/O_NONBLOCK and verified
+  as a single-link owner-only regular inode with the exact marker payload.
+- Malformed, linked, or replaced markers block state rebootstrap rather than
+  silently being treated as missing. Regression candidates added and moved
+  the unittest main guard after all test classes for direct-file discovery.
+- This is source-only; legacy marker migration and device acceptance remain
+  open, as do same-UID concurrent path-replacement races.

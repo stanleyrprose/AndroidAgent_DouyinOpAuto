@@ -168,24 +168,40 @@ def _create_initial_state(value: dict[str, Any]) -> None:
 
 
 
-def _install_initialization_marker() -> None:
-    """Record the first state epoch so missing authority cannot reset silently."""
+def _marker_present() -> bool:
+    """An existing marker must be the exact owner-private regular file."""
     if not hasattr(os, "O_NOFOLLOW"):
         raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: nofollow unavailable")
     try:
-        fd = os.open(STATE_INITIALIZED_MARKER,
-                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    except FileExistsError as exc:
-        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: marker already exists") from exc
+        fd = os.open(STATE_INITIALIZED_MARKER, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return False
     try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(b"initialized\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        _fsync_dir(STATE_DIR)
+        info = os.fstat(fd)
+        named = os.lstat(STATE_INITIALIZED_MARKER)
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+                or (info.st_dev, info.st_ino) != (named.st_dev, named.st_ino)
+                or info.st_size != len(b"initialized\n")
+                or os.read(fd, 32) != b"initialized\n"):
+            raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: marker untrusted")
+        return True
     finally:
-        # The fd is owned by fdopen; never unlink a committed marker.
-        pass
+        os.close(fd)
+
+
+def _install_initialization_marker() -> None:
+    """Durably mark initial authority creation before publishing state."""
+    if _marker_present():
+        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: marker already exists")
+    fd = os.open(STATE_INITIALIZED_MARKER,
+                 os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(b"initialized\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    _fsync_dir(STATE_DIR)
 
 
 def _boot_id() -> str:
@@ -270,9 +286,7 @@ def load_state() -> dict[str, Any]:
             try:
                 return _validate_state(_read_existing_state())
             except FileNotFoundError:
-                if STATE_INITIALIZED_MARKER.is_symlink():
-                    raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: marker symlink")
-                if STATE_INITIALIZED_MARKER.exists():
+                if _marker_present():
                     raise StateIntegrityError(
                         "STATE_INTEGRITY_UNAVAILABLE: canonical state missing after initialization"
                     )
