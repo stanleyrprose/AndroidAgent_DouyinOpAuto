@@ -336,12 +336,35 @@ def _match_simple(element: dict[str, Any], selector: dict[str, Any]) -> bool:
 
 def match_elements(observation: dict[str, Any], selector: dict[str, Any]) -> list[dict[str, Any]]:
     rows = [row for row in (observation.get("elements") or []) if isinstance(row, dict)]
-    by_id = {row.get("node_id"): row for row in rows if row.get("node_id")}
+    by_id: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        node_id = row.get("node_id")
+        if not isinstance(node_id, str) or not node_id:
+            raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: invalid node identity")
+        if node_id in by_id:
+            raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: duplicate node identity")
+        by_id[node_id] = row
     children: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         parent_id = row.get("parent_id")
-        if parent_id:
+        if parent_id is not None:
+            if not isinstance(parent_id, str) or parent_id not in by_id:
+                raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: orphan parent")
             children.setdefault(parent_id, []).append(row)
+    # Validate the entire ancestry graph before selector matching: otherwise
+    # a cycle in a nonmatching branch could silently evade integrity checks.
+    visited: set[str] = set()
+    for start in by_id:
+        if start in visited:
+            continue
+        trail: set[str] = set()
+        current: str | None = start
+        while current is not None and current not in visited:
+            if current in trail:
+                raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: cyclic ancestry")
+            trail.add(current)
+            current = by_id[current].get("parent_id")
+        visited.update(trail)
 
     def parent(row: dict[str, Any]) -> dict[str, Any] | None:
         pid = row.get("parent_id")
@@ -360,7 +383,12 @@ def match_elements(observation: dict[str, Any], selector: dict[str, Any]) -> lis
         if isinstance(anc, dict):
             p = parent(row)
             found = False
+            seen: set[str] = set()
             while p is not None:
+                node_id = p["node_id"]
+                if node_id in seen:
+                    raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: cyclic ancestry")
+                seen.add(node_id)
                 if _match_simple(p, anc):
                     found = True
                     break
@@ -371,12 +399,17 @@ def match_elements(observation: dict[str, Any], selector: dict[str, Any]) -> lis
         if isinstance(desc, dict):
             stack = list(children.get(row.get("node_id"), []))
             found = False
+            seen: set[str] = set()
             while stack:
                 child = stack.pop()
+                node_id = child["node_id"]
+                if node_id in seen:
+                    raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: cyclic descendant")
+                seen.add(node_id)
                 if _match_simple(child, desc):
                     found = True
                     break
-                stack.extend(children.get(child.get("node_id"), []))
+                stack.extend(children.get(node_id, []))
             if not found:
                 continue
         out.append(row)
@@ -463,7 +496,15 @@ def project_snapshot(
                 (row.get("bounds") or [0, 0, 0, 0])[0],
             ),
         )
-    ordinal = int(action.get("ordinal", 0)) if action.get("action") == "tapObserved" else 0
+    ordinal = 0
+    if action.get("action") == "tapObserved":
+        ordinal = action.get("ordinal", 0)
+        if type(ordinal) is not int:
+            raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: invalid ordinal")
+        if 0 <= ordinal < len(matches):
+            bounds = matches[ordinal].get("bounds")
+            if sum(row.get("bounds") == bounds for row in matches) != 1:
+                raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: ambiguous ordinal")
     if ordinal < 0 or ordinal >= len(matches):
         raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE")
     if action.get("action") != "tapObserved" and len(matches) != 1:

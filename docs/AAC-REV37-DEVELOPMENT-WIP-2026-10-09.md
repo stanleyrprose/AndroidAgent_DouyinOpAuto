@@ -2599,3 +2599,16 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
 - No claim that advisory locks protect against non-cooperating writers or
   malicious same-UID path replacement. A short write fails closed rather than
   being retried into a potentially corrupt record. Source-only, not tested.
+
+### 2026-10-12 Sprint 1 semantic-v1 graph and ordinal integrity
+
+- Reject missing/duplicate node IDs, orphan parents, and cyclic ancestry
+  across the complete observed tree before applying a selector. Bound graph
+  traversal by visited identities so malformed observations cannot hang
+  `has_ancestor` or `has_descendant` matching.
+- `tapObserved` rejects noninteger ordinals and coordinate-tied ordinal
+  targets instead of depending on traversal order.
+- Added source-only regression candidates for exact text/description,
+  malformed parent graphs, and valid ancestor/descendant matching. No tests
+  or Android build were executed. Device observation compatibility and frozen
+  semantic vector acceptance remain pending.
