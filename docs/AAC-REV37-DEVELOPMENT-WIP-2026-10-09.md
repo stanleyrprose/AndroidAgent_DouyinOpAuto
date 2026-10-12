@@ -2748,3 +2748,14 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
 - Added an unexecuted regression candidate simulating transport loss after
   potential Android input. This does not close remaining post-dispatch journal
   or checkpoint durability failure paths; acceptance is still pending.
+
+### 2026-10-12 post-dispatch durability recovery candidate
+
+- `ui_core_v2` now returns non-retryable `RECONCILE_REQUIRED` if committed
+  journal, postcondition journal, or checkpoint persistence fails after
+  Android input and revision CAS. The PREPARED record is the recovery fence.
+- Ambiguity journal failure following an uncertain driver result or failed
+  revision CAS no longer overrides the reconciliation response.
+- Added source-only fault-injection candidates for committed-journal and
+  checkpoint exceptions. Actual durable recovery, claim retention and replay
+  gates require consolidated tests and device acceptance.

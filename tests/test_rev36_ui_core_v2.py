@@ -422,6 +422,55 @@ class Rev37DriverDispatchFailureTests(unittest.TestCase):
             self.assertTrue(any(x.get("phase") == "MUTATION_AMBIGUOUS" for x in journal))
             self.assertFalse(any(x.get("phase") == "MUTATION_COMMITTED" for x in journal))
 
+class Rev37DurabilityFailureTests(unittest.TestCase):
+    modules = Rev36CoreV2Tests.modules
+    req = Rev36CoreV2Tests.req
+    driver = Rev36CoreV2Tests.driver
+
+    def test_committed_journal_failure_requires_reconciliation(self):
+        self._assert_post_dispatch_failure("journal")
+
+    def test_checkpoint_failure_requires_reconciliation(self):
+        self._assert_post_dispatch_failure("checkpoint")
+
+    def _assert_post_dispatch_failure(self, stage):
+        with tempfile.TemporaryDirectory() as td:
+            ra, si, core = self.modules(Path(td))
+            calls, journal = [], []
+
+            def append(row):
+                if stage == "journal" and row.get("phase") == "MUTATION_COMMITTED":
+                    raise OSError("durable journal unavailable")
+                journal.append(row)
+
+            def checkpoint(index, safe):
+                if stage == "checkpoint":
+                    raise OSError("checkpoint fsync failed")
+
+            with ra.acquire_android_ui(
+                owner_kind="LEGACY", owner_id="legacy:test", backend_type="test",
+                backend_job_id="rev37-durability-" + stage,
+                request_sha256=ra.request_identity({"stage": stage}),
+            ) as guard:
+                request = self.req({
+                    "action_id": "home", "action": "pressHome",
+                    "side_effect": "REVERSIBLE_LOCAL",
+                }, guard.as_dict())
+                result = core.run(
+                    request,
+                    driver_run=self.driver([observation()], calls),
+                    activity_read=lambda label: "com.example/.MainActivity",
+                    journal_append=append,
+                    checkpoint_write=checkpoint,
+                    cancel_check=lambda: False,
+                    now_iso=lambda: "2026-10-07T00:00:00+00:00",
+                )
+            self.assertEqual(result["status"], "RECONCILE_REQUIRED")
+            self.assertEqual(result["error"]["code"], "POST_DISPATCH_DURABILITY_UNAVAILABLE")
+            self.assertIs(result["error"]["retryable"], False)
+            self.assertEqual(si.load_state()["revision"], 1)
+            self.assertTrue(any(row.get("phase") == "MUTATION_PREPARED" for row in journal))
+
 
 if __name__ == "__main__":
     unittest.main()

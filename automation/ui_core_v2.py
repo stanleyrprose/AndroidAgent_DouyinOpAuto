@@ -449,17 +449,21 @@ def _run_mutation(
             if action_result.get("status") != "PASS"
             else "MUTATION_OUTCOME_UNKNOWN"
         ) or "MUTATION_RESULT_AMBIGUOUS"
-        journal_append({
-            "timestamp": now_iso(),
-            "phase": "MUTATION_AMBIGUOUS",
-            "action_index": index,
+        try:
+            journal_append({
+                "timestamp": now_iso(),
+                "phase": "MUTATION_AMBIGUOUS",
+                "action_index": index,
             "action_id": action.get("action_id"),
             "action": action.get("action"),
             "status": action_result.get("status"),
             "postcondition_passed": postcondition_passed,
             "reason": ambiguity_code,
-            "retry_allowed": False,
-        })
+                "retry_allowed": False,
+            })
+        except Exception:
+            # The durable PREPARED record still forbids automatic replay.
+            pass
         terminal = {
             "status": "RECONCILE_REQUIRED",
             "job_id": req["job_id"],
@@ -489,16 +493,19 @@ def _run_mutation(
     except state_integrity.StateIntegrityError as exc:
         # The driver may already have mutated Android. Never turn a
         # post-dispatch CAS failure into BLOCKED/zero-attempt or retry.
-        journal_append({
-            "timestamp": now_iso(),
-            "phase": "MUTATION_AMBIGUOUS",
-            "job_id": req["job_id"],
+        try:
+            journal_append({
+                "timestamp": now_iso(),
+                "phase": "MUTATION_AMBIGUOUS",
+                "job_id": req["job_id"],
             "session_id": req["session_id"],
             "action_index": index,
             "action_id": action.get("action_id"),
             "reason": "STATE_REVISION_ORDERING_FAILURE",
-            "retry_allowed": False,
-        })
+                "retry_allowed": False,
+            })
+        except Exception:
+            pass
         terminal = {
             "status": "RECONCILE_REQUIRED",
             "job_id": req["job_id"],
@@ -510,34 +517,50 @@ def _run_mutation(
             "preflight": driver.get("preflight"),
         }
         return action_result, terminal, driver.get("preflight")
-    journal_append({
-        "timestamp": now_iso(),
-        "phase": "MUTATION_COMMITTED",
-        "job_id": req["job_id"],
-        "session_id": req["session_id"],
-        "action_index": index,
-        "action_id": action.get("action_id"),
-        "action": action.get("action"),
-        "state_epoch": proof["state_epoch"],
-        "revision_before": before,
-        "revision_after": after,
-        "postcondition": "PASS",
-        "postcondition_kind": postcondition_kind,
-        "fingerprint_version": proof["fingerprint_version"],
-        "fingerprint_profile_id": proof["fingerprint_profile_id"],
-        "resource_claim_id": req["resource_guard"]["claim_id"],
-    })
-    journal_append({
-        "timestamp": now_iso(),
-        "phase": "POSTCONDITION_PASS",
-        "action_index": index,
-        "action_id": action.get("action_id"),
-        "action": action.get("action"),
-        "side_effect": action.get("side_effect", "REVERSIBLE_LOCAL"),
-        "status": "PASS",
-        "safe_checkpoint": True,
-    })
-    checkpoint_write(index, True)
+    try:
+        journal_append({
+            "timestamp": now_iso(),
+            "phase": "MUTATION_COMMITTED",
+            "job_id": req["job_id"],
+            "session_id": req["session_id"],
+            "action_index": index,
+            "action_id": action.get("action_id"),
+            "action": action.get("action"),
+            "state_epoch": proof["state_epoch"],
+            "revision_before": before,
+            "revision_after": after,
+            "postcondition": "PASS",
+            "postcondition_kind": postcondition_kind,
+            "fingerprint_version": proof["fingerprint_version"],
+            "fingerprint_profile_id": proof["fingerprint_profile_id"],
+            "resource_claim_id": req["resource_guard"]["claim_id"],
+        })
+        journal_append({
+            "timestamp": now_iso(),
+            "phase": "POSTCONDITION_PASS",
+            "action_index": index,
+            "action_id": action.get("action_id"),
+            "action": action.get("action"),
+            "side_effect": action.get("side_effect", "REVERSIBLE_LOCAL"),
+            "status": "PASS",
+            "safe_checkpoint": True,
+        })
+        checkpoint_write(index, True)
+    except Exception:
+        # Android input and the revision CAS have already completed. A
+        # journal/checkpoint write error is not permission to dispatch again.
+        # The durable PREPARED record remains the reconciliation fence.
+        return action_result, {
+            "status": "RECONCILE_REQUIRED",
+            "job_id": req["job_id"],
+            "session_id": req["session_id"],
+            "protocol_version": 2,
+            "actions": results + [action_result],
+            "error": {"code": "POST_DISPATCH_DURABILITY_UNAVAILABLE",
+                      "retryable": False},
+            "preflight": driver.get("preflight"),
+            "host_duration_ms": round((time.monotonic() - started) * 1000, 1),
+        }, driver.get("preflight")
     return action_result, None, driver.get("preflight")
 
 
