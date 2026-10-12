@@ -2864,3 +2864,13 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   reported explicitly, never treated as an available resource.
 - Added six source-only integration regression candidates; no tests,
   native stop proof, resource release, CI or production action authorized.
+
+### 2026-10-12 recovery checkpoint/claim contradiction detection
+
+- Read-only recovery now reports checkpoints crossing an unresolved PREPARED
+  mutation and checkpoints lagging a durable COMMITTED mutation. Neither
+  condition grants resume/replay permission.
+- Exact Claim correlation includes active UI job and session when present,
+  rejecting a Claim currently bound to another workflow execution.
+- Three source-only regression candidates added. Positive native stop proof
+  and explicit resource-only release remain independently gated and untested.

@@ -186,6 +186,15 @@ def inspect_job(
         if completed >= 0 and checkpoint.get("last_completed_action_id") != actions[completed].get("action_id"):
             raise RecoveryEvidenceError("RECOVERY_CHECKPOINT_ACTION_MISMATCH")
     reasons = []
+    # A checkpoint is not independent proof that Android completed an
+    # action. If it crosses a prepared-but-uncommitted mutation, surface
+    # the contradiction instead of treating the index as a resume cursor.
+    if checkpoint is not None:
+        completed = checkpoint["last_completed_action_index"]
+        if any(index <= completed for index in outstanding):
+            reasons.append("CHECKPOINT_CROSSES_UNRESOLVED_MUTATION")
+        if any(index > completed for index in committed):
+            reasons.append("CHECKPOINT_BEHIND_COMMITTED_MUTATION")
     if outstanding:
         reasons.append("PREPARED_OUTCOME_UNRESOLVED")
     if ambiguous:
@@ -202,7 +211,9 @@ def inspect_job(
             reasons.append("CANONICAL_CLAIM_UNVERIFIED")
         elif (claim.get("resource") != "android_ui"
               or claim.get("claim_id") != expected_guard.get("claim_id")
-              or claim.get("owner_id") != expected_guard.get("owner_id")):
+              or claim.get("owner_id") != expected_guard.get("owner_id")
+              or (claim.get("active_ui_job_id") not in (None, job_id))
+              or (claim.get("active_session_id") not in (None, session))):
             reasons.append("CANONICAL_CLAIM_IDENTITY_MISMATCH")
         elif claim.get("reconcile_required") is True:
             reasons.append("CANONICAL_CLAIM_RECONCILE_REQUIRED")
