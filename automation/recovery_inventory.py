@@ -193,6 +193,14 @@ def inspect_staged_bound_readonly(
         return _blocked(job_id, "STAGED_RECOVERY_UNAVAILABLE")
 
 
+def _inventory_snapshot(directory: Path) -> dict[str, tuple[int, int]]:
+    """Stable name/inode inventory; never treat a disappearing entry as empty."""
+    return {
+        entry.name: (entry.lstat().st_dev, entry.lstat().st_ino)
+        for entry in directory.iterdir()
+    }
+
+
 def inspect_startup_inventory_readonly(
     *, root: Path = CAP_JOBS, maximum_jobs: int = 500,
 ) -> dict[str, Any]:
@@ -201,24 +209,30 @@ def inspect_startup_inventory_readonly(
         if (not active_root.is_dir() or active_root.is_symlink()
                 or not staging_root.is_dir() or staging_root.is_symlink()):
             raise CapabilityStoreError("CAPABILITY_LIFECYCLE_PATH_UNAVAILABLE")
+        active_before = _inventory_snapshot(active_root)
+        staged_before = _inventory_snapshot(staging_root)
         active = sorted(active_root.iterdir())
         staged = sorted(staging_root.iterdir())
+        if (len(active) != len(active_before)
+                or len(staged) != len(staged_before)):
+            raise CapabilityStoreError("CAPABILITY_INVENTORY_CHANGED_DURING_SCAN")
         if len(active) + len(staged) > maximum_jobs:
             raise CapabilityStoreError("CAPABILITY_INVENTORY_TOO_LARGE")
         if any(item.is_symlink() or not item.is_dir()
                or _JOB.fullmatch(item.name) is None
                for item in active + staged):
             raise CapabilityStoreError("CAPABILITY_INVENTORY_UNTRUSTED")
+        active_rows = [inspect_active_exact_readonly(x.name, root=root)
+                       for x in active]
+        staged_rows = [inspect_staged_bound_readonly(x.name, root=root)
+                       for x in staged]
+        if (active_before != _inventory_snapshot(active_root)
+                or staged_before != _inventory_snapshot(staging_root)):
+            raise CapabilityStoreError("CAPABILITY_INVENTORY_CHANGED_DURING_SCAN")
         return {
             "status": "READ_ONLY_STARTUP_INVENTORY",
-            "active_jobs": [
-                inspect_active_exact_readonly(x.name, root=root)
-                for x in active
-            ],
-            "staging_jobs": [
-                inspect_staged_bound_readonly(x.name, root=root)
-                for x in staged
-            ],
+            "active_jobs": active_rows,
+            "staging_jobs": staged_rows,
             "active_count": len(active),
             "staging_count": len(staged),
             "automatic_recovery_enabled": False,
