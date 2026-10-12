@@ -28,3 +28,12 @@ Authority: `docs/PRD-Y700-AAC-v0.6-Rev3.7-Frozen.md`, sections 40.2, 40.2A, 46.2
 - Exact Sprint 1/1A code-complete coverage and negative-test outcomes require verification; this document is a readiness inventory, not a pass matrix.
 - Recovery resource release, native positive-stop producer and Capability outcome reconciliation have independent closed gates; **do not open them as a shortcut to this PR**.
 - `.github/workflows/validate.yml` currently triggers `push` only for `main`, and `pull_request` for PRs; feature-branch push does not trigger this workflow as inspected on 2026-10-12. Recheck immediately before the next push.
+
+## First concentrated test results (2026-10-12)
+
+- Rev3.7 `test_rev37*.py`: **181/181 PASS** after fixing checkpoint comparison and making a directory-mode fixture independent of process umask; on macOS use `TMPDIR=/private/tmp` to avoid the `/tmp` symlink without weakening the symlink-denial policy.
+- Rev3.6 Sprint 1 regression selection: **48 tests, 1 failure, 19 errors** on macOS. Multiple tests assume Linux `/proc/sys/kernel/random/boot_id`; do **not** interpret these as a Linux/Y700 regression verdict. An existing durable Claim fixture also conflicts with stricter Claim validation. Re-run under Linux CI and review fixture assumptions before PR merge.
+- `scripts/v07/delta-freeze-check.py`: PASS for **fixture-level** D-G1/D-G2/D-G3/D-G4/D-G5; this is not physical D-G3 or production acceptance.
+- `scripts/v07/check-frame-freshness.py`: 30/30 PASS, `OFFLINE_FIXTURE_ONLY`, production gate false.
+- `scripts/v07/check-conditional-dispatch.py`: 8/8 PASS, `OFFLINE_FIXTURE_ONLY`, production gate false.
+- PR/CI/Merge remain pending: Linux regression and CI-equivalent checks must be reconciled; real-device D-G3 remains an activation gate.

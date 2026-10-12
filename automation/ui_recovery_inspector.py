@@ -193,7 +193,7 @@ def inspect_job(
         completed = checkpoint["last_completed_action_index"]
         if any(index <= completed for index in outstanding):
             reasons.append("CHECKPOINT_CROSSES_UNRESOLVED_MUTATION")
-        if any(index > completed for index in committed):
+        if any(row["action_index"] > completed for row in committed):
             reasons.append("CHECKPOINT_BEHIND_COMMITTED_MUTATION")
     if outstanding:
         reasons.append("PREPARED_OUTCOME_UNRESOLVED")

@@ -36,6 +36,8 @@ class AtomicControlFileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             folder = Path(root) / "job"
             folder.mkdir(mode=0o755)
+            # Explicit chmod: the test suite may enforce a 077 umask.
+            folder.chmod(0o755)
             with self.assertRaises(ui_job.UiJobError):
                 ui_job.atomic_write(folder / "state.json", b"data")
             self.assertFalse((folder / "state.json").exists())
