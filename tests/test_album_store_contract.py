@@ -163,6 +163,7 @@ class AlbumStoreContractTests(unittest.TestCase):
                 "job_id": "job-1",
                 "video_file": "video.my.mp4",
                 "caption_file": "caption.my.txt",
+                "sha256": {"video.my.mp4": "a" * 64},
             }
 
             with (
