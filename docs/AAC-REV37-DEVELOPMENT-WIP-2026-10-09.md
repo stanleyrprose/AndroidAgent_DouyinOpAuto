@@ -2636,3 +2636,13 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
 - Add regression candidates for malformed observations, relation-only seeds,
   and over-deep selector trees. Device compile/tests remain deferred under
   the current static-only development authorization.
+
+### 2026-10-12 post-dispatch revision mismatch recovery
+
+- Move the revision-pair invariant into the post-dispatch CAS exception
+  boundary. Even if the authority adapter returns an unexpected revision
+  pair, the Core reports RECONCILE_REQUIRED with MUTATION_AMBIGUOUS rather
+  than raising an ordinary pre-dispatch CoreV2Error after a real UI mutation.
+- Added an unexecuted regression candidate that injects an inconsistent CAS
+  return and verifies that no MUTATION_COMMITTED record is emitted.
+- Tests/build/device execution remain outside this source-only batch.

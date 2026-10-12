@@ -366,3 +366,27 @@ class Rev36CoreV2Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class Rev37PostDispatchRevisionMismatchTests(Rev36CoreV2Tests):
+    """Source-only regression: a successful driver action cannot be retried."""
+
+    def test_unexpected_revision_pair_requires_reconcile(self):
+        with tempfile.TemporaryDirectory() as td:
+            ra, si, core = self.modules(Path(td))
+            calls = []
+            journal = []
+            with ra.acquire_android_ui(
+                owner_kind="LEGACY", owner_id="legacy:test", backend_type="test",
+                backend_job_id="rev37-ordering", request_sha256=ra.request_identity({"x": 1}),
+            ) as guard:
+                req = self.req({
+                    "action_id": "home", "action": "pressHome",
+                    "side_effect": "REVERSIBLE_LOCAL",
+                }, guard.as_dict())
+                with patch.object(core.state_integrity, "advance_revision", return_value=(3, 4)):
+                    result = self.run_core(
+                        core, req, self.driver([observation()], calls), journal)
+            self.assertEqual(result["status"], "RECONCILE_REQUIRED")
+            self.assertEqual(result["error"]["code"], "STATE_REVISION_ORDERING_FAILURE")
+            self.assertTrue(any(row.get("phase") == "MUTATION_AMBIGUOUS" for row in journal))
+            self.assertFalse(any(row.get("phase") == "MUTATION_COMMITTED" for row in journal))

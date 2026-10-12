@@ -456,6 +456,8 @@ def _run_mutation(
             expected_epoch=proof["state_epoch"],
             expected_revision=revision_before,
         )
+        if before != revision_before or after != revision_before + 1:
+            raise state_integrity.StateIntegrityError("STATE_REVISION_ORDERING_FAILURE")
     except state_integrity.StateIntegrityError as exc:
         # The driver may already have mutated Android. Never turn a
         # post-dispatch CAS failure into BLOCKED/zero-attempt or retry.
@@ -480,9 +482,6 @@ def _run_mutation(
             "preflight": driver.get("preflight"),
         }
         return action_result, terminal, driver.get("preflight")
-    if before != revision_before or after != revision_before + 1:
-        raise CoreV2Error("STATE_REVISION_ORDERING_FAILURE")
-
     journal_append({
         "timestamp": now_iso(),
         "phase": "MUTATION_COMMITTED",
