@@ -74,6 +74,10 @@ def inspect_upgrade_quiescence_readonly(
         # because active/ is empty when an upgrade fence is installed.
         if not CAPABILITY_STAGING.is_dir() or CAPABILITY_STAGING.is_symlink():
             raise CapabilityStoreError("STAGING_JOBS_ROOT_UNAVAILABLE")
+        staging_root_identity = CAPABILITY_STAGING.lstat()
+        if (not stat.S_ISDIR(staging_root_identity.st_mode)
+                or staging_root_identity.st_uid != 0):
+            raise CapabilityStoreError("STAGING_JOBS_ROOT_UNTRUSTED")
         staging_before = {
             child.name: (child.lstat().st_dev, child.lstat().st_ino)
             for child in CAPABILITY_STAGING.iterdir()
@@ -86,6 +90,10 @@ def inspect_upgrade_quiescence_readonly(
             reasons.append("ADMISSION_STAGING_NOT_RECONCILED")
         if not CAPABILITY_JOBS.is_dir() or CAPABILITY_JOBS.is_symlink():
             raise CapabilityStoreError("ACTIVE_JOBS_ROOT_UNAVAILABLE")
+        active_root_identity = CAPABILITY_JOBS.lstat()
+        if (not stat.S_ISDIR(active_root_identity.st_mode)
+                or active_root_identity.st_uid != 0):
+            raise CapabilityStoreError("ACTIVE_JOBS_ROOT_UNTRUSTED")
         active_before = {
             child.name: (child.lstat().st_dev, child.lstat().st_ino)
             for child in CAPABILITY_JOBS.iterdir()
@@ -115,7 +123,13 @@ def inspect_upgrade_quiescence_readonly(
             child.name: (child.lstat().st_dev, child.lstat().st_ino)
             for child in CAPABILITY_STAGING.iterdir()
         }
-        if active_before != active_after or staging_before != staging_after:
+        if (active_before != active_after or staging_before != staging_after
+                or (CAPABILITY_JOBS.lstat().st_dev,
+                    CAPABILITY_JOBS.lstat().st_ino)
+                != (active_root_identity.st_dev, active_root_identity.st_ino)
+                or (CAPABILITY_STAGING.lstat().st_dev,
+                    CAPABILITY_STAGING.lstat().st_ino)
+                != (staging_root_identity.st_dev, staging_root_identity.st_ino)):
             raise CapabilityStoreError("CAPABILITY_INVENTORY_CHANGED_DURING_SCAN")
     except (OSError, CapabilityStoreError) as exc:
         no_live_capability_jobs = False
