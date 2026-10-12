@@ -355,7 +355,17 @@ public class AutomationInstrumentedTest {
             response.put("sequence", sequence);
             response.put("preflight", preflight);
 
-            if (actions == null || actions.length() == 0 || actions.length() > MAX_ACTIONS) {
+            if (!envelope.has("sequence")
+                    || !(envelope.opt("sequence") instanceof Integer)
+                    || envelope.optInt("sequence", -1) != sequence) {
+                // Reject a substituted/stale command before any action is
+                // dispatched. The host independently checks result sequence.
+                response.put("status", "FAILED");
+                response.put("error", error(
+                        "DRIVER_COMMAND_SEQUENCE_MISMATCH",
+                        "interactive command sequence is not current",
+                        false));
+            } else if (actions == null || actions.length() == 0 || actions.length() > MAX_ACTIONS) {
                 response.put("status", "FAILED");
                 response.put(
                         "error",

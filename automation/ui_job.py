@@ -897,7 +897,25 @@ def run_workflow(path: Path, *, internal_backend: bool = False) -> dict[str, Any
                     "actions": enriched_actions,
                 },
             )
-            return control_read(f"result-{sequence:03d}.json", 190)
+            response = control_read(f"result-{sequence:03d}.json", 190)
+            # A file named for this sequence is not proof that the native
+            # session actually executed this command. Bind every response
+            # to the expected monotonic command number and exact action
+            # identities before UI Core can treat it as an observation or
+            # a successful mutation. Any mismatch after PREPARED requires
+            # reconciliation, never a second dispatch.
+            rows = response.get("actions")
+            if (type(response.get("sequence")) is not int
+                    or response["sequence"] != sequence
+                    or not isinstance(rows, list)
+                    or len(rows) != len(actions)
+                    or any(not isinstance(row, dict)
+                           or row.get("action_id") != sent.get("action_id")
+                           or row.get("action") != sent.get("action")
+                           for row, sent in zip(rows, actions))):
+                raise ui_core_v2.CoreV2Error(
+                    "DRIVER_COMMAND_RESPONSE_IDENTITY_MISMATCH")
+            return response
 
         def activity_read(label: str) -> str:
             rc, stdout, _, _ = run_bridge_command(
