@@ -119,7 +119,9 @@ def verify_signed_candidate_readonly(
           and candidate.is_dir() and not candidate.is_symlink(),
           "RELEASE_PATH_UNTRUSTED")
     cstat = candidate.stat()
-    _need(cstat.st_uid == 0 and (stat.S_IMODE(cstat.st_mode) & 0o022) == 0,
+    _need(stat.S_ISDIR(cstat.st_mode)
+          and cstat.st_uid == 0
+          and (stat.S_IMODE(cstat.st_mode) & 0o022) == 0,
           "RELEASE_OWNER_OR_MODE_INVALID")
     _regular(pinned_public_key, maximum=8192)
     contents = _regular(candidate / DIGESTS, maximum=2 * 1024 * 1024)
@@ -195,6 +197,11 @@ def verify_signed_candidate_readonly(
     _need(len(actual_names) <= 8192
           and actual_names == set(hashes),
           "RELEASE_DIGEST_INVENTORY_MISMATCH")
+    candidate_after_walk = candidate.lstat()
+    _need((cstat.st_dev, cstat.st_ino)
+          == (candidate_after_walk.st_dev, candidate_after_walk.st_ino)
+          and stat.S_ISDIR(candidate_after_walk.st_mode),
+          "RELEASE_CANDIDATE_CHANGED_DURING_SCAN")
     total = 0
     for name, wanted in hashes.items():
         _need(isinstance(wanted, str)
@@ -205,6 +212,11 @@ def verify_signed_candidate_readonly(
         total += len(raw)
         _need(hashlib.sha256(raw).hexdigest() == wanted,
               "RELEASE_FILE_HASH_MISMATCH")
+    candidate_after_hash = candidate.lstat()
+    _need((cstat.st_dev, cstat.st_ino)
+          == (candidate_after_hash.st_dev, candidate_after_hash.st_ino)
+          and stat.S_ISDIR(candidate_after_hash.st_mode),
+          "RELEASE_CANDIDATE_CHANGED_DURING_SCAN")
     return {
         "status": "CANDIDATE_SIGNED_INTEGRITY_VERIFIED_READ_ONLY",
         "candidate_release": candidate.name,

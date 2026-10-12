@@ -77,7 +77,7 @@ def positive_health_after_switch_readonly(
         return False
     # A single 'healthy' flag is never enough. Independent supervisors
     # must positively verify the candidate identity and nonmutating startup.
-    return (
+    positive = (
         receipt.get("candidate_imports_ready") is True
         and receipt.get("bridge_protocol_compatible") is True
         and receipt.get("ui_core_protocol_compatible") is True
@@ -86,6 +86,12 @@ def positive_health_after_switch_readonly(
         and type(receipt.get("observed_effect_attempts")) is int
         and receipt["observed_effect_attempts"] == 0
     )
+    if not positive:
+        return False
+    # An accepted health receipt is a point-in-time observation. Check
+    # active release and receipt age again after evaluating its fields.
+    return _exact(receipt, baseline, candidate_dir,
+                  producer="Y700_ACCEPTED_RELEASE_HEALTH", version=1)
 
 
 def positive_no_effect_since_switch_readonly(

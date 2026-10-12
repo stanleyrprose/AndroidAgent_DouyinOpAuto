@@ -2457,3 +2457,23 @@ any display drift on the final Activity check, returning the original
 observed geometry rather than mixing dimensions from different frames.
 This remains a read-only UNTESTED candidate, with D-G3 closed and no
 accepted native frame-age calibration or TikTok modal contract.
+
+### 2026-10-12 continued: crash inventory and release witness consistency
+
+A consolidated source-only hardening batch across Sprint 3 and Sprint 6:
+
+- `recovery_inventory` now rejects non-root-owned/group-or-world-writable
+  active/staging roots and child directories, and checks the root inode
+  identities again after a full read-only startup scan. Missing/rotating
+  lifecycle roots must not become a clean recovery inventory.
+- `release_integrity` requires a real root-owned candidate directory and
+  rechecks the candidate inode after both the complete file walk and the
+  per-file hash walk. The external OpenSSL verification race remains a
+  separately documented risk until a pinned-fd verification design is
+  accepted; do not claim this scan is a complete anti-TOCTOU proof.
+- `release_postcheck` re-evaluates candidate identity and evidence freshness
+  after checking the positive health receipt's independent fields.
+- `stage_health_v3` rejects misspelled/unknown stage names in facts and
+  freshness policy instead of silently omitting them from the advisory view.
+
+No device operations, CI, tests, or release gates were activated.

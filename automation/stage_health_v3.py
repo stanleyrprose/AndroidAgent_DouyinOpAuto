@@ -69,14 +69,10 @@ def stage_evidence(
         state = StageState(status)
     except ValueError as exc:
         raise StageEvidenceInvalid("STAGE_STATUS_UNKNOWN") from exc
-    if state == StageState.NOT_APPLICABLE:
-        # N/A still needs fresh provenance; stale N/A must not mask
-        # an unobserved or now-applicable execution stage.
-        if (not isinstance(boot_id, str) or not boot_id
-                or type(boottime_ms) is not int or boottime_ms < 0):
-            raise StageEvidenceInvalid("STAGE_PROVENANCE_MISSING")
-    elif (not isinstance(boot_id, str) or not boot_id
-          or type(boottime_ms) is not int or boottime_ms < 0):
+    # N/A still needs fresh provenance; stale N/A must not mask
+    # an unobserved or now-applicable execution stage.
+    if (not isinstance(boot_id, str) or not boot_id
+            or type(boottime_ms) is not int or boottime_ms < 0):
         raise StageEvidenceInvalid("STAGE_PROVENANCE_MISSING")
     if (type(reason_codes) is not tuple
             or any(type(x) is not str or not x or len(x) > 128
@@ -96,6 +92,12 @@ def on_demand_health_view(
             or not isinstance(facts, Mapping)
             or not isinstance(freshness_policy_ms, Mapping)):
         raise StageEvidenceInvalid("HEALTH_VIEW_INVALID")
+    # Do not silently discard unrecognized evidence or freshness policies:
+    # an incorrectly named stage must not look like an absent optional stage.
+    if any(name not in STAGES for name in facts):
+        raise StageEvidenceInvalid("HEALTH_STAGE_UNKNOWN")
+    if any(name not in STAGES for name in freshness_policy_ms):
+        raise StageEvidenceInvalid("HEALTH_FRESHNESS_STAGE_UNKNOWN")
     stages: dict[str, dict[str, Any]] = {}
     for name in STAGES:
         value = facts.get(name)

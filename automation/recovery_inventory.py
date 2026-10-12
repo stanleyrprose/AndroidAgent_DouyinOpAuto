@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 import hashlib
 import re
+import stat
 from typing import Any
 
 from automation.capability_job_store import (
@@ -245,6 +246,12 @@ def inspect_startup_inventory_readonly(
         if (not active_root.is_dir() or active_root.is_symlink()
                 or not staging_root.is_dir() or staging_root.is_symlink()):
             raise CapabilityStoreError("CAPABILITY_LIFECYCLE_PATH_UNAVAILABLE")
+        root_metadata = (active_root.lstat(), staging_root.lstat())
+        if any(not stat.S_ISDIR(meta.st_mode)
+               or meta.st_uid != 0
+               or (stat.S_IMODE(meta.st_mode) & 0o022) != 0
+               for meta in root_metadata):
+            raise CapabilityStoreError("CAPABILITY_INVENTORY_ROOT_UNTRUSTED")
         active_before = _inventory_snapshot(active_root)
         staged_before = _inventory_snapshot(staging_root)
         active = sorted(active_root.iterdir())
@@ -256,6 +263,8 @@ def inspect_startup_inventory_readonly(
             raise CapabilityStoreError("CAPABILITY_INVENTORY_TOO_LARGE")
         if any(item.is_symlink() or not item.is_dir()
                or _JOB.fullmatch(item.name) is None
+               or item.lstat().st_uid != 0
+               or (stat.S_IMODE(item.lstat().st_mode) & 0o022) != 0
                for item in active + staged):
             raise CapabilityStoreError("CAPABILITY_INVENTORY_UNTRUSTED")
         active_rows = [inspect_active_exact_readonly(x.name, root=root)
@@ -263,7 +272,11 @@ def inspect_startup_inventory_readonly(
         staged_rows = [inspect_staged_bound_readonly(x.name, root=root)
                        for x in staged]
         if (active_before != _inventory_snapshot(active_root)
-                or staged_before != _inventory_snapshot(staging_root)):
+                or staged_before != _inventory_snapshot(staging_root)
+                or (active_root.lstat().st_dev, active_root.lstat().st_ino)
+                    != (root_metadata[0].st_dev, root_metadata[0].st_ino)
+                or (staging_root.lstat().st_dev, staging_root.lstat().st_ino)
+                    != (root_metadata[1].st_dev, root_metadata[1].st_ino)):
             raise CapabilityStoreError("CAPABILITY_INVENTORY_CHANGED_DURING_SCAN")
         return {
             "status": "READ_ONLY_STARTUP_INVENTORY",
