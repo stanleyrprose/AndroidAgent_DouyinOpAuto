@@ -70,8 +70,10 @@ def build_exact_effect_callback(
               "EFFECT_IMMUTABLE_IDENTITY_MISMATCH")
         payload = request.get("payload")
         _need(isinstance(payload, dict)
+              and request.get("capability") == "tiktok.publish"
               and payload.get("publish_mode") == "COMMIT"
-              and payload.get("visibility") == "PUBLIC",
+              and payload.get("visibility") == "PUBLIC"
+              and backend_job_id == f"{admitted.job_id}--publisher-01",
               "EFFECT_PUBLISH_MODE_INVALID")
         current = observe_authoritative_state()
         from automation.runtime_evidence_producer import (
@@ -98,7 +100,16 @@ def build_exact_effect_callback(
         _need(durable_approval.get("approval_id")
               == approval.get("approval_id")
               and durable_approval.get("approval_nonce")
-                  == approval.get("approval_nonce"),
+                  == approval.get("approval_nonce")
+              and durable_approval.get("request_sha256")
+                  == admitted.request_sha256
+              and durable_approval.get("effective_policy_sha256")
+                  == admitted.effective_policy_sha256
+              and durable_approval.get("content_sha256")
+                  == payload.get("content_sha256")
+              and durable_approval.get("caption_sha256")
+                  == payload.get("caption_sha256")
+              and durable_approval.get("visibility") == "PUBLIC",
               "EFFECT_APPROVAL_MISMATCH")
         # Driver-issued receipts remain separately accepted at the
         # action-time native boundary. Root-owned JSON alone cannot

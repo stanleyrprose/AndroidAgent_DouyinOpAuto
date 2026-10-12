@@ -63,14 +63,31 @@ def _effect_from_trusted_evidence(
     _need(
         backend.get("capability_job_id") == job.job_id
         and backend.get("request_sha256") == job.request_sha256
-        and backend.get("backend_type") == "publisher",
+        and backend.get("backend_type") == "publisher"
+        and backend.get("backend_binding_version") == 1
+        and backend.get("backend_job_id")
+            == f"{job.job_id}--publisher-01",
         "BACKEND_IDENTITY_MISMATCH",
     )
     identity = _read_json(job.path / "identity.json")
-    _need(identity.get("request_sha256") == job.request_sha256,
+    request = _read_json(job.path / "request.json")
+    _need(identity.get("capability_job_id") == job.job_id
+          and identity.get("request_sha256") == job.request_sha256
+          and _sha(request) == job.request_sha256,
           "REQUEST_MUTATED")
+    payload = request.get("payload")
+    _need(isinstance(payload, dict)
+          and request.get("capability") == "tiktok.publish"
+          and payload.get("publish_mode") == "COMMIT"
+          and payload.get("visibility") == "PUBLIC"
+          and payload.get("content_sha256") == effect.get("content_sha256")
+          and payload.get("content_sha256") == approval.get("content_sha256")
+          and payload.get("caption_sha256") == approval.get("caption_sha256"),
+          "EFFECT_REQUEST_APPROVAL_DRIFT")
     policy = _read_json(job.path / "effective_policy.json")
-    _need(_sha(policy) == job.effective_policy_sha256, "POLICY_MUTATED")
+    _need(_sha(policy) == job.effective_policy_sha256
+          and identity.get("effective_policy_sha256")
+              == job.effective_policy_sha256, "POLICY_MUTATED")
     _need(approval.get("approval_version") == 1
           and approval.get("approved") is True
           and approval.get("single_use") is True
@@ -86,7 +103,7 @@ def _effect_from_trusted_evidence(
         _need(isinstance(effect.get(field), str) and effect[field],
               "EFFECT_IDENTITY_UNAVAILABLE")
         _need(effect.get(field) == approval.get(field), "APPROVAL_MISMATCH")
-    _need(effect.get("visibility") in {"PUBLIC", "PRIVATE", "FRIENDS"},
+    _need(effect.get("visibility") == "PUBLIC",
           "VISIBILITY_CONTRACT_INVALID")
     _need(effect.get("approval_id") == approval.get("approval_id"),
           "APPROVAL_MISMATCH")
@@ -176,7 +193,8 @@ def record_approval(
         recorded_at=_utc(),
     )
     with _locked(job.path / "transition.lock"):
-        _need(not (job.path / "effect-boundary.json").exists(),
+        boundary_path = job.path / "effect-boundary.json"
+        _need(not boundary_path.exists() and not boundary_path.is_symlink(),
               "EFFECT_ALREADY_ATTEMPTED")
         path = job.path / "approval.json"
         if path.exists() or path.is_symlink():
@@ -269,7 +287,8 @@ def cross_effect_boundary(
         # original Backend ACK has been fsynced. The job state flag alone
         # does not establish submit identity in a crash/replay scenario.
         execution = _read_json(job.path / "backend-execution.json")
-        _need(execution.get("capability_job_id") == job.job_id
+        _need(execution.get("backend_execution_version") == 1
+              and execution.get("capability_job_id") == job.job_id
               and execution.get("request_sha256") == job.request_sha256
               and execution.get("phase") == "SUBMITTED_ACKNOWLEDGED"
               and execution.get("submission_possible") is True

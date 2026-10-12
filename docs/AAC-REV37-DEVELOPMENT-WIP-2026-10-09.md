@@ -2333,3 +2333,16 @@ backend creation/submit/ACK crash windows, full effect-boundary
 linearization, Android real-device evidence and TikTok business verification
 remain unaccepted. D-G3, Gateway production, business effects, TikTok
 COMMIT, and release/rollback activation gates remain CLOSED.
+
+### Sprint 4 follow-through: immutable approval / final-effect binding
+
+The still-CLOSED effect crossing candidate now independently reloads the
+canonical request, validates its request hash and exact COMMIT/PUBLIC mode,
+and compares BOTH content and caption hashes with the recorded approval.
+It also requires the deterministic `cap-...--publisher-01` Backend ID,
+versioned binding/execution evidence, and rejects a symlinked pre-existing
+effect marker during approval recording. The Publisher callback independently
+checks exact Backend ID, approval request/policy/artifact/visibility identity.
+These are static source protections only: native action-boundary evidence,
+physical TikTok app version/signature, real JIT frame age and final effect
+verifier are NOT accepted or exercised. All release gates remain CLOSED.
