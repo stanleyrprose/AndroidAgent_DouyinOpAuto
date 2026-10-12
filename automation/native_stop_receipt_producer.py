@@ -47,6 +47,8 @@ def _ui_core_children_terminated(claim: Mapping[str, Any]) -> tuple[bool, int]:
     claim_id = claim["claim_id"]
     count = 0
     scanned = 0
+    initial_entries = {p.name for p in _UI_JOBS.iterdir()}
+    _need(len(initial_entries) <= 1000, "UI_CORE_JOB_INVENTORY_OVERSIZE")
     for folder in _UI_JOBS.iterdir():
         scanned += 1
         _need(scanned <= 1000, "UI_CORE_JOB_INVENTORY_OVERSIZE")
@@ -79,6 +81,9 @@ def _ui_core_children_terminated(claim: Mapping[str, Any]) -> tuple[bool, int]:
               and result.get("job_id") == row["job_id"]
               and result.get("session_id") == row["session_id"],
               "UI_CORE_SUBJOB_TERMINAL_UNPROVEN")
+    _need({p.name for p in _UI_JOBS.iterdir()} == initial_entries
+          and scanned == len(initial_entries),
+          "UI_CORE_JOB_INVENTORY_CHANGED_DURING_SCAN")
     return True, count
 
 
