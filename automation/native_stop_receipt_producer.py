@@ -58,7 +58,11 @@ def _ui_core_children_terminated(claim: Mapping[str, Any]) -> tuple[bool, int]:
             raise NativeStopReceiptUnavailable("UI_CORE_JOB_IDENTITY_UNKNOWN")
         row = _read_json(workflow)
         guard = row.get("resource_guard")
-        if not isinstance(guard, dict) or guard.get("claim_id") != claim_id:
+        if not isinstance(guard, dict):
+            # A job without a proven resource owner may still be an Android
+            # mutator. Do not infer that it belongs to a different claim.
+            raise NativeStopReceiptUnavailable("UI_CORE_JOB_CLAIM_UNKNOWN")
+        if guard.get("claim_id") != claim_id:
             continue
         _need(guard.get("owner_id") == claim.get("owner_id")
               and guard.get("resource") == "android_ui",
