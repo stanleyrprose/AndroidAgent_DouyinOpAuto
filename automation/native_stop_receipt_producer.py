@@ -40,10 +40,11 @@ def _need(value: bool, code: str) -> None:
         raise NativeStopReceiptUnavailable(code)
 
 
-def _ui_core_children_terminated(claim_id: str) -> tuple[bool, int]:
+def _ui_core_children_terminated(claim: Mapping[str, Any]) -> tuple[bool, int]:
     """Check exact durable descendants, not an empty active-claim slot."""
     _need(_UI_JOBS.is_dir() and not _UI_JOBS.is_symlink(),
           "UI_CORE_JOBS_ROOT_UNAVAILABLE")
+    claim_id = claim["claim_id"]
     count = 0
     scanned = 0
     for folder in _UI_JOBS.iterdir():
@@ -59,10 +60,20 @@ def _ui_core_children_terminated(claim_id: str) -> tuple[bool, int]:
         guard = row.get("resource_guard")
         if not isinstance(guard, dict) or guard.get("claim_id") != claim_id:
             continue
+        _need(guard.get("owner_id") == claim.get("owner_id")
+              and guard.get("resource") == "android_ui",
+              "UI_CORE_SUBJOB_CLAIM_MISMATCH")
         count += 1
         result = _read_json(folder / "result.json")
-        _need(result.get("status") in {"PASS", "FAILED", "CANCELLED"}
-              and result.get("job_id") == row.get("job_id"),
+        _need(row.get("protocol_version") == 2
+              and isinstance(row.get("job_id"), str)
+              and row["job_id"] == folder.name
+              and isinstance(row.get("session_id"), str)
+              and bool(row["session_id"])
+              and result.get("protocol_version") == 2
+              and result.get("status") in {"PASS", "FAILED", "CANCELLED"}
+              and result.get("job_id") == row["job_id"]
+              and result.get("session_id") == row["session_id"],
               "UI_CORE_SUBJOB_TERMINAL_UNPROVEN")
     return True, count
 
@@ -110,13 +121,28 @@ def publish_generation_bound_stop_receipt(
           and type(at) is int
           and 0 <= after.observed_boottime_ms - at <= 1000,
           "NATIVE_STOP_PHYSICAL_PROOF_STALE")
-    _, descendant_count = _ui_core_children_terminated(claim_id)
+    _, descendant_count = _ui_core_children_terminated(claim)
+    # Inventory enumeration may take time. The native observation must
+    # remain identical and fresh AFTER enumeration; a sensor file swapped
+    # during the scan must never authorize a stop receipt.
+    physical_after = _strict_json(_NATIVE_SENSOR / (claim_id + ".json"))
+    final_state = observe_authoritative_state()
+    _need(physical_after == physical
+          and final_state.boot_id == after.boot_id
+          and final_state.state_epoch == after.state_epoch
+          and final_state.revision == after.revision
+          and 0 <= final_state.observed_boottime_ms - at <= 1000,
+          "NATIVE_STOP_SENSOR_CHANGED_DURING_SCAN")
     # Recheck current Claim AFTER scanning all descendant receipts. If a
     # new UI execution began, its generation changed and the proof loses.
     current = resource_arbiter.assert_guard(dict(exact_claim))
     _need(current.get("ui_execution_generation") == generation
+          and current.get("backend_job_id") == backend_job_id
+          and current.get("owner_id") == claim.get("owner_id")
           and current.get("active_ui_job_id") is None
-          and current.get("active_session_id") is None,
+          and current.get("active_session_id") is None
+          and current.get("active_backend_type") is None
+          and current.get("reconcile_required") is not True,
           "NATIVE_STOP_CLAIM_CHANGED")
     _root_dir(_NATIVE_STOP_ROOT)
     record = {
@@ -128,7 +154,7 @@ def publish_generation_bound_stop_receipt(
         "boot_id": after.boot_id,
         "state_epoch": after.state_epoch,
         "ui_execution_generation": generation,
-        "observed_boottime_ms": after.observed_boottime_ms,
+        "observed_boottime_ms": final_state.observed_boottime_ms,
         "native_ui_subjobs_absent": True,
         "linux_child_mutators_absent": True,
         "all_subordinates_terminal_positive": True,
