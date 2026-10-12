@@ -96,3 +96,22 @@ class BoundedControlReadTests(unittest.TestCase):
             os.mkfifo(fifo, 0o600)
             with self.assertRaises(ui_job.UiJobError):
                 ui_job.read_json(fifo)
+
+class ControlReadContinuityTests(unittest.TestCase):
+    def test_invalid_json_is_explicitly_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root) / "job"
+            folder.mkdir(mode=0o700)
+            target = folder / "state.json"
+            ui_job.atomic_write(target, b'{"unfinished":')
+            with self.assertRaisesRegex(ui_job.UiJobError, "CONTROL_READ_MALFORMED"):
+                ui_job.read_json(target)
+
+    def test_invalid_utf8_is_explicitly_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root) / "job"
+            folder.mkdir(mode=0o700)
+            target = folder / "state.json"
+            ui_job.atomic_write(target, bytes([255]))
+            with self.assertRaisesRegex(ui_job.UiJobError, "CONTROL_READ_MALFORMED"):
+                ui_job.read_json(target)

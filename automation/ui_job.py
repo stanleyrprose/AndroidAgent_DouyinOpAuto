@@ -143,20 +143,35 @@ def read_json(path: Path, default=None, *, max_bytes: int = 1024 * 1024):
     except FileNotFoundError:
         return default
     try:
-        info = os.fstat(fd)
+        before = os.fstat(fd)
         named = os.lstat(path)
-        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
-                or info.st_uid != os.geteuid()
-                or stat.S_IMODE(info.st_mode) != 0o600
-                or (info.st_dev, info.st_ino) != (named.st_dev, named.st_ino)):
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                or before.st_uid != os.geteuid()
+                or stat.S_IMODE(before.st_mode) != 0o600
+                or (before.st_dev, before.st_ino) != (named.st_dev, named.st_ino)):
             raise UiJobError("CONTROL_READ_FILE_UNTRUSTED")
-        if info.st_size > max_bytes:
+        if before.st_size > max_bytes:
             raise UiJobError("CONTROL_READ_OVERSIZE")
         with os.fdopen(fd, "rb", closefd=False) as stream:
             raw = stream.read(max_bytes + 1)
         if len(raw) > max_bytes:
             raise UiJobError("CONTROL_READ_OVERSIZE")
-        return json.loads(raw.decode("utf-8"))
+        after = os.fstat(fd)
+        current = os.lstat(path)
+        parent_after = os.lstat(path.parent)
+        def generation(info: os.stat_result) -> tuple[int, int, int, int, int]:
+            return (info.st_dev, info.st_ino, info.st_size,
+                    info.st_mtime_ns, info.st_ctime_ns)
+        if (len(raw) != before.st_size
+                or generation(before) != generation(after)
+                or generation(before) != generation(current)
+                or (directory.st_dev, directory.st_ino)
+                != (parent_after.st_dev, parent_after.st_ino)):
+            raise UiJobError("CONTROL_READ_CHANGED")
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (UnicodeError, ValueError) as exc:
+            raise UiJobError("CONTROL_READ_MALFORMED") from exc
     finally:
         os.close(fd)
 

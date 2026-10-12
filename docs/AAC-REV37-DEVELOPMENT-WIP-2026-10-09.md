@@ -2677,3 +2677,13 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
 - Added source-only candidates for missing, round-trip, link, oversize, and
   FIFO scenarios. Tests/build/device verification deferred. Same-UID races
   remain an explicit threat-model limitation.
+
+### 2026-10-12 control read continuity
+
+- Strengthened bounded control-file reads with before/after inode generation
+  and directory identity checks; reject files modified or replaced while
+  reading, including same-size generation changes detectable by stat metadata.
+- Invalid JSON/UTF-8 now raises a stable CONTROL_READ_MALFORMED error instead
+  of exposing an unclassified parser exception. Added regression candidates.
+- This is not a complete descriptor-relative same-UID race defense; tests
+  and real device verification remain deferred.
