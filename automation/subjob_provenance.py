@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import json
+import os
+import stat
 import re
 from typing import Any, Mapping
 
@@ -130,23 +133,53 @@ def bind_subordinate_job(
         # Never silently change the exact resource_guard for a preexisting
         # subjob when a claim session has rotated.
         journal = job.path / "journal.jsonl"
-        if journal.exists():
-            # Scan boundedly for the same subordinate identity.
-            _need(journal.stat().st_size <= 4 * 1024 * 1024,
-                  "SUBJOB_JOURNAL_OVERSIZE")
-            import json
-            with journal.open(encoding="utf-8") as stream:
-                for line in stream:
-                    try:
-                        row = json.loads(line)
-                    except (ValueError, UnicodeError) as exc:
-                        raise CapabilityStoreError("SUBJOB_JOURNAL_CORRUPT") from exc
-                    if row.get("event") == "SUBJOB_BOUND" and (
-                        row.get("subjob_id") == subjob_id
-                    ):
-                        _need(row.get("provenance") == record.to_record(),
-                              "SUBORDINATE_STALE_CLAIM_REBIND_DENIED")
-                        return record
+        _need(hasattr(os, "O_NOFOLLOW"),
+              "SUBJOB_JOURNAL_NOFOLLOW_UNAVAILABLE")
+        try:
+            fd = os.open(journal, os.O_RDONLY | os.O_NOFOLLOW)
+        except OSError as exc:
+            raise CapabilityStoreError("SUBJOB_JOURNAL_UNAVAILABLE") from exc
+        try:
+            before = os.fstat(fd)
+            _need(stat.S_ISREG(before.st_mode)
+                  and before.st_nlink == 1
+                  and before.st_uid == os.geteuid()
+                  and stat.S_IMODE(before.st_mode) == 0o600
+                  and 0 <= before.st_size <= 4 * 1024 * 1024,
+                  "SUBJOB_JOURNAL_UNTRUSTED")
+            raw = bytearray()
+            while len(raw) <= 4 * 1024 * 1024:
+                part = os.read(fd, min(8192, 4 * 1024 * 1024 + 1 - len(raw)))
+                if not part:
+                    break
+                raw.extend(part)
+            after = os.fstat(fd)
+            current = os.stat(journal, follow_symlinks=False)
+            _need(len(raw) == before.st_size
+                  and (before.st_dev, before.st_ino, before.st_size,
+                       before.st_mtime_ns, before.st_ctime_ns)
+                  == (after.st_dev, after.st_ino, after.st_size,
+                      after.st_mtime_ns, after.st_ctime_ns)
+                  == (current.st_dev, current.st_ino, current.st_size,
+                      current.st_mtime_ns, current.st_ctime_ns),
+                  "SUBJOB_JOURNAL_CHANGED_DURING_READ")
+        finally:
+            os.close(fd)
+        try:
+            lines = raw.decode("utf-8").splitlines()
+        except UnicodeError as exc:
+            raise CapabilityStoreError("SUBJOB_JOURNAL_CORRUPT") from exc
+        for line in lines:
+            try:
+                row = json.loads(line)
+            except (ValueError, UnicodeError) as exc:
+                raise CapabilityStoreError("SUBJOB_JOURNAL_CORRUPT") from exc
+            _need(isinstance(row, dict), "SUBJOB_JOURNAL_CORRUPT")
+            if row.get("event") == "SUBJOB_BOUND" and (
+                    row.get("subjob_id") == subjob_id):
+                _need(row.get("provenance") == record.to_record(),
+                      "SUBORDINATE_STALE_CLAIM_REBIND_DENIED")
+                return record
         _append(journal, {
             "event": "SUBJOB_BOUND",
             "timestamp": _utc(),

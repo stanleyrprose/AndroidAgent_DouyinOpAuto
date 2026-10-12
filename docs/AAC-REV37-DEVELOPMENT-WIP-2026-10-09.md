@@ -2414,3 +2414,14 @@ Both now return `null` for the original effect count, deny external retry,
 and distinguish zero NEW attempts performed by archive recovery. A positive
 mutator-stop receipt only proves resource quiescence; it cannot retroactively
 establish that the business effect was never attempted.
+
+### 2026-10-12 continued Sprint 3: durable subordinate provenance
+
+`subjob_provenance.bind_subordinate_job` previously scanned the append-only
+journal with `Path.open()`, which follows symlinks, and would silently
+re-create a missing journal. The read path now requires an existing
+single-link, 0600, current-owner regular inode opened with O_NOFOLLOW,
+checks bounded bytes and stable device/inode/size/mtime/ctime against the
+current pathname, and rejects malformed journal rows before any new
+SUBJOB_BOUND append. Missing/corrupt identity is a reconcile blocker,
+not permission to mint fresh provenance. This is static source only.
