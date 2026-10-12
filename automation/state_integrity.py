@@ -315,6 +315,14 @@ def load_state() -> dict[str, Any]:
             validated = _validate_state(_read_existing_state())
             if not _marker_present():
                 _install_initialization_marker()
+    else:
+        # Detect a concurrent epoch/revision transition before returning a
+        # state read outside the writer lock. Callers must not consume a
+        # superseded revision as fresh authority evidence.
+        current = _validate_state(_read_existing_state())
+        if (validated["state_epoch"], validated["revision"]) != (
+                current["state_epoch"], current["revision"]):
+            raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: concurrent state transition")
     return validated
 
 

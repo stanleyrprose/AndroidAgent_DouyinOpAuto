@@ -312,6 +312,35 @@ class LegacyMarkerMigrationTests(unittest.TestCase):
                 si.load_state()
             self.assertFalse(si.STATE_INITIALIZED_MARKER.exists())
 
+class AuthorityReadContinuityTests(unittest.TestCase):
+    load = StateIntegritySprint1Tests.load
+
+    def test_concurrent_revision_change_during_read_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            si = self.load(Path(td))
+            si.load_state()
+            original = si._read_existing_state
+            calls = [0]
+
+            def changed_on_second_read():
+                state = original()
+                calls[0] += 1
+                if calls[0] == 2:
+                    return {**state, "revision": state["revision"] + 1}
+                return state
+
+            with patch.object(si, "_read_existing_state", side_effect=changed_on_second_read):
+                with self.assertRaisesRegex(si.StateIntegrityError, "concurrent state transition"):
+                    si.load_state()
+
+    def test_existing_authority_marker_is_stable_across_reads(self):
+        with tempfile.TemporaryDirectory() as td:
+            si = self.load(Path(td))
+            first = si.load_state()
+            second = si.load_state()
+            self.assertEqual(first["state_epoch"], second["state_epoch"])
+            self.assertEqual(first["revision"], second["revision"])
+
 
 if __name__ == "__main__":
     unittest.main()

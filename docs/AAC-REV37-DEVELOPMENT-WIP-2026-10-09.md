@@ -2717,3 +2717,13 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   regression candidates for valid backfill and corrupt-state rejection.
 - Acceptance requires migration fault-injection and legacy-device evidence;
   this does not authorize a production migration or release.
+
+### 2026-10-12 state read continuity guard
+
+- When a canonical state already has an initialization marker, `load_state`
+  now re-reads the authority and rejects an observed epoch/revision change
+  before returning the earlier snapshot. Legacy backfill continues to return
+  the re-read state acquired under the writer lock.
+- Added source-only regression candidates for a concurrent revision change
+  and stable repeated reads. This detects sampled transitions but does not
+  provide a linearizable reader snapshot under an adversarial same-UID writer.
