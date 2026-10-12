@@ -271,22 +271,65 @@ def _run_bound_settings_actions(
     # Use durable O_EXCL + fsync rather than a replaceable fixed .tmp
     # request; crash recovery must never silently replay this mutation.
     _atomic_new(request_path, request)
-    # Any uncertain run keeps request evidence; no blind rerun/restore
-    # under stale session/foreground activity or a new Claim ID.
-    result = ui_job.run_workflow(request_path)
-    if result.get("status") != "PASS":
-        # Preserve the original request/provenance when completion is
-        # unknown; never delete evidence and silently issue the same ID.
+    # The canonical Claim must name this exact Core v2 subjob before it
+    # can start. Settings previously skipped this binding, leaving the
+    # execution generation unchanged and stop/liveness evidence unbound.
+    # A crash after binding is reconcile-only; never clear on exception.
+    resource_arbiter.bind_active_execution(
+        dict(guard), ui_job_id=job_id, session_id=request["session_id"])
+    try:
+        result = ui_job.run_workflow(request_path)
+    except Exception:
+        resource_arbiter.mark_reconcile_required(
+            dict(guard), reason="SETTINGS_SUBJOB_LIVENESS_UNKNOWN")
+        raise
+    if (result.get("status") != "PASS"
+            or result.get("retain_resource_claim") is True):
+        resource_arbiter.mark_reconcile_required(
+            dict(guard), reason="SETTINGS_SUBJOB_RECONCILE_REQUIRED")
         raise SettingsGoldenUnavailable("SETTINGS_SUBJOB_RECONCILE_REQUIRED")
     # Never attach a successful receipt from a different UI session, even
     # if it reports the same action names and a PASS aggregate.
-    if (result.get("job_id") != job_id
-            or result.get("session_id") != request["session_id"]
-            or result.get("protocol_version") != 2):
-        raise SettingsGoldenUnavailable("SETTINGS_SUBJOB_RESULT_IDENTITY_MISMATCH")
-    # A successful aggregate alone does not establish that every requested
-    # mutation ran and returned its own positive acknowledgement.
-    _require_exact_settings_action_receipts(result, actions)
+    try:
+        if (result.get("job_id") != job_id
+                or result.get("session_id") != request["session_id"]
+                or result.get("protocol_version") != 2):
+            raise SettingsGoldenUnavailable(
+                "SETTINGS_SUBJOB_RESULT_IDENTITY_MISMATCH")
+        # A successful aggregate alone cannot hide skipped UI mutations.
+        _require_exact_settings_action_receipts(result, actions)
+    except SettingsGoldenUnavailable:
+        resource_arbiter.mark_reconcile_required(
+            dict(guard), reason="SETTINGS_SUBJOB_RECEIPT_UNVERIFIED")
+        raise
+    # Only a positively identified and fully acknowledged synchronous
+    # subjob may clear its own active UI binding.
+    resource_arbiter.clear_active_execution(dict(guard), ui_job_id=job_id)
+    # A successful UI Core result is not authority to continue under a
+    # replaced Claim or a cancellation/effect marker that arrived while
+    # the subordinate was running. Fail closed and retain its tombstone.
+    after = resource_arbiter.assert_guard(dict(guard))
+    _need(type(current.get("ui_execution_generation")) is int
+          and current["ui_execution_generation"] >= 0
+          and type(after.get("ui_execution_generation")) is int
+          and after.get("claim_id") == current.get("claim_id")
+          and after.get("owner_id") == current.get("owner_id")
+          and after.get("ui_execution_generation")
+              == current["ui_execution_generation"] + 1
+          and after.get("active_ui_job_id") is None
+          and after.get("active_session_id") is None
+          and after.get("active_backend_type") is None
+          and after.get("reconcile_required") is not True
+          and after.get("backend_job_id") == backend_job_id
+          and after.get("capability_job_id") == job.job_id
+          and after.get("request_sha256") == job.request_sha256,
+          "SETTINGS_RESOURCE_GENERATION_CHANGED")
+    _need(all(not marker.exists() and not marker.is_symlink()
+              for marker in (
+                  job.path / "cancel.json",
+                  job.path / "effect-boundary.json",
+                  job.path / "result.json",
+              )), "SETTINGS_JOB_NOT_MUTABLE")
     # Durable completion receipt before returning to the parent Backend.
     # Do not store screenshots, raw selectors or a second mutation plan.
     _atomic_new(request_root / (job_id + ".receipt.json"), {
@@ -338,10 +381,12 @@ def execute_settings_golden(
           "SETTINGS_RESOURCE_IDENTITY_MISMATCH")
     _need(device_contract == "y700-android16-zui",
           "SETTINGS_DEVICE_CONTRACT_UNVERIFIED")
-    _need(not (job.path / "effect-boundary.json").exists()
-          and not (job.path / "result.json").exists()
-          and not (job.path / "cancel.json").exists(),
-          "SETTINGS_JOB_NOT_MUTABLE")
+    _need(all(not marker.exists() and not marker.is_symlink()
+              for marker in (
+                  job.path / "effect-boundary.json",
+                  job.path / "result.json",
+                  job.path / "cancel.json",
+              )), "SETTINGS_JOB_NOT_MUTABLE")
     # Deny replay BEFORE even the first navigation mutation. A prior run
     # may have crashed after touching Settings but before recording its
     # baseline; neither that run nor its partially restored successor can
@@ -388,8 +433,14 @@ def execute_settings_golden(
         device_contract=device_contract,
     )
     with _locked(job.path / "transition.lock"):
-        _need(not (job.path / "settings-initial.json").exists(),
-              "SETTINGS_REPLAY_DENIED")
+        _need(not (job.path / "settings-initial.json").exists()
+              and not (job.path / "settings-initial.json").is_symlink()
+              and all(not marker.exists() and not marker.is_symlink()
+                      for marker in (
+                          job.path / "cancel.json",
+                          job.path / "effect-boundary.json",
+                          job.path / "result.json",
+                      )), "SETTINGS_REPLAY_DENIED")
         _atomic_new(job.path / "settings-initial.json", {
             "settings_golden_initial_version": 1,
             "capability_job_id": job.job_id,

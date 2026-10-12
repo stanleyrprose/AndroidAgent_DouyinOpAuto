@@ -2384,3 +2384,23 @@ classification shared by Gateway and Coordinator:
 
 These are static checks and implementation, NOT executed fault-injection
 acceptance. Production Gateway, D-G3 and TikTok COMMIT remain CLOSED.
+
+### 2026-10-12 continued Sprint 5: Settings subordinate lifecycle ownership
+
+Static review identified a missing ownership transition in the inactive
+Settings Golden adapter: its Core v2 subjob was persisted and run without
+calling `resource_arbiter.bind_active_execution`, unlike the existing TikTok
+controller. This meant the canonical Claim did not record the subordinate
+session/generation, weakening STOPPED and crash-recovery evidence.
+
+The Settings adapter now binds its exact subordinate ID/session before
+`ui_job.run_workflow`, retains the Claim for explicit reconcile on exception,
+uncertain result or missing per-action receipt, and clears only the original
+subjob after positive exact result identity and ordered action receipts.
+It verifies the expected single generation increment, no active subjob,
+original owner/backend/request, and absence of cancel/effect/terminal
+markers before writing the completion receipt. It rejects symlinked markers
+both before starting and when persisting the initial Settings baseline.
+
+This is development-only source. No Settings UI action, build, test or
+hardware acceptance was performed. The Settings execution gate is CLOSED.
