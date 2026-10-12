@@ -246,6 +246,13 @@ public final class Rev37NativeStateObserver {
                 || !expectedPackage.equals(device.getCurrentPackageName())
                 || !power.isInteractive() || keyguard.isKeyguardLocked())
             return unavailable("FRAME_FOREGROUND_DRIFT");
+        // A transient overlay can appear after the first window walk while
+        // the state file stays unchanged. Require a second native inventory
+        // observation rather than treating the first as current forever.
+        String finalWindowsReason = classifyWindows(
+                instrumentation, expectedPackage, targetBounds);
+        if (!"READ_ONLY_WINDOW_INVENTORY_CLASSIFIED".equals(finalWindowsReason))
+            return unavailable(finalWindowsReason);
         String activity = component.substring(expectedPackage.length() + 1);
         try {
             JSONObject current = new JSONObject()
