@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import hashlib
-import hashlib
 import os
 import subprocess
 import tempfile
@@ -144,6 +143,10 @@ class AlbumStoreContractTests(unittest.TestCase):
 
         def fake_root_exec(command, **kwargs):
             events.append("root:" + str(command))
+            if "sha256sum" in str(command):
+                return SimpleNamespace(stdout=hashlib.sha256(
+                    b"deterministic album-store ordering fixture").hexdigest() + "  video.mp4\n",
+                    stderr="", returncode=0)
             if "content query" in str(command):
                 return SimpleNamespace(
                     stdout=(
@@ -165,12 +168,14 @@ class AlbumStoreContractTests(unittest.TestCase):
             job = ready / "job-1"
             job.mkdir(parents=True)
             run_root = td / "runs"
+            video_bytes = b"deterministic album-store ordering fixture"
+            (job / "video.my.mp4").write_bytes(video_bytes)
 
             manifest = {
                 "job_id": "job-1",
                 "video_file": "video.my.mp4",
                 "caption_file": "caption.my.txt",
-                "sha256": {"video.my.mp4": "a" * 64},
+                "sha256": {"video.my.mp4": hashlib.sha256(video_bytes).hexdigest()},
             }
 
             with (
