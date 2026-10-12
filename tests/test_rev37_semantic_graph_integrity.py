@@ -71,3 +71,32 @@ class NestedSelectorParityTests(unittest.TestCase):
     def test_fingerprint_selector_projection_preserves_child(self):
         selector = {"text": "Root", "has_child": {"text": "Child"}}
         self.assertEqual(si._selector_projection(selector), selector)
+
+class SelectorSeedAndObservationIntegrityTests(unittest.TestCase):
+    def setUp(self):
+        self.observation = {"elements": [
+            {"node_id": "a", "parent_id": None, "text": "A"},
+            {"node_id": "b", "parent_id": "a", "text": "B"},
+        ]}
+
+    def test_missing_or_malformed_elements_fail_closed(self):
+        for observation in ({}, {"elements": None}, {"elements": {}},
+                            {"elements": [{"node_id": "a"}, "invalid"]}):
+            with self.subTest(observation=observation):
+                with self.assertRaises(si.StateIntegrityError):
+                    si.match_elements(observation, {"text": "A"})
+
+    def test_nested_selector_requires_android_seed(self):
+        for selector in ({"has_child": {"text": "B"}},
+                         {"text": "A", "has_child": {
+                             "has_descendant": {"text": "B"}}}):
+            with self.subTest(selector=selector):
+                with self.assertRaises(si.StateIntegrityError):
+                    si.match_elements(self.observation, selector)
+
+    def test_bounded_selector_depth(self):
+        nested = {"text": "B"}
+        for _ in range(9):
+            nested = {"text": "A", "has_child": nested}
+        with self.assertRaises(si.StateIntegrityError):
+            si.match_elements(self.observation, nested)

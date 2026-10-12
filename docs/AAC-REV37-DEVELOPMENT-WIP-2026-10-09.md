@@ -2625,3 +2625,14 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   nested selectors, unsupported fields, and fingerprint projection.
 - This is not 5,000 lines of modifications: the batch is limited to necessary
   source changes. No tests/build/CI/PR/merge/deploy or device action executed.
+
+### 2026-10-12 Sprint 1 native selector recursion / observation fail-closed
+
+- Align native Android BySelector recursion with Python semantic-v1 depth 8;
+  reject deeper nesting at the native dispatch boundary.
+- Enforce the native builder's requirement for a simple seed criterion at
+  every selector nesting level. Reject missing or malformed observation
+  element arrays instead of silently interpreting them as zero matches.
+- Add regression candidates for malformed observations, relation-only seeds,
+  and over-deep selector trees. Device compile/tests remain deferred under
+  the current static-only development authorization.

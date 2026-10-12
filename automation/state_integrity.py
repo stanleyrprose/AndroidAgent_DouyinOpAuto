@@ -335,7 +335,10 @@ def _match_simple(element: dict[str, Any], selector: dict[str, Any]) -> bool:
 
 
 def match_elements(observation: dict[str, Any], selector: dict[str, Any]) -> list[dict[str, Any]]:
-    rows = [row for row in (observation.get("elements") or []) if isinstance(row, dict)]
+    raw_rows = observation.get("elements")
+    if not isinstance(raw_rows, list) or any(not isinstance(row, dict) for row in raw_rows):
+        raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: malformed elements")
+    rows = raw_rows
     by_id: dict[str, dict[str, Any]] = {}
     for row in rows:
         node_id = row.get("node_id")
@@ -382,6 +385,10 @@ def match_elements(observation: dict[str, Any], selector: dict[str, Any]) -> lis
             raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: invalid selector")
         if set(spec) - simple - set(relations):
             raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: unsupported selector")
+        # Android's BySelector builder requires at least one simple seed
+        # at every nesting level, not merely a relational predicate.
+        if not set(spec).intersection(simple):
+            raise StateIntegrityError("STATE_FINGERPRINT_UNAVAILABLE: selector without seed")
         for key, value in spec.items():
             if key in relations:
                 validate(value, depth + 1)

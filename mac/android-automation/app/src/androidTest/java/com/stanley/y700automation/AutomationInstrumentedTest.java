@@ -1598,6 +1598,14 @@ public class AutomationInstrumentedTest {
     }
 
     private BySelector buildSelector(JSONObject spec) throws Exception {
+        return buildSelector(spec, 0);
+    }
+
+    private BySelector buildSelector(JSONObject spec, int depth) throws Exception {
+        if (depth > 8) {
+            throw new ActionFailure("JOB_PAYLOAD_INVALID",
+                    "selector nesting exceeds semantic-v1 limit", false);
+        }
         if (spec == null || spec.length() == 0) {
             throw new ActionFailure("JOB_PAYLOAD_INVALID", "selector is required", false);
         }
@@ -1661,10 +1669,10 @@ public class AutomationInstrumentedTest {
         if (spec.has("checked") && !"checked".equals(seed)) selector.checked(spec.getBoolean("checked"));
         if (spec.has("checkable") && !"checkable".equals(seed)) selector.checkable(spec.getBoolean("checkable"));
         if (spec.has("scrollable") && !"scrollable".equals(seed)) selector.scrollable(spec.getBoolean("scrollable"));
-        if (spec.has("has_descendant")) selector.hasDescendant(buildSelector(spec.getJSONObject("has_descendant")));
-        if (spec.has("has_child")) selector.hasChild(buildSelector(spec.getJSONObject("has_child")));
-        if (spec.has("has_parent")) selector.hasParent(buildSelector(spec.getJSONObject("has_parent")));
-        if (spec.has("has_ancestor")) selector.hasAncestor(buildSelector(spec.getJSONObject("has_ancestor")));
+        if (spec.has("has_descendant")) selector.hasDescendant(buildSelector(spec.getJSONObject("has_descendant"), depth + 1));
+        if (spec.has("has_child")) selector.hasChild(buildSelector(spec.getJSONObject("has_child"), depth + 1));
+        if (spec.has("has_parent")) selector.hasParent(buildSelector(spec.getJSONObject("has_parent"), depth + 1));
+        if (spec.has("has_ancestor")) selector.hasAncestor(buildSelector(spec.getJSONObject("has_ancestor"), depth + 1));
         return selector;
     }
 
