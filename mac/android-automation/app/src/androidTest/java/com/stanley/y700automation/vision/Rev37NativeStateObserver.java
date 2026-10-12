@@ -154,8 +154,11 @@ public final class Rev37NativeStateObserver {
                 if (targetRoot) targetRoots++;
                 if (targetRoot && window.isActive()) activeTargetRoots++;
                 if (window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
-                    // IME presence alone is not a blocker; whether it steals
-                    // target focus is checked in a separate action contract.
+                    // A keyboard that covers the intended tap or owns focus
+                    // is not an ignorable overlay. Do not infer that a
+                    // future action-specific contract will reject it.
+                    if (overlaps || window.isFocused() || window.isActive())
+                        return "UNEXPECTED_BLOCKING_OVERLAY";
                     continue;
                 }
                 if (!targetRoot && (window.isFocused() || window.isActive()
