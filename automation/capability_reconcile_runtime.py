@@ -60,7 +60,10 @@ def inspect_exact_outcome_readonly(
     active = store.jobs / "active" / capability_job_id
     if not active.is_dir() or active.is_symlink():
         raise CapabilityStoreError("RECONCILE_SOURCE_UNAVAILABLE")
-    if not (active / "backend.json").exists():
+    backend_path = active / "backend.json"
+    if backend_path.is_symlink():
+        raise CapabilityStoreError("RECONCILE_BACKEND_PATH_UNTRUSTED")
+    if not backend_path.exists():
         stage = inspect_active_exact_readonly(
             capability_job_id, root=store.jobs)
         return {
@@ -83,9 +86,30 @@ def inspect_exact_outcome_readonly(
             or identity.get("effective_policy_sha256") != _sha(policy)
             or backend.get("capability_job_id") != capability_job_id
             or backend.get("request_sha256")
-                != identity.get("request_sha256")):
+                != identity.get("request_sha256")
+            or state.get("capability_job_id") != capability_job_id
+            or state.get("request_sha256") != identity.get("request_sha256")
+            or state.get("effective_policy_sha256")
+                != identity.get("effective_policy_sha256")
+            or state.get("lifecycle_state") != state.get("phase")
+            or type(state.get("state_revision")) is not int
+            or state["state_revision"] < 0):
         raise CapabilityStoreError("RECONCILE_IMMUTABLE_IDENTITY_MISMATCH")
     backend_id = backend.get("backend_job_id")
+    suffix = {
+        "ui_workflow": "ui", "publisher": "publisher",
+        "root_exec": "root", "observation": "observe",
+    }.get(backend.get("backend_type"))
+    if suffix is None or backend_id != f"{capability_job_id}--{suffix}-01":
+        raise CapabilityStoreError("RECONCILE_BACKEND_ID_INVALID")
+    execution = _read_json(active / "backend-execution.json")
+    if (execution.get("backend_execution_version") != 1
+            or execution.get("capability_job_id") != capability_job_id
+            or execution.get("backend_job_id") != backend_id
+            or execution.get("request_sha256") != identity["request_sha256"]
+            or type(execution.get("attempt_serial")) is not int
+            or execution["attempt_serial"] not in {0, 1}):
+        raise CapabilityStoreError("RECONCILE_EXECUTION_WITNESS_MISMATCH")
     possible = inspect_active_exact_readonly(
         capability_job_id, root=store.jobs)
     if (possible.get("status") == "PRE_SUBMIT_BOUND_READ_ONLY"

@@ -23,7 +23,8 @@ def _blocked(job: str, code: str) -> dict[str, Any]:
     return {
         "capability_job_id": job, "status": "RECONCILE_REQUIRED",
         "reason_code": code, "backend_retry_allowed": False,
-        "claim_released": False, "external_effect_attempts": 0,
+        "claim_released": False, "external_effect_attempts": None,
+        "external_effect_retry_allowed": False,
     }
 
 
@@ -77,11 +78,16 @@ def inspect_active_exact_readonly(
             binding = _read_json(binding_file)
             witness = _read_json(witness_file)
             exact = binding.get("backend_job_id")
+            suffix = {
+                "ui_workflow": "ui", "publisher": "publisher",
+                "root_exec": "root", "observation": "observe",
+            }.get(binding.get("backend_type"))
             if not (
-                isinstance(exact, str)
-                and exact.startswith(job_id + "--")
+                suffix is not None
+                and exact == f"{job_id}--{suffix}-01"
                 and binding.get("capability_job_id") == job_id
                 and binding.get("request_sha256") == identity["request_sha256"]
+                and witness.get("capability_job_id") == job_id
                 and witness.get("backend_job_id") == exact
                 and witness.get("request_sha256")
                     == identity["request_sha256"]

@@ -289,33 +289,59 @@ class ForegroundCoordinator:
                         and admitted.path
                             == self.store.jobs / "active" / admitted.job_id
                         and not admitted.path.is_symlink()):
-                    old_state = _read_json(admitted.path / "state.json")
-                    old_binding = _read_json(
-                        admitted.path / "backend.json")
-                    witness = _read_json(
-                        admitted.path / "backend-execution.json")
-                    eligible = (
-                        old_state.get("phase_reason_code") in {
-                            "CLOCK_SUSPECT_PRE_SUBMIT",
-                            "RESOURCE_BUSY_PRE_SUBMIT",
-                        }
-                        and old_binding.get("backend_type")
-                            == invocation.backend_type
-                        and old_binding.get("capability_job_id")
-                            == admitted.job_id
-                        and old_binding.get("request_sha256")
-                            == admitted.request_sha256
-                        and witness.get("backend_job_id")
-                            == old_binding.get("backend_job_id")
-                        and witness.get("request_sha256")
-                            == admitted.request_sha256
-                        and witness.get("phase") == "NEVER_CREATED"
-                        and witness.get("submission_possible") is False
-                        and witness.get("attempt_serial") == 0
-                        and not (admitted.path / "effect-boundary.json").exists()
-                        and not (admitted.path / "cancel.json").exists()
-                        and not (admitted.path / "result.json").exists()
-                    )
+                    # Bind the eligibility snapshot to the same durable
+                    # transition lock as cancellation and effect crossing.
+                    with _locked(admitted.path / "transition.lock", shared=True):
+                        old_state = _read_json(admitted.path / "state.json")
+                        old_identity = _read_json(admitted.path / "identity.json")
+                        old_binding = _read_json(
+                            admitted.path / "backend.json")
+                        witness = _read_json(
+                            admitted.path / "backend-execution.json")
+                        eligible = (
+                            old_state.get("phase") == "WAITING_RESOURCE"
+                            and old_state.get("lifecycle_state") == "WAITING_RESOURCE"
+                            and old_state.get("backend_submitted") is False
+                            and old_state.get("effect_uncertain") is False
+                            and old_state.get("mutation_uncertain") is False
+                            and type(old_state.get("state_revision")) is int
+                            and old_state["state_revision"] >= 0
+                            and old_state.get("request_sha256")
+                                == admitted.request_sha256
+                            and old_state.get("effective_policy_sha256")
+                                == admitted.effective_policy_sha256
+                            and old_state.get("phase_reason_code") in {
+                                "CLOCK_SUSPECT_PRE_SUBMIT",
+                                "RESOURCE_BUSY_PRE_SUBMIT",
+                            }
+                            and old_binding.get("backend_type")
+                                == invocation.backend_type
+                            and old_binding.get("capability_job_id")
+                                == admitted.job_id
+                            and old_binding.get("request_sha256")
+                                == admitted.request_sha256
+                            and old_identity.get("effective_policy_sha256")
+                                == admitted.effective_policy_sha256
+                            and old_identity.get("request_sha256")
+                                == admitted.request_sha256
+                            and witness.get("capability_job_id")
+                                == admitted.job_id
+                            and witness.get("backend_job_id")
+                                == old_binding.get("backend_job_id")
+                            and witness.get("request_sha256")
+                                == admitted.request_sha256
+                            and witness.get("phase") == "NEVER_CREATED"
+                            and witness.get("submission_possible") is False
+                            and witness.get("attempt_serial") == 0
+                            and all(
+                                not marker.exists() and not marker.is_symlink()
+                                for marker in (
+                                    admitted.path / "effect-boundary.json",
+                                    admitted.path / "cancel.json",
+                                    admitted.path / "result.json",
+                                )
+                            )
+                        )
                 if eligible and old_binding is not None:
                     # This exact-ID path STILL checks independent Backend
                     # existence, live policy/TTL, canonical Claim, and the
@@ -366,6 +392,17 @@ class ForegroundCoordinator:
         """
         job_id = admitted.job_id
         backend_id = binding.get("backend_job_id")
+        suffix = {
+            "ui_workflow": "ui", "publisher": "publisher",
+            "root_exec": "root", "observation": "observe",
+        }.get(invocation.backend_type)
+        if (suffix is None
+                or binding.get("backend_type") != invocation.backend_type
+                or binding.get("capability_job_id") != job_id
+                or binding.get("request_sha256") != admitted.request_sha256
+                or backend_id != f"{job_id}--{suffix}-01"):
+            return _blocked("BACKEND_BINDING_INVALID", job_id,
+                            phase="BACKEND_BOUND")
         if self.backend is None:
             return _blocked("BACKEND_ADAPTER_UNAVAILABLE", job_id,
                             phase="BACKEND_BOUND")

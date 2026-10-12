@@ -2306,3 +2306,30 @@ Android device execution, PR, CI, merge or deployment were authorized.
 The user's newer instruction explicitly permits multiple source commits and
 batched feature-branch GitHub pushes, provided feature push does not run CI;
 older no-push notes above are superseded on that narrow point.
+
+## 2026-10-12 continuation: Sprint 3 same-backend recovery / reconciliation (SOURCE ONLY)
+
+This development pass inspected the dormant `ForegroundCoordinator`,
+`CapabilityStore`, exact outcome reconciler and startup recovery inventory
+against frozen Sprint 3/4 requirements. Source changes:
+
+- The only exceptional same-submission WAITING_RESOURCE continuation now
+  reads its durable state/identity/backend/execution under the original
+  transition flock. It requires matching original policy/request hashes,
+  the exact `NEVER_CREATED` witness, no uncertainty, and no symlinked
+  cancel/effect/terminal markers. The private continuation entry point
+  also independently checks the deterministic Backend ID and binding.
+- Pre-submit prerequisite block recording and existing-backend binding
+  reject symlinked effect/cancel/result evidence, incorrect backend ID,
+  or an inconsistent execution witness. They cannot convert a possible
+  submission into `NEVER_CREATED`.
+- Exact outcome reconciliation checks state/request consistency and the
+  deterministic Backend ID; startup recovery checks the same original
+  Backend identity. An unknown recovery state no longer claims zero
+  external effect attempts: unknown is `null`, not `0`.
+
+This is source/static work, not a tested or activated Gateway. The
+backend creation/submit/ACK crash windows, full effect-boundary
+linearization, Android real-device evidence and TikTok business verification
+remain unaccepted. D-G3, Gateway production, business effects, TikTok
+COMMIT, and release/rollback activation gates remain CLOSED.

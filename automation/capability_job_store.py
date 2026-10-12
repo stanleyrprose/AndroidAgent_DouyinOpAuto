@@ -625,10 +625,19 @@ class CapabilityStore:
                 "created_at": _utc(),
             }
             backend_file = path / "backend.json"
+            _need(not backend_file.is_symlink(),
+                  "BACKEND_BINDING_PATH_UNTRUSTED")
             if backend_file.exists():
                 old = _read_json(backend_file)
                 execution = _read_json(path / "backend-execution.json")
-                _need(execution.get("backend_job_id") == backend_id,
+                _need(execution.get("backend_execution_version") == 1
+                      and execution.get("capability_job_id") == admitted.job_id
+                      and execution.get("backend_job_id") == backend_id
+                      and execution.get("request_sha256")
+                          == admitted.request_sha256
+                      and execution.get("phase") == "NEVER_CREATED"
+                      and execution.get("submission_possible") is False
+                      and execution.get("attempt_serial") == 0,
                       "BACKEND_EXECUTION_BINDING_BROKEN")
                 _need(all(old.get(k) == binding[k] for k in (
                     "capability_job_id", "backend_type", "backend_job_id",
@@ -670,18 +679,32 @@ class CapabilityStore:
             binding = _read_json(admitted.path / "backend.json")
             execution = _read_json(
                 admitted.path / "backend-execution.json")
+            suffix = {
+                "ui_workflow": "ui", "publisher": "publisher",
+                "root_exec": "root", "observation": "observe",
+            }.get(binding.get("backend_type"))
+            _need(suffix is not None, "BACKEND_TYPE_UNSUPPORTED")
             _need(state.get("phase") in {
                       "BACKEND_BOUND", "WAITING_RESOURCE",
                   }
                   and state.get("backend_submitted") is False
                   and state.get("effect_uncertain") is False
                   and state.get("mutation_uncertain") is False
-                  and not (admitted.path / "cancel.json").exists()
-                  and not (admitted.path / "result.json").exists()
-                  and not (admitted.path / "effect-boundary.json").exists()
+                  and all(
+                      not marker.exists() and not marker.is_symlink()
+                      for marker in (
+                          admitted.path / "cancel.json",
+                          admitted.path / "result.json",
+                          admitted.path / "effect-boundary.json",
+                      )
+                  )
                   and binding.get("capability_job_id") == admitted.job_id
                   and binding.get("request_sha256")
                       == admitted.request_sha256
+                  and binding.get("backend_job_id")
+                      == f"{admitted.job_id}--{suffix}-01"
+                  and execution.get("capability_job_id")
+                      == admitted.job_id
                   and execution.get("backend_job_id")
                       == binding.get("backend_job_id")
                   and execution.get("request_sha256")
