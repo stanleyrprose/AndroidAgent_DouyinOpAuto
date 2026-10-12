@@ -89,7 +89,10 @@ public final class Rev37NativeStateObserver {
     }
 
     private static String foregroundComponent(Instrumentation i) {
-        String raw = fixedShell(i, "dumpsys activity activities");
+        // Bound the output of a potentially very large dumpsys report.
+        // The command is a fixed literal, never derived from an action.
+        String raw = fixedShell(i,
+                "dumpsys activity activities | grep topResumedActivity=");
         if (raw == null) return null;
         Matcher match = TOP.matcher(raw);
         if (!match.find()) return null;
@@ -104,18 +107,19 @@ public final class Rev37NativeStateObserver {
         // GNU stat without -L observes the inode at the fixed path, so a
         // symlink is never accepted as the root-owned SOT. Metadata is
         // rechecked around the fixed-path read to detect replacement.
-        String raw = fixedShell(i, "su -c 'stat -c \"%u %a %F %d %i %s %Y\" "
+        String raw = fixedShell(i, "su -c 'stat -c \"%u %a %F %d %i %h %s %Y\" "
                 + SOT + "'");
         if (raw == null) return null;
         String[] fields = raw.trim().split(" ");
-        if (fields.length != 8 || !"0".equals(fields[0])
+        if (fields.length != 9 || !"0".equals(fields[0])
                 || !"600".equals(fields[1])
                 || !"regular".equals(fields[2])
                 || !"file".equals(fields[3])) return null;
         try {
-            long size = Long.parseLong(fields[6]);
+            long size = Long.parseLong(fields[7]);
+            if (!"1".equals(fields[6])) return null;
             if (size <= 0 || size > MAX_CAPTURE_CHARS) return null;
-            for (int index : new int[]{4, 5, 7}) {
+            for (int index : new int[]{4, 5, 8}) {
                 if (Long.parseLong(fields[index]) < 0) return null;
             }
         } catch (NumberFormatException ignored) {

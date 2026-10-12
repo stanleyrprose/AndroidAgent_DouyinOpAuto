@@ -253,7 +253,8 @@ def _atomic_replace(path: Path, value: Mapping[str, Any]) -> None:
 def _read_json(path: Path) -> dict[str, Any]:
     """No-follow bounded single-inode read; never bootstrap missing state."""
     import stat
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    _need(hasattr(os, "O_NOFOLLOW"), "DURABLE_NOFOLLOW_UNAVAILABLE")
+    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
     try:
         fd = os.open(path, flags)
     except OSError as exc:
@@ -261,6 +262,7 @@ def _read_json(path: Path) -> dict[str, Any]:
     try:
         before = os.fstat(fd)
         _need(stat.S_ISREG(before.st_mode)
+              and before.st_nlink == 1
               and before.st_uid == _expected_protected_owner(path)
               and stat.S_IMODE(before.st_mode) == 0o600
               and 0 < before.st_size <= _MAX_JSON,
@@ -273,10 +275,12 @@ def _read_json(path: Path) -> dict[str, Any]:
             raw.extend(part)
         after = os.fstat(fd)
         _need(len(raw) == before.st_size
+              and after.st_nlink == 1
               and (before.st_dev, before.st_ino, before.st_size,
-                   before.st_mtime_ns)
+                   before.st_mtime_ns, before.st_ctime_ns)
               == (after.st_dev, after.st_ino, after.st_size,
-                  after.st_mtime_ns), "DURABLE_STATE_CHANGED_DURING_READ")
+                  after.st_mtime_ns, after.st_ctime_ns),
+              "DURABLE_STATE_CHANGED_DURING_READ")
         try:
             out = json.loads(raw, object_pairs_hook=_no_duplicate_keys)
         except (UnicodeError, ValueError) as exc:
