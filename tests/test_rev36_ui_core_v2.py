@@ -363,10 +363,6 @@ class Rev36CoreV2Tests(unittest.TestCase):
         self.assertIs(result, base)
         self.assertNotIn("retain_resource_claim", result)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
 class Rev37PostDispatchRevisionMismatchTests(Rev36CoreV2Tests):
     """Source-only regression: a successful driver action cannot be retried."""
 
@@ -390,3 +386,42 @@ class Rev37PostDispatchRevisionMismatchTests(Rev36CoreV2Tests):
             self.assertEqual(result["error"]["code"], "STATE_REVISION_ORDERING_FAILURE")
             self.assertTrue(any(row.get("phase") == "MUTATION_AMBIGUOUS" for row in journal))
             self.assertFalse(any(row.get("phase") == "MUTATION_COMMITTED" for row in journal))
+
+class Rev37DriverDispatchFailureTests(unittest.TestCase):
+    modules = Rev36CoreV2Tests.modules
+    req = Rev36CoreV2Tests.req
+    driver = Rev36CoreV2Tests.driver
+    run_core = Rev36CoreV2Tests.run_core
+
+    def test_dispatch_exception_after_prepared_requires_reconcile(self):
+        with tempfile.TemporaryDirectory() as td:
+            ra, si, core = self.modules(Path(td))
+            calls, journal = [], []
+            ordinary_driver = self.driver([observation()], calls)
+
+            def failing_driver(actions, label):
+                if actions[0]["action"] == "pressHome":
+                    raise OSError("lost transport after device input")
+                return ordinary_driver(actions, label)
+
+            with ra.acquire_android_ui(
+                owner_kind="LEGACY", owner_id="legacy:test", backend_type="test",
+                backend_job_id="rev37-driver-exception",
+                request_sha256=ra.request_identity({"x": 9}),
+            ) as guard:
+                request = self.req({
+                    "action_id": "home", "action": "pressHome",
+                    "side_effect": "REVERSIBLE_LOCAL",
+                }, guard.as_dict())
+                result = self.run_core(core, request, failing_driver, journal)
+            self.assertEqual(result["status"], "RECONCILE_REQUIRED")
+            self.assertEqual(result["error"]["code"], "DRIVER_OUTCOME_UNAVAILABLE")
+            self.assertFalse(result["error"]["retryable"])
+            self.assertEqual(si.load_state()["revision"], 0)
+            self.assertTrue(any(x.get("phase") == "MUTATION_PREPARED" for x in journal))
+            self.assertTrue(any(x.get("phase") == "MUTATION_AMBIGUOUS" for x in journal))
+            self.assertFalse(any(x.get("phase") == "MUTATION_COMMITTED" for x in journal))
+
+
+if __name__ == "__main__":
+    unittest.main()

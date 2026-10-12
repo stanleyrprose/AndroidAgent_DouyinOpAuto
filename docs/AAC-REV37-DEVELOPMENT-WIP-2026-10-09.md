@@ -2738,3 +2738,13 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   `load_state` returns. Adjusted source-only regression candidates accordingly.
 - This is a source change, not a tested or accepted migration. A hostile
   same-UID process replacing the lock inode remains outside this guarantee.
+
+### 2026-10-12 post-PREPARED driver exception fence
+
+- `ui_core_v2` now treats driver transport/decoding exceptions after durable
+  `MUTATION_PREPARED` as `RECONCILE_REQUIRED`, with a non-retryable
+  `DRIVER_OUTCOME_UNAVAILABLE` code. It best-effort journals ambiguity; the
+  PREPARED record remains the durable recovery fence even if that append fails.
+- Added an unexecuted regression candidate simulating transport loss after
+  potential Android input. This does not close remaining post-dispatch journal
+  or checkpoint durability failure paths; acceptance is still pending.

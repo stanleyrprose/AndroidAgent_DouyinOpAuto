@@ -405,10 +405,38 @@ def _run_mutation(
 
     dispatch = json.loads(json.dumps(action))
     dispatch["retry"] = 0
-    driver = driver_run(
-        [dispatch], f"a{index:02d}-{dispatch['action']}"
-    )
-    action_result = _driver_action_result(driver, dispatch, index)
+    try:
+        driver = driver_run(
+            [dispatch], f"a{index:02d}-{dispatch['action']}"
+        )
+        action_result = _driver_action_result(driver, dispatch, index)
+    except Exception as exc:
+        # PREPARED is already durable: even a transport/decoder exception
+        # could follow a successful Android input. Never retry or call this
+        # a zero-attempt block. The original exception is not serialized.
+        try:
+            journal_append({
+                "timestamp": now_iso(),
+                "phase": "MUTATION_AMBIGUOUS",
+                "job_id": req["job_id"],
+                "session_id": req["session_id"],
+                "action_index": index,
+                "action_id": action.get("action_id"),
+                "reason": "DRIVER_OUTCOME_UNAVAILABLE",
+                "retry_allowed": False,
+            })
+        except Exception:
+            # The durable PREPARED record remains the reconciliation fence.
+            pass
+        return None, {
+            "status": "RECONCILE_REQUIRED",
+            "job_id": req["job_id"],
+            "session_id": req["session_id"],
+            "protocol_version": 2,
+            "actions": results,
+            "error": {"code": "DRIVER_OUTCOME_UNAVAILABLE", "retryable": False},
+            "host_duration_ms": round((time.monotonic() - started) * 1000, 1),
+        }, None
 
     action_data = action_result.get("data")
     postcondition_passed = (
