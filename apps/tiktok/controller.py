@@ -8,7 +8,7 @@ then dispatches exactly one irreversible Publish click for later verification.
 """
 from __future__ import annotations
 
-import fcntl
+import contextvars
 import json
 import os
 import secrets
@@ -22,16 +22,14 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[2]
 AUTOMATION = ROOT / "automation"
 ROOT_EXEC = ROOT / "bridge" / "root-exec.sh"
-SECURE_UNLOCK = ROOT / "bridge" / "secure-unlock.sh"
 REQUEST_RUNTIME = Path(
     os.environ.get("Y700_AUTOMATION_REQUEST_RUNTIME", "/opt/y700/runtime/automation-driver")
 )
 UI_JOBS = Path(os.environ.get("Y700_UI_JOBS", "/opt/y700/ui-jobs"))
-UI_LEASE = Path(os.environ.get("Y700_UI_LEASE", "/opt/y700/runtime/android-ui.lock"))
 
-if str(AUTOMATION) not in sys.path:
-    sys.path.insert(0, str(AUTOMATION))
-import ui_job  # noqa: E402
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from automation import resource_arbiter, ui_job  # noqa: E402
 
 from .state import TIKTOK, detect_state  # noqa: E402
 
@@ -66,29 +64,95 @@ class TikTokCoreError(RuntimeError):
         self.result = result or {}
 
 
+_CURRENT_UI_GUARD: contextvars.ContextVar[
+    resource_arbiter.ResourceGuard | None
+] = contextvars.ContextVar("tiktok_android_ui_guard", default=None)
+
+
+@contextmanager
+def capability_ui_claim_scope(
+    *,
+    trusted_resource_guard: dict[str, str],
+    capability_job_id: str,
+    backend_job_id: str,
+    request_sha256: str,
+):
+    """Adopt exactly one upstream Gateway claim; never acquire it twice.
+
+    The caller must be a trusted, authenticated top-level Gateway adapter;
+    model/workflow payloads cannot grant themselves this scope. Every Core
+    mutation independently reasserts exact current Claim ownership.
+    """
+    current = _CURRENT_UI_GUARD.get()
+    if current is not None:
+        raise TikTokCoreError("NESTED_CAPABILITY_CLAIM_DENIED")
+    if any(not isinstance(value, str) or not value for value in (
+        capability_job_id, backend_job_id, request_sha256,
+    )):
+        raise TikTokCoreError("CAPABILITY_RESOURCE_IDENTITY_INVALID")
+    try:
+        claim = resource_arbiter.assert_guard(trusted_resource_guard)
+    except resource_arbiter.ResourceError as exc:
+        raise TikTokCoreError("STALE_RESOURCE_OWNERSHIP") from exc
+    if not (
+        claim.get("owner_kind") == "CAPABILITY"
+        and claim.get("capability_job_id") == capability_job_id
+        and claim.get("backend_job_id") == backend_job_id
+        and claim.get("request_sha256") == request_sha256
+        and claim.get("resource") == "android_ui"
+        and claim.get("claim_id") == trusted_resource_guard.get("claim_id")
+        and claim.get("owner_id") == trusted_resource_guard.get("owner_id")
+    ):
+        raise TikTokCoreError("CAPABILITY_RESOURCE_IDENTITY_MISMATCH")
+    # Lifetime is owned by the TOP-LEVEL Gateway resource context, not by
+    # this Controller. Re-check exact claim before and after the scoped body.
+    inherited = resource_arbiter.ResourceGuard(
+        "android_ui", claim["claim_id"], claim["owner_id"])
+    handle = _CURRENT_UI_GUARD.set(inherited)
+    try:
+        resource_arbiter.assert_guard(inherited.as_dict())
+        yield inherited
+        resource_arbiter.assert_guard(inherited.as_dict())
+    finally:
+        _CURRENT_UI_GUARD.reset(handle)
+
+
 @contextmanager
 def ui_lease(timeout_sec: int = 300):
-    """Exclusive screen lease across recovery and all workflow sessions."""
-    UI_LEASE.parent.mkdir(parents=True, exist_ok=True)
-    with open(UI_LEASE, "a+", encoding="utf-8") as lock:
-        deadline = time.monotonic() + timeout_sec
-        while True:
-            try:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    raise TikTokCoreError("UI_LEASE_TIMEOUT: another workflow owns the screen")
-                time.sleep(0.2)
-        lock.seek(0)
-        lock.truncate()
-        lock.write(json.dumps({"pid": os.getpid(), "acquired_at": time.time()}) + "\n")
-        lock.flush()
-        os.fsync(lock.fileno())
+    """Shared Rev3.6 android_ui ownership; nested callers reuse one claim."""
+    current = _CURRENT_UI_GUARD.get()
+    if current is not None:
+        # Reuse the SAME canonical owner and reassert the durable identity
+        # before the inner controller call; never nested-flock reacquire.
         try:
-            yield
-        finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            resource_arbiter.assert_guard(current.as_dict())
+        except resource_arbiter.ResourceError as exc:
+            raise TikTokCoreError("STALE_RESOURCE_OWNERSHIP") from exc
+        yield current
+        return
+
+    lease_id = (
+        f"legacy-tiktok-{os.getpid()}-{time.monotonic_ns()}-"
+        f"{secrets.token_hex(3)}"
+    )
+    try:
+        with resource_arbiter.acquire_android_ui(
+            owner_kind="LEGACY",
+            owner_id=f"legacy:tiktok:{lease_id}",
+            backend_type="tiktok-controller",
+            backend_job_id=lease_id,
+            request_sha256=resource_arbiter.request_identity(
+                {"adapter": "tiktok", "lease_id": lease_id}
+            ),
+            timeout_sec=float(timeout_sec),
+        ) as guard:
+            ctx_handle = _CURRENT_UI_GUARD.set(guard)
+            try:
+                yield guard
+            finally:
+                _CURRENT_UI_GUARD.reset(ctx_handle)
+    except resource_arbiter.ResourceError as exc:
+        raise TikTokCoreError(str(exc)) from exc
 
 
 def _root(
@@ -116,21 +180,30 @@ def _root(
 
 
 def force_stop() -> None:
-    _root(f"am force-stop {TIKTOK}", timeout=20, check=False)
-
-
-def _ensure_device_unlocked() -> None:
-    p = subprocess.run(
-        ["bash", str(SECURE_UNLOCK)],
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=45,
+    _run(
+        "force-stop",
+        [{
+            "action_id": "force-stop",
+            "action": "appForceStop",
+            "package": TIKTOK,
+            "side_effect": "REVERSIBLE_LOCAL",
+            "timeout_ms": 10_000,
+        }],
+        max_duration_ms=30_000,
     )
-    if p.returncode != 0:
-        detail = (p.stderr or p.stdout).strip()
-        raise TikTokCoreError(f"secure unlock failed rc={p.returncode}: {detail}")
+
+
+def _launch_tiktok(label: str, *, activity: str | None = None) -> None:
+    action: dict[str, Any] = {
+        "action_id": "launch",
+        "action": "appLaunch",
+        "package": TIKTOK,
+        "side_effect": "REVERSIBLE_LOCAL",
+        "timeout_ms": 30_000,
+    }
+    if activity is not None:
+        action["activity"] = activity
+    _run(label, [action], max_duration_ms=45_000)
 
 
 def _job_id(label: str) -> str:
@@ -144,19 +217,51 @@ def _run(
     *,
     max_duration_ms: int = 120_000,
 ) -> dict[str, Any]:
+    mutating = any(ui_job.action_is_mutating(action) for action in actions)
+    current_guard = _CURRENT_UI_GUARD.get()
+    if mutating and current_guard is None:
+        with ui_lease():
+            return _run(label, actions, max_duration_ms=max_duration_ms)
+
     REQUEST_RUNTIME.mkdir(parents=True, exist_ok=True)
-    request = {
-        "protocol_version": 1,
-        "job_id": _job_id(label),
+    job_id = _job_id(label)
+    session_id = f"{job_id}-{secrets.token_hex(6)}"
+    request: dict[str, Any] = {
+        "protocol_version": 2 if mutating else 1,
+        "job_id": job_id,
+        "session_id": session_id,
         "max_duration_ms": max_duration_ms,
+        "auto_wake": False,
+        "dismiss_keyguard": False,
         "actions": actions,
     }
-    request_path = REQUEST_RUNTIME / f"{request['job_id']}.json"
+    if mutating:
+        assert current_guard is not None
+        request["resource_guard"] = current_guard.as_dict()
+        request["state_guard"] = {"mode": "AUTO", "max_age_ms": 30_000}
+        current_guard.bind_active_execution(
+            ui_job_id=job_id,
+            session_id=session_id,
+        )
+
+    request_path = REQUEST_RUNTIME / f"{job_id}.json"
     ui_job.atomic_json(request_path, request)
     try:
         result = ui_job.run_workflow(request_path)
+    except Exception:
+        if mutating and current_guard is not None:
+            current_guard.retain_for_reconcile("UI_JOB_EXCEPTION_LIVENESS_UNKNOWN")
+        raise
     finally:
         request_path.unlink(missing_ok=True)
+
+    # Business outcome reconcile does not by itself retain android_ui once the
+    # synchronous driver is positively terminal. Unknown driver liveness does.
+    if result.get("retain_resource_claim") and current_guard is not None:
+        reason = str((result.get("error") or {}).get("code") or "DRIVER_SESSION_LIVENESS_UNKNOWN")
+        current_guard.retain_for_reconcile(reason)
+    elif mutating and current_guard is not None:
+        current_guard.clear_active_execution(ui_job_id=job_id)
     if result.get("status") != "PASS":
         raise TikTokCoreError(
             f"TikTok workflow {label} failed: "
@@ -205,10 +310,7 @@ def _press_back_and_observe(label: str) -> dict[str, Any]:
 def _recover_home_unlocked(prefix: str) -> dict[str, Any]:
     """Cold-launch and reach HOME using bounded semantic recovery only."""
     force_stop()
-    _root(
-        f"monkey -p {TIKTOK} -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1",
-        timeout=20,
-    )
+    _launch_tiktok(f"{prefix}-launch")
 
     deadline = time.monotonic() + 35
     back_budget = 3
@@ -503,12 +605,10 @@ def build_dry_run_actions(caption: str, album: str = ALBUM) -> list[dict[str, An
 
 
 def _cold_launch() -> None:
-    _ensure_device_unlocked()
+    # Rev3.6 observation/mutation split is fail-closed on screen/keyguard.
+    # Wake/unlock is not performed through a hidden raw-input side channel.
     force_stop()
-    _root(
-        f"monkey -p {TIKTOK} -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1",
-        timeout=20,
-    )
+    _launch_tiktok("cold-launch")
 
     # TikTok can keep SplashActivity in the foreground for tens of seconds on
     # mobile/hotspot networks. Accessibility may expose stale Home nodes behind
@@ -538,10 +638,9 @@ def _cold_launch() -> None:
             if TIKTOK in last_top and "SplashActivity" in last_top:
                 splash_samples += 1
             if not normalized_to_main and (splash_samples >= 3 or not last_top):
-                _root(
-                    f"am start -n {TIKTOK}/com.ss.android.ugc.aweme.main.MainActivity >/dev/null",
-                    timeout=20,
-                    check=False,
+                _launch_tiktok(
+                    "cold-launch-main-activity",
+                    activity="com.ss.android.ugc.aweme.main.MainActivity",
                 )
                 normalized_to_main = True
 
@@ -556,9 +655,11 @@ def _cold_launch() -> None:
                     state, _, _ = _observe(f"cold-launch-home-probe-{home_probe_attempt}")
                 except TikTokCoreError as exc:
                     error = exc.result.get("error") or {}
-                    if error.get("code") == "KEYGUARD_BLOCKING":
-                        _ensure_device_unlocked()
-                        next_home_probe = time.monotonic() + 0.5
+                    if error.get("code") in {"KEYGUARD_BLOCKING", "SCREEN_OFF"}:
+                        raise TikTokCoreError(
+                            "device must be interactive and unlocked before TikTok automation",
+                            exc.result,
+                        ) from exc
                     stable_home_ui = 0
                 else:
                     if state["state"] == "HOME" and state.get("tiktok_visible"):
@@ -633,7 +734,9 @@ def prepare_dry_run(
         }
 
 
-def build_commit_actions(caption: str) -> list[dict[str, Any]]:
+def build_commit_actions(
+    caption: str, *, capability_bound: bool = False,
+) -> list[dict[str, Any]]:
     """Revalidate POST_CONFIG, then dispatch exactly one irreversible Publish click."""
     return [
         {
@@ -660,6 +763,8 @@ def build_commit_actions(caption: str) -> list[dict[str, Any]]:
             "action_id": "commit-publish",
             "action": "click",
             "selector": publish_button_selector(),
+            **({"route_contract_id": "tiktok.publish-control.v1"}
+               if capability_bound else {}),
             "side_effect": "EXTERNAL_IRREVERSIBLE",
         },
     ]
@@ -672,6 +777,7 @@ def commit_public(
     visibility: str = "PUBLIC",
     album: str = ALBUM,
     before_irreversible: Callable[[], None] | None = None,
+    capability_bound: bool = False,
 ) -> dict[str, Any]:
     """Prepare generically, persist COMMITTING, then dispatch Publish exactly once."""
     if not caption:
@@ -685,7 +791,8 @@ def commit_public(
 
     with ui_lease():
         ready = _run_single_session_dry_run(caption, album)
-        commit_actions = build_commit_actions(caption)
+        commit_actions = build_commit_actions(
+            caption, capability_bound=capability_bound)
         precommit = _run(
             "commit-preflight",
             commit_actions[:-1],
@@ -807,11 +914,21 @@ def verify_public_post(
             tiles = _video_tile_bounds(grid)
             if ordinal >= len(tiles):
                 break
-            b = tiles[ordinal]
-            x = (b[0] + b[2]) // 2
-            y = (b[1] + b[3]) // 2
-
-            _root(f"input tap {x} {y}", timeout=15)
+            _run(
+                f"verify-public-tap-{ordinal + 1}",
+                [{
+                    "action_id": "tap-profile-video",
+                    "action": "tapObserved",
+                    "selector": _video_tile_selector(),
+                    "ordinal": ordinal,
+                    "expect": {
+                        "selector": {"resource_id": RID["post_caption"]}
+                    },
+                    "timeout_ms": 15_000,
+                    "side_effect": "REVERSIBLE_LOCAL",
+                }],
+                max_duration_ms=30_000,
+            )
             time.sleep(2.5)
             _, detail, _ = _observe(f"verify-public-candidate-{ordinal + 1}")
             if _public_post_matches(detail, caption):
@@ -860,6 +977,14 @@ def _private_tab_selector(*, selected: bool | None = None) -> dict[str, Any]:
     if selected is not None:
         selector["selected"] = selected
     return selector
+
+
+def _video_tile_selector() -> dict[str, Any]:
+    return {
+        "class_name": "android.widget.FrameLayout",
+        "clickable": True,
+        "has_parent": {"class_name": "android.widget.GridView"},
+    }
 
 
 def _video_tile_bounds(elements: list[dict[str, Any]]) -> list[list[int]]:
@@ -1012,14 +1137,21 @@ def verify_private_post(
             tiles = _video_tile_bounds(grid)
             if ordinal >= len(tiles):
                 break
-            b = tiles[ordinal]
-            x = (b[0] + b[2]) // 2
-            y = (b[1] + b[3]) // 2
-
-            # Justified fallback: private tiles have identical accessibility
-            # selectors. Coordinates are derived from the current semantic
-            # ev2 node bounds and are never hard-coded or persisted.
-            _root(f"input tap {x} {y}", timeout=15)
+            _run(
+                f"verify-private-tap-{ordinal + 1}",
+                [{
+                    "action_id": "tap-private-video",
+                    "action": "tapObserved",
+                    "selector": _video_tile_selector(),
+                    "ordinal": ordinal,
+                    "expect": {
+                        "selector": {"resource_id": RID["post_caption"]}
+                    },
+                    "timeout_ms": 15_000,
+                    "side_effect": "REVERSIBLE_LOCAL",
+                }],
+                max_duration_ms=30_000,
+            )
             time.sleep(2.5)
             _, detail, _ = _observe(f"verify-candidate-{ordinal + 1}")
             if _private_post_matches(detail, caption):

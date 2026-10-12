@@ -35,7 +35,6 @@ def main():
     caption=read_text(job/manifest["caption_file"])
 
     verification=verify_public_post(job,caption,timeout=75)
-    controller.restore_input_method()
 
     PUBLISHED.mkdir(parents=True,exist_ok=True)
     dest=PUBLISHED/args.job_id

@@ -7,6 +7,12 @@ android {
     namespace = "com.stanley.y700automation"
     compileSdk = 36
 
+    // Gradle generates AndroidTest for one build type only. Explicit opt-in
+    // selects the isolated probe variant; ordinary debug builds stay unchanged.
+    if (providers.gradleProperty("rev37Probe").orNull == "true") {
+        testBuildType = "dg3Probe"
+    }
+
     defaultConfig {
         applicationId = "com.stanley.y700automation"
         minSdk = 26
@@ -26,6 +32,13 @@ android {
         debug {
             isMinifyEnabled = false
         }
+        create("dg3Probe") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".dg3probe"
+            versionNameSuffix = "-dg3probe"
+            matchingFallbacks += listOf("debug")
+            isMinifyEnabled = false
+        }
         release {
             isMinifyEnabled = false
         }
@@ -37,6 +50,10 @@ android {
         }
     }
 
+    sourceSets.getByName("dg3Probe") {
+        java.srcDir("src/debug/java")
+    }
+
     testOptions {
         animationsDisabled = true
     }
@@ -46,6 +63,12 @@ kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
     }
+}
+
+// Probe APK needs the same debug-only vision libraries, without promoting
+// OpenCV/MLKit into production release dependencies.
+configurations.named("dg3ProbeImplementation") {
+    extendsFrom(configurations.getByName("debugImplementation"))
 }
 
 dependencies {

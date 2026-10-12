@@ -1,0 +1,144 @@
+{
+  "catalog_schema_version": 1,
+  "status": "DEVELOPMENT_ONLY_NOT_ACCEPTED",
+  "capabilities": [
+    {
+      "name": "android.device.observe",
+      "version": "1.0",
+      "classification": "INTERNAL",
+      "adapter": "android_device_observe",
+      "enabled": false,
+      "resource": null,
+      "support_contract": {
+        "device_contracts": ["y700-android16-zui"],
+        "runtime_probe": "android_device_observe_probe_v1"
+      },
+      "execution_profile": {
+        "placement": "Y700_REQUIRED",
+        "requires_foreground": false,
+        "alternate_runtime_fallback": "NONE",
+        "readiness_requirements": ["bridge_v2", "runtime_permission_integrity"]
+      },
+      "minimum_policy": {
+        "replay": "SAFE_READ_ONLY",
+        "verification": "REQUIRED",
+        "approval": "NONE",
+        "expires_in_max_sec": 3600
+      }
+    },
+    {
+      "name": "android.ui.workflow",
+      "version": "1.0",
+      "classification": "INTERNAL",
+      "adapter": "android_ui_workflow",
+      "enabled": false,
+      "resource": "android_ui",
+      "support_contract": {
+        "device_contracts": ["y700-android16-zui"],
+        "runtime_probe": "android_ui_workflow_probe_v1"
+      },
+      "dispatch_contract": {
+        "version": 1,
+        "allowed_routes": ["SEMANTIC_UI", "VERIFIED_NOOP"]
+      },
+      "overlay_policy": {
+        "top_level_guard": "REQUIRED",
+        "in_app_modal": "NONE_KNOWN",
+        "blocking_selectors": []
+      },
+      "execution_profile": {
+        "placement": "Y700_REQUIRED",
+        "requires_foreground": true,
+        "alternate_runtime_fallback": "NONE",
+        "readiness_requirements": [
+          "bridge_v2",
+          "ui_protocol_v2",
+          "instrumentation_ready",
+          "runtime_permission_integrity"
+        ]
+      },
+      "minimum_policy": {
+        "replay": "NEVER",
+        "verification": "REQUIRED",
+        "approval": "REQUIRED",
+        "expires_in_max_sec": 3600
+      }
+    },
+    {
+      "name": "android.root.exec",
+      "version": "1.0",
+      "classification": "ADMIN",
+      "adapter": "android_root_exec",
+      "enabled": false,
+      "resource": null,
+      "support_contract": {
+        "device_contracts": ["y700-android16-zui"],
+        "runtime_probe": "android_root_exec_probe_v1"
+      },
+      "execution_profile": {
+        "placement": "Y700_REQUIRED",
+        "requires_foreground": false,
+        "alternate_runtime_fallback": "NONE",
+        "readiness_requirements": ["bridge_v2", "runtime_permission_integrity"]
+      },
+      "minimum_policy": {
+        "replay": "NEVER",
+        "verification": "ADMIN_EXPLICIT_UNSAFE",
+        "approval": "MAINTENANCE_ONLY",
+        "expires_in_max_sec": 600
+      }
+    },
+    {
+      "name": "tiktok.publish",
+      "version": "1.0",
+      "classification": "BUSINESS",
+      "adapter": "tiktok_publish",
+      "enabled": false,
+      "resource": "android_ui",
+      "support_contract": {
+        "device_contracts": ["y700-android16-zui"],
+        "runtime_probe": "tiktok_publish_probe_v1"
+      },
+      "dispatch_contract": {
+        "version": 1,
+        "allowed_routes": ["SEMANTIC_UI", "VERIFIED_NOOP"]
+      },
+      "overlay_policy": {
+        "top_level_guard": "REQUIRED",
+        "in_app_modal": "POSSIBLE",
+        "blocking_selectors": [
+          {
+            "selector_version": 1,
+            "resource_id": "UNVERIFIED_NEEDS_UI_CONTRACT_ACCEPTANCE",
+            "enabled_for_production": false
+          }
+        ]
+      },
+      "app_ui_contract": {
+        "package": "com.zhiliaoapp.musically",
+        "accepted_version_codes": [],
+        "signing_cert_sha256": null,
+        "ui_contract_version": "tiktok-ui-v1-CANDIDATE",
+        "acceptance_status": "NOT_ACCEPTED"
+      },
+      "execution_profile": {
+        "placement": "Y700_REQUIRED",
+        "requires_foreground": true,
+        "alternate_runtime_fallback": "NONE",
+        "readiness_requirements": [
+          "bridge_v2",
+          "ui_protocol_v2",
+          "instrumentation_ready",
+          "runtime_permission_integrity",
+          "approved_tiktok_app_ui_contract"
+        ]
+      },
+      "minimum_policy": {
+        "replay": "NEVER",
+        "verification": "REQUIRED",
+        "approval": "REQUIRED",
+        "expires_in_max_sec": 7200
+      }
+    }
+  ]
+}

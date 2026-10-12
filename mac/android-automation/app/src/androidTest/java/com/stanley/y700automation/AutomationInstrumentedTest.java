@@ -28,6 +28,13 @@ import androidx.test.uiautomator.UiObject2;
 import com.stanley.y700automation.vision.OcrTextLocator;
 import com.stanley.y700automation.vision.VisionTemplateLocator;
 import com.stanley.y700automation.vision.VisionV0Harness;
+import com.stanley.y700automation.vision.Rev37NativeMutationBoundary;
+import com.stanley.y700automation.vision.Rev37NativeResourceOwner;
+import com.stanley.y700automation.vision.Rev37NativePublishBoundary;
+import com.stanley.y700automation.vision.Rev37NativeFrameRegistry;
+import com.stanley.y700automation.vision.Rev37NativeAppContract;
+import com.stanley.y700automation.vision.Rev37NativeTemplateRoute;
+import com.stanley.y700automation.vision.Rev37NativePostcondition;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -38,6 +45,7 @@ import org.junit.runner.RunWith;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -50,6 +58,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 @RunWith(AndroidJUnit4.class)
 public class AutomationInstrumentedTest {
     private static final String DRIVER_VERSION = "0.5.0";
+    // This is a separate last-mile input acceptance switch, independent
+    // from host Gateway, Native template and D-G3/JIT release authorities.
+    private static final boolean REV37_NATIVE_CREATE_CLICK_ACCEPTED = false;
     private static final int PROTOCOL_VERSION = 1;
     private static final int MAX_ACTIONS = 50;
     private static final long MAX_DURATION_MS = 600_000L;
@@ -133,6 +144,11 @@ public class AutomationInstrumentedTest {
                         false));
                 result.put("actions", actionResults);
                 emitResult(result);
+                return;
+            }
+
+            if (request.optBoolean("interactive_core_v2", false)) {
+                runInteractiveCoreV2(request, result, workflowStart);
                 return;
             }
 
@@ -231,6 +247,272 @@ public class AutomationInstrumentedTest {
             attachVisionMetrics(result);
             emitResult(result);
         }
+    }
+
+
+
+    private void writeJsonAtomic(File path, JSONObject value) throws Exception {
+        File parent = path.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IllegalStateException("cannot create control dir: " + parent);
+        }
+        File tmp = new File(path.getAbsolutePath() + ".tmp");
+        byte[] raw = (value.toString() + "\n").getBytes(StandardCharsets.UTF_8);
+        try (FileOutputStream out = new FileOutputStream(tmp, false)) {
+            out.write(raw);
+            out.flush();
+            out.getFD().sync();
+        }
+        if (path.exists() && !path.delete()) {
+            throw new IllegalStateException("cannot replace control file: " + path);
+        }
+        if (!tmp.renameTo(path)) {
+            throw new IllegalStateException("cannot publish control file: " + path);
+        }
+    }
+
+    private JSONObject readJsonFile(File path) throws Exception {
+        try (FileInputStream in = new FileInputStream(path)) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) >= 0) {
+                if (n > 0) out.write(buf, 0, n);
+            }
+            return new JSONObject(new String(out.toByteArray(), StandardCharsets.UTF_8));
+        }
+    }
+
+    private void runInteractiveCoreV2(
+            JSONObject request,
+            JSONObject result,
+            long workflowStart) throws Exception {
+        String controlId = request.optString("interactive_control_id", "");
+        if (!controlId.matches("[A-Za-z0-9._-]{1,64}")) {
+            throw new ActionFailure(
+                    "JOB_PAYLOAD_INVALID",
+                    "invalid interactive_control_id",
+                    false,
+                    "BLOCKED");
+        }
+
+        File root = new File(context.getFilesDir(), "core-v2/" + controlId);
+        if (!root.exists() && !root.mkdirs()) {
+            throw new IllegalStateException("cannot create interactive control dir");
+        }
+
+        JSONObject preflight;
+        try {
+            preflight = ensureUiPreflight(request);
+        } catch (ActionFailure failure) {
+            JSONObject ready = new JSONObject();
+            ready.put("status", failure.status);
+            ready.put("error", error(
+                    failure.code,
+                    failure.getMessage(),
+                    failure.retryable));
+            writeJsonAtomic(new File(root, "ready.json"), ready);
+            throw failure;
+        }
+
+        JSONObject ready = new JSONObject();
+        ready.put("status", "PASS");
+        ready.put("job_id", jobId);
+        ready.put("session_id", sessionId);
+        ready.put("driver_version", DRIVER_VERSION);
+        ready.put("protocol_version", PROTOCOL_VERSION);
+        ready.put("preflight", preflight);
+        writeJsonAtomic(new File(root, "ready.json"), ready);
+
+        int sequence = 0;
+        int totalActions = 0;
+        JSONArray aggregate = new JSONArray();
+        boolean failed = false;
+        JSONObject terminalError = null;
+        long requestedMax = request.optLong("max_duration_ms", MAX_DURATION_MS);
+        long deadline = workflowStart + Math.min(
+                MAX_DURATION_MS,
+                Math.max(1000L, requestedMax));
+
+        while (SystemClock.elapsedRealtime() <= deadline) {
+            File finish = new File(root, "finish.json");
+            if (finish.isFile()) {
+                break;
+            }
+
+            File commandFile = new File(
+                    root,
+                    String.format(Locale.US, "command-%03d.json", sequence));
+            if (!commandFile.isFile()) {
+                SystemClock.sleep(50L);
+                continue;
+            }
+
+            JSONObject envelope = readJsonFile(commandFile);
+            JSONArray actions = envelope.optJSONArray("actions");
+            JSONObject response = new JSONObject();
+            JSONArray rows = new JSONArray();
+            response.put("sequence", sequence);
+            response.put("preflight", preflight);
+
+            if (!envelope.has("sequence")
+                    || !(envelope.opt("sequence") instanceof Integer)
+                    || envelope.optInt("sequence", -1) != sequence) {
+                // Reject a substituted/stale command before any action is
+                // dispatched. The host independently checks result sequence.
+                response.put("status", "FAILED");
+                response.put("error", error(
+                        "DRIVER_COMMAND_SEQUENCE_MISMATCH",
+                        "interactive command sequence is not current",
+                        false));
+            } else if (actions == null || actions.length() == 0 || actions.length() > MAX_ACTIONS) {
+                response.put("status", "FAILED");
+                response.put(
+                        "error",
+                        error(
+                                "JOB_PAYLOAD_INVALID",
+                                "interactive command actions must contain 1.." + MAX_ACTIONS,
+                                false));
+            } else {
+                String status = "PASS";
+                JSONObject responseError = null;
+                for (int i = 0; i < actions.length(); i++) {
+                    if (SystemClock.elapsedRealtime() > deadline) {
+                        status = "TIMEOUT";
+                        responseError = error(
+                                "WORKFLOW_TIMEOUT",
+                                "interactive workflow deadline exceeded",
+                                false);
+                        break;
+                    }
+                    JSONObject action = actions.getJSONObject(i);
+                    int actionIndex = totalActions++;
+                    emitHeartbeat(
+                            actionIndex,
+                            action.optString("action", "unknown"),
+                            "STARTED");
+                    // Defense in depth: the interactive v2 driver has no
+                    // D-G3 frame-id/locator/boot/revision verifier yet.
+                    // Even if the host were to accept stale evidence, refuse
+                    // ANY mutating action that may invoke visual localization
+                    // before executeWithRetry/executeAction can click.
+                    JSONObject one;
+                    // The Host reobserves the canonical Claim for each
+                    // protocol-v2 mutation and overwrites this owner field.
+                    // A Capability-owned EXTERNAL_IRREVERSIBLE semantic click
+                    // MUST NOT bypass D-G3 via the unique-semantic fast path
+                    // in clickSelector(), before visual fallback is checked.
+                    // Missing/ill-typed provenance is NOT Legacy evidence.
+                    boolean externalEffect = "EXTERNAL_IRREVERSIBLE".equals(
+                            action.optString("side_effect", ""));
+                    boolean verifiedLegacyMarker = action.has(
+                            "rev37_capability_bound")
+                            && Boolean.FALSE.equals(
+                                    action.opt("rev37_capability_bound"));
+                    boolean capabilityPublishCandidate =
+                            Boolean.TRUE.equals(
+                                    action.opt("rev37_capability_bound"))
+                            && "click".equals(action.optString("action"))
+                            && "tiktok.publish-control.v1".equals(
+                                    action.optString("route_contract_id"))
+                            && Rev37NativePublishBoundary
+                                    .productionDispatchAuthorized();
+                    String nativeOwnerReason = externalEffect
+                            ? Rev37NativeResourceOwner.classifyExternalEffect(
+                                    instrumentation,
+                                    action.optString("rev37_claim_id", ""),
+                                    !verifiedLegacyMarker)
+                            : "";
+                    if (externalEffect && !capabilityPublishCandidate && (
+                            !verifiedLegacyMarker
+                            || !"EXACT_LEGACY_CLAIM_OBSERVED_READ_ONLY"
+                                    .equals(nativeOwnerReason))) {
+                        one = new JSONObject()
+                                .put("action_id", action.optString(
+                                        "action_id", "action-" + actionIndex))
+                                .put("action", action.optString("action", ""))
+                                .put("status", "BLOCKED")
+                                .put("attempts", 0)
+                                .put("error", error(
+                                        nativeOwnerReason,
+                                        "exact native external effect owner not authorized",
+                                        false));
+                    } else if (interactiveVisionMutationRequiresDg3(action)) {
+                        if (REV37_NATIVE_CREATE_CLICK_ACCEPTED
+                                && "click".equals(action.optString("action"))
+                                && "tiktok.create.observe.v1".equals(
+                                        action.optString("route_contract_id"))) {
+                            one = dispatchRev37NativeCreateClick(
+                                    action, actionIndex);
+                        } else {
+                        // The actual Driver dispatch path now invokes the
+                        // native compare-before-mutate candidate. Caller
+                        // frame/locator JSON alone is NEVER trusted:
+                        // the separate D-G3 gate remains CLOSED until
+                        // native screenshot provenance and versioned modal
+                        // contracts have independent acceptance.
+                        JSONObject frame = action.optJSONObject("frame_token");
+                        JSONObject locator = action.optJSONObject("locator");
+                        Rev37NativeMutationBoundary.Verdict nativeVerdict =
+                                Rev37NativeMutationBoundary.compareAtNativeBoundary(
+                                        instrumentation, device, frame, locator);
+                        one = new JSONObject()
+                                .put("action_id", action.optString("action_id",
+                                        "action-" + actionIndex))
+                                .put("action", action.optString("action", ""))
+                                .put("status", "BLOCKED")
+                                .put("attempts", 0)
+                                .put("native_dispatch_jit", nativeVerdict.toReceipt())
+                                .put("error", error("VISION_DRIVER_GATE_CLOSED",
+                                        "native JIT checked read-only; D-G3 visual dispatch not accepted",
+                                        false));
+                        }
+                    } else {
+                        one = executeWithRetry(action, actionIndex);
+                    }
+                    rows.put(one);
+                    aggregate.put(one);
+                    emitHeartbeat(
+                            actionIndex,
+                            action.optString("action", "unknown"),
+                            one.optString("status", "FAILED"));
+                    if (!"PASS".equals(one.optString("status"))) {
+                        status = one.optString("status", "FAILED");
+                        if (one.has("error")) {
+                            responseError = one.optJSONObject("error");
+                        }
+                        failed = true;
+                        terminalError = responseError;
+                        break;
+                    }
+                }
+                response.put("status", status);
+                if (responseError != null) response.put("error", responseError);
+            }
+
+            response.put("actions", rows);
+            writeJsonAtomic(
+                    new File(
+                            root,
+                            String.format(Locale.US, "result-%03d.json", sequence)),
+                    response);
+            sequence++;
+        }
+
+        JSONObject done = new JSONObject();
+        done.put("status", failed ? "FAILED" : "PASS");
+        done.put("job_id", jobId);
+        done.put("session_id", sessionId);
+        done.put("driver_version", DRIVER_VERSION);
+        done.put("protocol_version", PROTOCOL_VERSION);
+        done.put("actions", aggregate);
+        if (terminalError != null) done.put("error", terminalError);
+        done.put(
+                "duration_ms",
+                SystemClock.elapsedRealtime() - workflowStart);
+        attachVisionMetrics(done);
+        writeJsonAtomic(new File(root, "done.json"), done);
+        emitResult(done);
     }
 
 
@@ -390,7 +672,10 @@ public class AutomationInstrumentedTest {
         String sideEffect = action.optString("side_effect", defaultSideEffect(action.optString("action", "")));
         boolean retrySafe = "OBSERVE_ONLY".equals(sideEffect) || "IDEMPOTENT".equals(sideEffect)
                 || action.optBoolean("retry_safe", false);
-        int maxRetry = retrySafe ? requestedRetry : 0;
+        // Irreversible Publish must NEVER retry based on workflow fields,
+        // even when retry_safe=true was supplied by an external caller.
+        int maxRetry = "EXTERNAL_IRREVERSIBLE".equals(sideEffect)
+                ? 0 : (retrySafe ? requestedRetry : 0);
 
         JSONArray delays = new JSONArray();
         JSONArray recovery = new JSONArray();
@@ -447,6 +732,9 @@ public class AutomationInstrumentedTest {
         switch (actionName) {
             case "health":
             case "observe":
+            case "observeNativeFrame":
+            case "observeNativeAppContract":
+            case "observeNativeLocator":
             case "screenshot":
             case "find":
             case "findAll":
@@ -459,6 +747,209 @@ public class AutomationInstrumentedTest {
         }
     }
 
+    /**
+     * Sprint 1A: interactive v2 has not yet completed the real-device D-G3
+     * receipt and live mutation-boundary validation. No workflow-provided
+     * boolean, vision_enabled, or frame metadata can open this gate.
+     * Legacy benchmark/read-only flows keep their separate contracts.
+     */
+    /**
+     * One-source native Create click, dispatched ONLY inside the existing
+     * interactive Core v2 mutation journal. Never uses workflow-provided
+     * coordinates, frame_id, visual template path or retry policy.
+     */
+    private JSONObject dispatchRev37NativeCreateClick(
+            JSONObject action, int index) throws Exception {
+        JSONObject one = new JSONObject()
+                .put("action_id", action.optString(
+                        "action_id", "action-" + index))
+                .put("action", "click");
+        if (!REV37_NATIVE_CREATE_CLICK_ACCEPTED
+                || !Rev37NativeMutationBoundary.productionDispatchAuthorized()
+                || !Rev37NativeTemplateRoute.productionDispatchAuthorized()
+                || !Rev37NativePostcondition.productionDispatchAuthorized()
+                || !"tiktok.create.observe.v1".equals(
+                        action.optString("route_contract_id"))
+                || action.has("visual_coordinates")
+                || action.has("frame_token")
+                || action.has("locator")) {
+            return one.put("status", "BLOCKED")
+                    .put("attempts", 0)
+                    .put("error", error(
+                            "VISION_DRIVER_GATE_CLOSED",
+                            "native Create click contract not accepted",
+                            false));
+        }
+        boolean clickEntered = false;
+        try (Rev37NativeTemplateRoute.Resolved resolved =
+                Rev37NativeTemplateRoute.resolveCreateReadOnly(
+                        instrumentation, device)) {
+            Rev37NativeMutationBoundary.Verdict jit =
+                    Rev37NativeMutationBoundary.compareAtNativeBoundary(
+                            instrumentation, device,
+                            resolved.token, resolved.locator);
+            if (!jit.acceptedForSingleDispatch()) {
+                return one.put("status", "BLOCKED")
+                        .put("attempts", 0)
+                        .put("native_dispatch_jit", jit.toReceipt())
+                        .put("error", error(
+                                jit.code,
+                                "independently observed JIT refused input",
+                                false));
+            }
+            Rect bounds = jit.acceptedTargetBounds;
+            // One exact press and never automatic fallback/retry, regardless
+            // of request retry_safe or visual confidence metadata.
+            clickEntered = true;
+            boolean pressed = device.click(
+                    bounds.centerX(), bounds.centerY());
+            if (!pressed) {
+                return one.put("status", "RECONCILE_REQUIRED")
+                        .put("attempts", 1)
+                        .put("error", error(
+                                "NATIVE_CLICK_OUTCOME_UNCERTAIN",
+                                "single native input was attempted",
+                                false));
+            }
+            device.waitForIdle(1000L);
+            if (!Rev37NativePostcondition.createVisiblePositive(
+                    device, "tiktok.create.observe.v1")) {
+                return one.put("status", "RECONCILE_REQUIRED")
+                        .put("attempts", 1)
+                        .put("error", error(
+                                "NATIVE_CREATE_POSTCONDITION_UNVERIFIED",
+                                "input attempted; positive page proof absent",
+                                false));
+            }
+            return one.put("status", "PASS")
+                    .put("attempts", 1)
+                    .put("data", new JSONObject()
+                            .put("postcondition_passed", true)
+                            .put("postcondition_kind",
+                                    "NATIVE_VERSIONED_CREATE_SCREEN")
+                            .put("coordinates_exported", false));
+        } catch (Exception failure) {
+            Rev37NativeFrameRegistry.invalidate();
+            return one.put("status", clickEntered
+                            ? "RECONCILE_REQUIRED" : "BLOCKED")
+                    .put("attempts", clickEntered ? 1 : 0)
+                    .put("error", error(
+                            clickEntered ? "NATIVE_CLICK_OUTCOME_UNCERTAIN"
+                                    : "NATIVE_CREATE_ROUTE_UNAVAILABLE",
+                            clickEntered ? "input may have been performed"
+                                    : "native route could not be established",
+                            false));
+        }
+    }
+
+    /**
+     * Defense in depth: a workflow cannot downgrade a known TikTok Publish
+     * control by declaring its side_effect=REVERSIBLE_LOCAL. A precise
+     * app-version-pinned button selector is still required by the native
+     * Publish gate, and currently remains NOT ACCEPTED.
+     */
+    private boolean isKnownTikTokPublishControl(UiObject2 target) {
+        if (target == null || !"com.zhiliaoapp.musically".equals(
+                device.getCurrentPackageName())) return false;
+        try {
+            String label = target.getText();
+            String description = target.getContentDescription();
+            for (String candidate : new String[]{
+                    "发布", "立即发布", "发布视频", "Post", "Publish",
+                    "Post video", "Publish video"}) {
+                if (candidate.equals(label) || candidate.equals(description))
+                    return true;
+            }
+        } catch (Exception ignored) {
+            // Unknown UI semantics cannot grant a Publish permission:
+            // independent native exact target matching still applies.
+        }
+        return false;
+    }
+
+    private boolean interactiveVisionMutationRequiresDg3(JSONObject action) {
+        if (!isMutationAction(action.optString("action", ""))) return false;
+        // Fail closed for visual recovery anywhere in a mutation's nested
+        // selector/expect/fallback trees, not just the first fallback level.
+        // An over-complex document also cannot prove it is non-visual.
+        return containsVisionDispatchContract(action, 0, new int[]{0});
+    }
+
+    private boolean containsVisionDispatchContract(
+            Object item, int depth, int[] observedNodes) {
+        if (item == null || item == JSONObject.NULL) return false;
+        if (++observedNodes[0] > 256 || depth > 12) return true;
+        if (item instanceof JSONObject) {
+            JSONObject obj = (JSONObject) item;
+            String type = obj.optString("type", "");
+            String route = obj.optString("route_class", "");
+            if ("VISION_ASSISTED_UI".equals(route)
+                    || "vision_template".equals(type)
+                    || "vision_text".equals(type)
+                    || "vision_ocr".equals(type)
+                    || "vision_locator".equals(type)
+                    || obj.has("vision_recovery")
+                    || obj.has("vision_match")
+                    || obj.has("frame_token")
+                    || obj.has("locator_frame_id")
+                    || obj.has("visual_coordinates")) return true;
+            java.util.Iterator<String> keys = obj.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                Object nested = obj.opt(key);
+                if ((nested instanceof JSONObject || nested instanceof JSONArray)
+                        && containsVisionDispatchContract(
+                                nested, depth + 1, observedNodes)) return true;
+            }
+        } else if (item instanceof JSONArray) {
+            JSONArray array = (JSONArray) item;
+            if (array.length() > 256) return true;
+            for (int i = 0; i < array.length(); i++) {
+                if (containsVisionDispatchContract(
+                        array.opt(i), depth + 1, observedNodes)) return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isMutationAction(String name) {
+        switch (name) {
+            case "click":
+            case "tapObserved":
+            case "appForceStop":
+            case "appLaunch":
+            case "longClick":
+            case "inputText":
+            case "clearText":
+            case "swipe":
+            case "scroll":
+            case "pressBack":
+            case "pressHome":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private String mutationPostconditionKind(JSONObject action, String name) {
+        JSONObject expect = action.optJSONObject("expect");
+        if (expect != null && expect.length() > 0) {
+            return "EXPLICIT_EXPECTATION";
+        }
+        switch (name) {
+            case "inputText":
+            case "clearText":
+            case "appForceStop":
+            case "appLaunch":
+                return "INTRINSIC_VERIFICATION";
+            case "pressBack":
+            case "pressHome":
+                return "UI_IDLE_OBSERVED";
+            default:
+                return "DRIVER_DISPATCH_ACK";
+        }
+    }
+
     private long retryBackoffMs(JSONObject action, int attempt) {
         JSONArray arr = action.optJSONArray("retry_backoff_ms");
         if (arr != null && arr.length() > 0) {
@@ -467,6 +958,73 @@ public class AutomationInstrumentedTest {
         }
         long value = 300L * (1L << Math.min(attempt, 5));
         return Math.min(5_000L, value);
+    }
+
+    /**
+     * Native screenshot-provenance observation. The ROI is entire physical
+     * display and is never supplied as caller coordinates. The single-use
+     * FrameToken stays in this instrumentation process; no boot/epoch/pixel
+     * data leaks into an external action response. Without an accepted modal
+     * observer capture fails CLOSED rather than minting a caller token.
+     */
+    private JSONObject observeNativeFrameReadOnly() throws Exception {
+        Rect screen = new Rect(
+                0, 0, device.getDisplayWidth(), device.getDisplayHeight());
+        try (Rev37NativeFrameRegistry.IssuedFrame issued =
+                Rev37NativeFrameRegistry.captureReadOnly(
+                        instrumentation, device, screen)) {
+            return new JSONObject()
+                    .put("status", "NATIVE_FRAME_CAPTURED_READ_ONLY")
+                    .put("dispatch_frame_token_exported", false)
+                    .put("source", "ANDROID_UIAUTOMATION_SCREENSHOT")
+                    .put("route", "tiktok.create.observe.v1")
+                    .put("frame_generation_positive",
+                            issued.frame.generation > 0)
+                    .put("frame_pixel_data_exported", false)
+                    .put("locator_proven", false)
+                    .put("dg3_status", "OPEN")
+                    .put("production_dispatch_authorized", false)
+                    .put("ui_mutation_attempts", 0);
+        } catch (IllegalStateException failure) {
+            Rev37NativeFrameRegistry.invalidate();
+            throw new ActionFailure(
+                    "NATIVE_FRAME_EVIDENCE_UNAVAILABLE",
+                    "native frame contract or state observation unavailable",
+                    false, "BLOCKED");
+        } catch (VisionV0Harness.VisionFailure failure) {
+            Rev37NativeFrameRegistry.invalidate();
+            throw new ActionFailure(
+                    "NATIVE_FRAME_CAPTURE_UNAVAILABLE",
+                    "native screenshot capture failed",
+                    false, "BLOCKED");
+        }
+    }
+
+    /**
+     * Exact prepackaged template matching from real Android screenshot.
+     * This action is OBSERVE_ONLY; it does not export target coordinates,
+     * frame identity, pixels or user-controlled match thresholds.
+     */
+    private JSONObject observeNativeLocatorReadOnly() throws Exception {
+        try (Rev37NativeTemplateRoute.Resolved resolved =
+                     Rev37NativeTemplateRoute.resolveCreateReadOnly(
+                             instrumentation, device)) {
+            return new JSONObject()
+                    .put("status", "NATIVE_LOCATOR_MATCHED_READ_ONLY")
+                    .put("template_contract_id", "tiktok.create.observe.v1")
+                    .put("frame_binding_verified_in_process", true)
+                    .put("locator_caller_controlled", false)
+                    .put("coordinates_exported", false)
+                    .put("dg3_status", "OPEN")
+                    .put("production_dispatch_authorized", false)
+                    .put("ui_mutation_attempts", 0);
+        } catch (Exception failure) {
+            Rev37NativeFrameRegistry.invalidate();
+            throw new ActionFailure(
+                    "NATIVE_TEMPLATE_OR_CONTRACT_UNAVAILABLE",
+                    "independent TikTok template, modal or state unavailable",
+                    false, "BLOCKED");
+        }
     }
 
     private JSONObject executeAction(JSONObject action, int index) throws Exception {
@@ -490,6 +1048,16 @@ public class AutomationInstrumentedTest {
                 case "observe":
                     out.put("data", observe());
                     break;
+                case "observeNativeFrame":
+                    out.put("data", observeNativeFrameReadOnly());
+                    break;
+                case "observeNativeAppContract":
+                    out.put("data", Rev37NativeAppContract
+                            .observeInstalledReadOnly(instrumentation));
+                    break;
+                case "observeNativeLocator":
+                    out.put("data", observeNativeLocatorReadOnly());
+                    break;
                 case "screenshot":
                     out.put("data", screenshot(action.optString("filename", "screen-" + index + ".png")));
                     break;
@@ -501,6 +1069,15 @@ public class AutomationInstrumentedTest {
                     break;
                 case "click":
                     out.put("data", click(action));
+                    break;
+                case "tapObserved":
+                    out.put("data", tapObserved(action));
+                    break;
+                case "appForceStop":
+                    out.put("data", appForceStop(action));
+                    break;
+                case "appLaunch":
+                    out.put("data", appLaunch(action));
                     break;
                 case "longClick":
                     out.put("data", longClick(action));
@@ -528,12 +1105,20 @@ public class AutomationInstrumentedTest {
                     break;
                 case "pressBack":
                     device.pressBack();
-                    out.put("data", new JSONObject().put("pressed", "BACK"));
+                    device.waitForIdle(1000L);
+                    out.put("data", new JSONObject()
+                            .put("pressed", "BACK")
+                            .put("current_package", nullableString(device.getCurrentPackageName()))
+                            .put("display_rotation", device.getDisplayRotation()));
                     verifyExpectation(action.optJSONObject("expect"), action.optLong("timeout_ms", 10000L));
                     break;
                 case "pressHome":
                     device.pressHome();
-                    out.put("data", new JSONObject().put("pressed", "HOME"));
+                    device.waitForIdle(1000L);
+                    out.put("data", new JSONObject()
+                            .put("pressed", "HOME")
+                            .put("current_package", nullableString(device.getCurrentPackageName()))
+                            .put("display_rotation", device.getDisplayRotation()));
                     verifyExpectation(action.optJSONObject("expect"), action.optLong("timeout_ms", 10000L));
                     break;
                 default:
@@ -541,6 +1126,13 @@ public class AutomationInstrumentedTest {
                     out.put("error", error("JOB_PAYLOAD_INVALID", "unsupported action: " + name, false));
                     out.put("latency_ms", SystemClock.elapsedRealtime() - started);
                     return out;
+            }
+            if (isMutationAction(name)) {
+                JSONObject data = out.optJSONObject("data");
+                if (data == null) data = new JSONObject();
+                data.put("postcondition_passed", true);
+                data.put("postcondition_kind", mutationPostconditionKind(action, name));
+                out.put("data", data);
             }
             out.put("status", "PASS");
         } catch (ActionFailure t) {
@@ -657,6 +1249,9 @@ public class AutomationInstrumentedTest {
         caps.put("find");
         caps.put("findAll");
         caps.put("click");
+        caps.put("tapObserved");
+        caps.put("appForceStop");
+        caps.put("appLaunch");
         caps.put("longClick");
         caps.put("inputText");
         caps.put("clearText");
@@ -1003,6 +1598,14 @@ public class AutomationInstrumentedTest {
     }
 
     private BySelector buildSelector(JSONObject spec) throws Exception {
+        return buildSelector(spec, 0);
+    }
+
+    private BySelector buildSelector(JSONObject spec, int depth) throws Exception {
+        if (depth > 8) {
+            throw new ActionFailure("JOB_PAYLOAD_INVALID",
+                    "selector nesting exceeds semantic-v1 limit", false);
+        }
         if (spec == null || spec.length() == 0) {
             throw new ActionFailure("JOB_PAYLOAD_INVALID", "selector is required", false);
         }
@@ -1066,10 +1669,10 @@ public class AutomationInstrumentedTest {
         if (spec.has("checked") && !"checked".equals(seed)) selector.checked(spec.getBoolean("checked"));
         if (spec.has("checkable") && !"checkable".equals(seed)) selector.checkable(spec.getBoolean("checkable"));
         if (spec.has("scrollable") && !"scrollable".equals(seed)) selector.scrollable(spec.getBoolean("scrollable"));
-        if (spec.has("has_descendant")) selector.hasDescendant(buildSelector(spec.getJSONObject("has_descendant")));
-        if (spec.has("has_child")) selector.hasChild(buildSelector(spec.getJSONObject("has_child")));
-        if (spec.has("has_parent")) selector.hasParent(buildSelector(spec.getJSONObject("has_parent")));
-        if (spec.has("has_ancestor")) selector.hasAncestor(buildSelector(spec.getJSONObject("has_ancestor")));
+        if (spec.has("has_descendant")) selector.hasDescendant(buildSelector(spec.getJSONObject("has_descendant"), depth + 1));
+        if (spec.has("has_child")) selector.hasChild(buildSelector(spec.getJSONObject("has_child"), depth + 1));
+        if (spec.has("has_parent")) selector.hasParent(buildSelector(spec.getJSONObject("has_parent"), depth + 1));
+        if (spec.has("has_ancestor")) selector.hasAncestor(buildSelector(spec.getJSONObject("has_ancestor"), depth + 1));
         return selector;
     }
 
@@ -1129,6 +1732,77 @@ public class AutomationInstrumentedTest {
             if (matches.size() == 1) {
                 UiObject2 target = matches.get(0);
                 JSONObject resolved = elementJson(target);
+                if ("EXTERNAL_IRREVERSIBLE".equals(
+                        action.optString("side_effect", ""))
+                        || isKnownTikTokPublishControl(target)) {
+                    // Last-mile independent Claim recheck. The semantic
+                    // fast path is not permitted to rely on an earlier
+                    // Host owner marker or command-start lookup.
+                    // The canonical on-device Claim chooses Legacy vs
+                    // Capability. An Action flag may only agree with that
+                    // already observed owner, never create the authority.
+                    JSONObject nativeClaim =
+                            Rev37NativeResourceOwner.readFixedClaim(
+                                    instrumentation);
+                    if (nativeClaim == null || !action.optString(
+                            "rev37_claim_id", "").equals(
+                                    nativeClaim.optString("claim_id", ""))) {
+                        throw new ActionFailure(
+                                "RESOURCE_OWNERSHIP_UNAVAILABLE",
+                                "exact native Claim not verified",
+                                false, "BLOCKED");
+                    }
+                    String realOwnerKind =
+                            nativeClaim.optString("owner_kind", "");
+                    if ("CAPABILITY".equals(realOwnerKind)) {
+                        if (!Boolean.TRUE.equals(
+                                    action.opt("rev37_capability_bound"))
+                                || !"tiktok.publish-control.v1".equals(
+                                    action.optString("route_contract_id"))) {
+                            throw new ActionFailure(
+                                    "CAPABILITY_PUBLISH_ROUTE_MISMATCH",
+                                    "native Publish action contract missing",
+                                    false, "BLOCKED");
+                        }
+                        Rev37NativePublishBoundary.Verdict verdict =
+                                Rev37NativePublishBoundary
+                                        .inspectBeforeSingleClick(
+                                                instrumentation, device,
+                                                nativeClaim.optString(
+                                                        "claim_id", ""),
+                                                target.getVisibleBounds());
+                        if (!verdict.authorizesOnce()) {
+                            throw new ActionFailure(
+                                    verdict.code,
+                                    "native source-owned Publish boundary blocked",
+                                    false, "BLOCKED");
+                        }
+                    } else if ("LEGACY".equals(realOwnerKind)) {
+                        if (!Boolean.FALSE.equals(
+                                    action.opt("rev37_capability_bound"))) {
+                            throw new ActionFailure(
+                                    "LEGACY_PUBLISH_ROUTE_MISMATCH",
+                                    "legacy publisher mode not proven",
+                                    false, "BLOCKED");
+                        }
+                        String reason = Rev37NativeResourceOwner
+                                .classifyExternalEffect(
+                                        instrumentation,
+                                        nativeClaim.optString("claim_id", ""),
+                                        false);
+                        if (!"EXACT_LEGACY_CLAIM_OBSERVED_READ_ONLY"
+                                .equals(reason)) {
+                            throw new ActionFailure(reason,
+                                    "legacy owner changed at dispatch",
+                                    false, "BLOCKED");
+                        }
+                    } else {
+                        throw new ActionFailure(
+                                "PUBLISH_OWNER_KIND_UNACCEPTED",
+                                "admin or unknown owner cannot publish",
+                                false, "BLOCKED");
+                    }
+                }
                 target.click();
                 verifyExpectation(
                         action.optJSONObject("expect"),
@@ -1167,6 +1841,94 @@ public class AutomationInstrumentedTest {
         }
 
         return clickVisionCascade(action, selector, candidates, semanticAvailable);
+    }
+
+    private JSONObject tapObserved(JSONObject action) throws Exception {
+        JSONObject selector = action.optJSONObject("selector");
+        if (selector == null || selector.length() == 0) {
+            throw new ActionFailure("JOB_PAYLOAD_INVALID", "tapObserved requires selector", false);
+        }
+        validateSelectorKeys(selector);
+        int ordinal = action.optInt("ordinal", -1);
+        if (ordinal < 0) {
+            throw new ActionFailure("JOB_PAYLOAD_INVALID", "tapObserved requires ordinal >= 0", false);
+        }
+        List<UiObject2> matches = findObjects(selector);
+        matches.sort((left, right) -> {
+            Rect a = left.getVisibleBounds();
+            Rect b = right.getVisibleBounds();
+            int top = Integer.compare(a.top, b.top);
+            return top != 0 ? top : Integer.compare(a.left, b.left);
+        });
+        if (ordinal >= matches.size()) {
+            throw new ActionFailure("STALE_STATE_HASH", "tapObserved ordinal no longer exists", false);
+        }
+        UiObject2 target = matches.get(ordinal);
+        JSONObject resolved = elementJson(target);
+        // tapObserved is not the single authorized Capability Publish
+        // dispatch path. An ordinal is mutable UI ordering, never an
+        // irreversible-action authority. Even a mislabeled reversible
+        // action cannot click a known Publish control here.
+        if ("EXTERNAL_IRREVERSIBLE".equals(
+                action.optString("side_effect", ""))
+                || isKnownTikTokPublishControl(target)) {
+            throw new ActionFailure(
+                    "IRREVERSIBLE_OBSERVED_TAP_DENIED",
+                    "tapObserved cannot dispatch external Publish",
+                    false, "BLOCKED");
+        }
+        target.click();
+        verifyExpectation(action.optJSONObject("expect"), action.optLong("timeout_ms", 15000L));
+        return new JSONObject()
+                .put("locator_source", "semantic-observed-ordinal")
+                .put("ordinal", ordinal)
+                .put("matched_count", matches.size())
+                .put("resolved_element", resolved);
+    }
+
+    private String mutationPackage(JSONObject action) throws ActionFailure {
+        String packageName = action.optString("package", "");
+        if (!packageName.matches("[A-Za-z0-9_.]{3,160}")) {
+            throw new ActionFailure("JOB_PAYLOAD_INVALID", "invalid mutation package", false);
+        }
+        return packageName;
+    }
+
+    private JSONObject appForceStop(JSONObject action) throws Exception {
+        String packageName = mutationPackage(action);
+        shell("am force-stop " + packageName);
+        long deadline = SystemClock.elapsedRealtime() + action.optLong("timeout_ms", 10000L);
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (!packageName.equals(device.getCurrentPackageName())) {
+                return new JSONObject().put("package", packageName).put("stopped", true);
+            }
+            SystemClock.sleep(200L);
+        }
+        throw new ActionFailure("POSTCONDITION_FAILED", "package remained foreground after force-stop", false);
+    }
+
+    private JSONObject appLaunch(JSONObject action) throws Exception {
+        String packageName = mutationPackage(action);
+        String activity = action.optString("activity", "");
+        if (!activity.isEmpty() && !activity.matches("[A-Za-z0-9_.$]{1,200}")) {
+            throw new ActionFailure("JOB_PAYLOAD_INVALID", "invalid appLaunch activity", false);
+        }
+        if (activity.isEmpty()) {
+            shell("monkey -p " + packageName + " -c android.intent.category.LAUNCHER 1");
+        } else {
+            shell("am start -n " + packageName + "/" + activity);
+        }
+        long deadline = SystemClock.elapsedRealtime() + action.optLong("timeout_ms", 30000L);
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (packageName.equals(device.getCurrentPackageName())) {
+                return new JSONObject()
+                        .put("package", packageName)
+                        .put("activity", activity.isEmpty() ? JSONObject.NULL : activity)
+                        .put("launched", true);
+            }
+            SystemClock.sleep(250L);
+        }
+        throw new ActionFailure("POSTCONDITION_FAILED", "package did not become foreground", false);
     }
 
     private JSONObject clickVisionCascade(
@@ -1644,6 +2406,13 @@ public class AutomationInstrumentedTest {
     private JSONObject longClick(JSONObject action) throws Exception {
         UiObject2 target = findUnique(action.optJSONObject("selector"));
         JSONObject resolved = elementJson(target);
+        if ("EXTERNAL_IRREVERSIBLE".equals(
+                action.optString("side_effect", ""))
+                || isKnownTikTokPublishControl(target)) {
+            throw new ActionFailure("IRREVERSIBLE_LONG_CLICK_DENIED",
+                    "longClick cannot dispatch external Publish",
+                    false, "BLOCKED");
+        }
         target.longClick();
         verifyExpectation(action.optJSONObject("expect"), action.optLong("timeout_ms", 10000L));
         return new JSONObject().put("resolved_element", resolved);
@@ -1656,6 +2425,13 @@ public class AutomationInstrumentedTest {
         String text = action.getString("text");
         JSONObject selector = action.optJSONObject("selector");
         UiObject2 target = findUnique(selector);
+        if ("EXTERNAL_IRREVERSIBLE".equals(
+                action.optString("side_effect", ""))
+                || isKnownTikTokPublishControl(target)) {
+            throw new ActionFailure("IRREVERSIBLE_INPUT_TARGET_DENIED",
+                    "inputText cannot dispatch external Publish",
+                    false, "BLOCKED");
+        }
         target.click();
         if (action.optBoolean("clear_first", true)) target.clear();
         target.setText(text);
@@ -1681,6 +2457,13 @@ public class AutomationInstrumentedTest {
     private JSONObject clearText(JSONObject action) throws Exception {
         JSONObject selector = action.optJSONObject("selector");
         UiObject2 target = findUnique(selector);
+        if ("EXTERNAL_IRREVERSIBLE".equals(
+                action.optString("side_effect", ""))
+                || isKnownTikTokPublishControl(target)) {
+            throw new ActionFailure("IRREVERSIBLE_CLEAR_TARGET_DENIED",
+                    "clearText cannot mutate an external Publish control",
+                    false, "BLOCKED");
+        }
         target.clear();
         UiObject2 refreshed = findUnique(selector);
         String actual = refreshed.getText();
@@ -1696,6 +2479,14 @@ public class AutomationInstrumentedTest {
     }
 
     private JSONObject swipe(JSONObject action) throws Exception {
+        // Gestures are not an approved one-shot external effect dispatch.
+        // A caller's side-effect label must not turn a swipe into Publish.
+        if ("EXTERNAL_IRREVERSIBLE".equals(
+                action.optString("side_effect", ""))) {
+            throw new ActionFailure("IRREVERSIBLE_SWIPE_DENIED",
+                    "swipe cannot dispatch an external effect",
+                    false, "BLOCKED");
+        }
         int width = device.getDisplayWidth();
         int height = device.getDisplayHeight();
         int x1;
@@ -1733,6 +2524,13 @@ public class AutomationInstrumentedTest {
 
     private JSONObject scroll(JSONObject action) throws Exception {
         UiObject2 target = findUnique(action.optJSONObject("selector"));
+        if ("EXTERNAL_IRREVERSIBLE".equals(
+                action.optString("side_effect", ""))
+                || isKnownTikTokPublishControl(target)) {
+            throw new ActionFailure("IRREVERSIBLE_SCROLL_DENIED",
+                    "scroll cannot dispatch an external Publish control",
+                    false, "BLOCKED");
+        }
         String raw = action.optString("direction", "DOWN").toUpperCase(Locale.ROOT);
         Direction direction;
         try {

@@ -20,6 +20,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from apps.tiktok import controller as generic_tiktok
+from automation import resource_arbiter, state_integrity
+from automation.publisher_boundary_guard import (
+    read_gateway_binding, verify_before_publisher_committing,
+)
 
 READY=Path("/opt/y700/media/ready")
 PUBLISHED=Path("/opt/y700/media/published")
@@ -110,7 +114,23 @@ def capture_initial_power_state(job, job_id):
 def ensure_device_unlocked(job_id):
     update("UNLOCKING", job_id)
     try:
-        return run(["bash", str(SECURE_UNLOCK)], timeout=45)
+        with resource_arbiter.acquire_android_ui(
+            owner_kind="LEGACY",
+            owner_id=f"legacy:publisher-unlock:{job_id}",
+            backend_type="publisher-secure-unlock",
+            backend_job_id=f"{job_id}--secure-unlock",
+            request_sha256=resource_arbiter.request_identity(
+                {"intent": "SECURE_UNLOCK", "job_id": job_id}
+            ),
+            timeout_sec=30.0,
+        ):
+            # secure-unlock.sh performs raw wake/swipe/keyevent UI mutations.
+            # Invalidate pre-existing state tokens before the first such action
+            # while holding the same canonical android_ui ownership as Core v2.
+            state_integrity.bump_epoch(f"LEGACY_PUBLISHER_UNLOCK:{job_id}")
+            return run(["bash", str(SECURE_UNLOCK)], timeout=45)
+    except resource_arbiter.ResourceError as exc:
+        raise PublishError(f"secure unlock resource unavailable: {exc}") from exc
     except PublishError as exc:
         raise PublishError(f"secure unlock failed before preflight/staging: {exc}") from exc
 
@@ -163,12 +183,6 @@ def find_published_duplicate(job_id,metadata,manifest=None):
             return {"job_id":other.name,"source_aweme_id":aweme_id}
     return None
 
-def verify_post_config():
-    st=controller.current_state()
-    if st["state"]!="POST_CONFIG":
-        raise PublishError(f"expected POST_CONFIG, got {st}")
-    return st
-
 def store_generic_evidence(job, generic_result, filename="v05-ready-to-commit.png"):
     evidence=(generic_result or {}).get("evidence") or {}
     source=Path(str(evidence.get("source_path","")))
@@ -183,104 +197,6 @@ def store_generic_evidence(job, generic_result, filename="v05-ready-to-commit.pn
         "workflow_job_id":generic_result.get("workflow_job_id"),
         "size":dest.stat().st_size,
     }
-
-def capture_evidence(job,label):
-    ev=job/"evidence"
-    ev.mkdir(exist_ok=True)
-    stamp=time.strftime("%Y%m%d-%H%M%S")
-    shot=f"{label}-{stamp}.png"
-    xml=f"{label}-{stamp}.xml"
-    result={"screenshot":None,"ui":None}
-    try:
-        controller.androidctl("screenshot",shot)
-        src=Path("/opt/y700/runtime")/shot
-        if src.exists():
-            shutil.copy2(src,ev/shot)
-            result["screenshot"]=shot
-    except Exception as e:
-        result["screenshot_error"]=str(e)
-    try:
-        controller.androidctl("dump-ui",xml)
-        src=Path("/opt/y700/runtime")/xml
-        if src.exists():
-            shutil.copy2(src,ev/xml)
-            result["ui"]=xml
-    except Exception as e:
-        result["ui_error"]=str(e)
-    return result
-
-def safe_state():
-    try:
-        return controller.current_state()
-    except Exception as e:
-        visible=False
-        try:
-            visible=controller.tiktok_foreground()
-        except Exception:
-            pass
-        return {"state":"UI_UNAVAILABLE","error":str(e),"tiktok_visible":visible}
-
-def safe_ui_text():
-    try:
-        p=controller.dump_ui()
-        return Path(p).read_text(encoding="utf-8",errors="ignore")
-    except Exception:
-        return ""
-
-def commit_publish(job,job_id,timeout=75):
-    before=capture_evidence(job,"before-commit")
-    controller.tap_publish()
-    deadline=time.monotonic()+timeout
-    observations=[]
-    failure_terms=("发布失败","上传失败","网络错误","重试")
-    success_terms=("发布成功","已发布")
-    last=None
-    while time.monotonic()<deadline:
-        time.sleep(2)
-        last=safe_state()
-        observations.append(last)
-        if last["state"]=="KEYGUARD":
-            controller.androidctl("unlock",check=False)
-            continue
-
-        ui_text=safe_ui_text()
-        if any(term in ui_text for term in failure_terms):
-            after=capture_evidence(job,"after-failure")
-            raise PublishError(f"TikTok reported publish failure; evidence={after}")
-
-        if any(term in ui_text for term in success_terms):
-            after=capture_evidence(job,"after-success")
-            return {
-                "accepted":True,
-                "confirmation":"success_text",
-                "before":before,
-                "after":after,
-                "last_state":last,
-                "observations":observations[-8:],
-            }
-
-        # TikTok may make uiautomator temporarily unavailable immediately after
-        # the final publish tap. Do not convert that transient into FAILED.
-        if last["state"]=="UI_UNAVAILABLE":
-            continue
-
-        if last["state"]!="POST_CONFIG" and last.get("tiktok_visible",False):
-            time.sleep(5)
-            stable=safe_state()
-            observations.append(stable)
-            if stable["state"] not in {"POST_CONFIG","UI_UNAVAILABLE"}:
-                after=capture_evidence(job,"after-submit")
-                return {
-                    "accepted":True,
-                    "confirmation":"stable_departure_from_post_config",
-                    "before":before,
-                    "after":after,
-                    "last_state":stable,
-                    "observations":observations[-8:],
-                }
-
-    after=capture_evidence(job,"after-timeout")
-    raise PublishError(f"publish did not confirm within {timeout}s; last={last}; evidence={after}")
 
 def verify_public_post(job,caption,timeout=60):
     try:
@@ -333,6 +249,22 @@ def main():
         raise SystemExit("job_id mismatch")
     metadata=load_metadata(job,manifest)
     mode=manifest["publish_mode"]
+    # Detect a Gateway claim for BOTH DRY_RUN and COMMIT before entering
+    # Legacy unlock/preflight. A Gateway-bound DRY_RUN launched via the
+    # old CLI must not silently wake/unlock or acquire a second UI owner.
+    gateway_binding=read_gateway_binding(job,manifest)
+    if gateway_binding is not None:
+        # A Gateway-controlled Publisher cannot reuse the legacy process
+        # entrypoint: it would auto-wake and acquire a second LEGACY claim.
+        # The trusted foreground Gateway must call the scoped executor
+        # with its own verified exact claim and precommit observer.
+        from publisher.gateway_execution import execute_gateway_bound
+        return execute_gateway_bound(
+            publisher_job=job, manifest=manifest,
+            binding=gateway_binding,
+            trusted_runtime_context=None,
+            trusted_effect_callback=None,
+        )
     visibility=str(metadata.get("visibility",manifest.get("visibility","PUBLIC"))).upper()
     title=str(metadata.get("title",manifest.get("title",""))).strip()
     caption=read_text(job/manifest["caption_file"])
@@ -414,6 +346,13 @@ def main():
                    ui_engine="androidx-uiautomator-2.4",
                    caption_verified=True,
                    visibility="PUBLIC")
+            # Rev3.7 Gateway-bound jobs must have the exact durable
+            # capability effect boundary and consumed approval BEFORE
+            # Publisher writes COMMITTING. Legacy remains allowed only
+            # while the source migration gate is explicitly disabled.
+            verify_before_publisher_committing(
+                job=job, manifest=manifest,
+                gateway_binding=gateway_binding)
             update("COMMITTING",args.job_id,
                    ui_engine="androidx-uiautomator-2.4",
                    visibility="PUBLIC")
@@ -438,12 +377,14 @@ def main():
         }
 
         verification=verify_public_post(job,caption)
-        controller.restore_input_method()
+        # Generic Core does not switch the system default IME.
 
         PUBLISHED.mkdir(parents=True,exist_ok=True)
         dest=PUBLISHED/args.job_id
-        if dest.exists():
-            shutil.rmtree(dest)
+        # A prior published archive is immutable evidence. Never delete it
+        # to make a second COMMIT appear successful (including Legacy).
+        if dest.exists() or dest.is_symlink():
+            raise PublishError("PUBLISHED_JOB_IDENTITY_CONFLICT_RECONCILE_REQUIRED")
         job.replace(dest)
         write_json_atomic(dest/"publish-result.json",{
             "status":"PUBLISHED",
@@ -461,8 +402,9 @@ def main():
         if mode=="DRY_RUN":
             generic_tiktok.force_stop()
         else:
-            controller.restore_input_method()
-        if mode=="COMMIT" and commit_entered:
+            # Generic Core does not switch the system default IME.
+            pass
+        if mode=="COMMIT" and (commit_entered or gateway_binding is not None):
             update("AMBIGUOUS_COMMIT_NEEDS_RECONCILE",args.job_id,
                    reason=str(e),
                    ui_engine="androidx-uiautomator-2.4",
