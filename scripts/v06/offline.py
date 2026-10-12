@@ -89,14 +89,29 @@ def presshome_back():
     ui_job=(REPO/"automation/ui_job.py").read_text(encoding="utf-8")
     core=(REPO/"automation/ui_core_v2.py").read_text(encoding="utf-8")
     tests=(REPO/"tests/test_rev36_ui_core_v2.py").read_text(encoding="utf-8")
-    obs='OBSERVATION_ACTIONS = {"health", "observe", "screenshot", "find", "findAll", "assert", "waitFor", "waitStable"}'
+    # Check actual action classification, not a frozen source-code spelling.
+    import ast
+    assignments = {}
+    for node in ast.parse(ui_job).body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            names = ([t.id for t in node.targets if isinstance(t, ast.Name)]
+                     if isinstance(node, ast.Assign) else
+                     [node.target.id] if isinstance(node.target, ast.Name) else [])
+            for name in names:
+                if name in ("OBSERVATION_ACTIONS", "LOCAL_MUTATION_ACTIONS"):
+                    assignments[name] = ast.literal_eval(node.value)
+    observation = assignments.get("OBSERVATION_ACTIONS", set())
+    mutation = assignments.get("LOCAL_MUTATION_ACTIONS", set())
+    # The revision CAS must occur before the durable commit journal phase.
+    cas = core.find("state_integrity.advance_revision(")
+    commit = core.find('"phase": "MUTATION_COMMITTED"')
     checks={
-        "presshome_not_observation_safe": '"pressHome"' in ui_job and obs in ui_job,
-        "pressback_not_observation_safe": '"pressBack"' in ui_job and obs in ui_job,
-        "both_in_local_mutation_set": '"pressBack", "pressHome"' in ui_job,
+        "presshome_not_observation_safe": "pressHome" not in observation,
+        "pressback_not_observation_safe": "pressBack" not in observation,
+        "both_in_local_mutation_set": {"pressBack", "pressHome"} <= mutation,
         "core_requires_resource_guard": "resource_arbiter.assert_guard" in core,
         "core_prepares_before_dispatch": '"phase": "MUTATION_PREPARED"' in core,
-        "core_commits_after_revision": "state_integrity.advance_revision()" in core and '"phase": "MUTATION_COMMITTED"' in core,
+        "core_commits_after_revision": 0 <= cas < commit,
         "a31_regression_test_present": "test_a31_press_home_is_prepared_committed_and_increments_revision" in tests,
     }
     ok=all(checks.values()) and bool(found["pressHome"] and found["pressBack"])
