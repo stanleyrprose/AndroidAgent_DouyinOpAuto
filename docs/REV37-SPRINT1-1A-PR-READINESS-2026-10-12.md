@@ -37,3 +37,10 @@ Authority: `docs/PRD-Y700-AAC-v0.6-Rev3.7-Frozen.md`, sections 40.2, 40.2A, 46.2
 - `scripts/v07/check-frame-freshness.py`: 30/30 PASS, `OFFLINE_FIXTURE_ONLY`, production gate false.
 - `scripts/v07/check-conditional-dispatch.py`: 8/8 PASS, `OFFLINE_FIXTURE_ONLY`, production gate false.
 - PR/CI/Merge remain pending: Linux regression and CI-equivalent checks must be reconciled; real-device D-G3 remains an activation gate.
+
+## Linux root-isolated regression (2026-10-13)
+
+- Docker Linux root (`--user 0:0`, no network, read-only repository mount): Rev3.7 **181 tests PASS, 1 skipped**. Skip must be inspected in PR CI.
+- Rev3.6 compatibility modules isolated per process (module reloads alter process-global resource paths): 7 + 13 + 19 + 5 + 4 = **48 PASS** after repairing the nested lease fixture to mock `assert_guard` alongside `acquire_android_ui`. Production ownership enforcement unchanged.
+- Production real-device D-G3 remains **unverified**; visual mutation activation prohibited. Fixture PASS does not mean production PASS.
+- These checks support opening a **review/CI integration PR**, not production acceptance or merge before required CI/gates.

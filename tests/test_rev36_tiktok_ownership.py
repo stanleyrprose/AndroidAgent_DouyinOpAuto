@@ -52,7 +52,8 @@ class Rev36TikTokOwnershipTests(unittest.TestCase):
             calls.append(kwargs)
             yield guard
 
-        with patch.object(controller.resource_arbiter, "acquire_android_ui", fake_acquire):
+        with patch.object(controller.resource_arbiter, "acquire_android_ui", fake_acquire), \
+                patch.object(controller.resource_arbiter, "assert_guard", return_value=guard.as_dict()):
             with controller.ui_lease() as outer:
                 with controller.ui_lease() as inner:
                     self.assertIs(outer, guard)
