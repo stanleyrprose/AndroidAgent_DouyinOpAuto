@@ -2874,3 +2874,11 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   rejecting a Claim currently bound to another workflow execution.
 - Three source-only regression candidates added. Positive native stop proof
   and explicit resource-only release remain independently gated and untested.
+
+### 2026-10-12 terminal journal / receipt cross-check
+
+- Recovery inspection requires exactly one trailing `SESSION_END` when a
+  result receipt exists and checks that its status matches the receipt.
+  Missing, reordered or conflicting terminal evidence stays non-replayable.
+- Added source-only regression candidates for missing terminal journal and
+  contradictory terminal status. No tests or acceptance gates were run.

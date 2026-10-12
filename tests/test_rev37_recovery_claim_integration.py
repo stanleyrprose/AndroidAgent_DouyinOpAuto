@@ -68,3 +68,18 @@ class RecoveryClaimIntegrationTests(unittest.TestCase):
             report = ui_job.inspect_recovery("job-1")
         self.assertEqual(report["classification"], "RECONCILE_REQUIRED")
         self.assertFalse(report["automatic_replay_allowed"])
+
+    def test_result_without_session_end_cannot_be_terminal_evidence(self):
+        self.write("result.json", {"job_id": "job-1", "session_id": "session-1",
+                                   "status": "BLOCKED"})
+        report = ui_recovery_inspector.inspect_job(self.job, claim=self.guard)
+        self.assertIn("SESSION_END_ORDER_UNVERIFIED", report["reason_codes"])
+
+    def test_session_end_must_match_result_status(self):
+        self.write("result.json", {"job_id": "job-1", "session_id": "session-1",
+                                   "status": "BLOCKED"})
+        path = self.job / "journal.jsonl"
+        with path.open("a") as out:
+            out.write(json.dumps({"phase": "SESSION_END", "status": "PASS"}) + "\n")
+        report = ui_recovery_inspector.inspect_job(self.job, claim=self.guard)
+        self.assertIn("SESSION_END_RESULT_MISMATCH", report["reason_codes"])

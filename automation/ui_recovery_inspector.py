@@ -201,6 +201,16 @@ def inspect_job(
         reasons.append("MUTATION_AMBIGUOUS")
     if not terminal:
         reasons.append("TERMINAL_RESULT_UNVERIFIED")
+    # A result receipt alone cannot prove the durable journal reached its
+    # terminal boundary. Do not accept an earlier SESSION_END followed by
+    # additional mutation evidence as a completed session.
+    endings = [i for i, row in enumerate(journal)
+               if row.get("phase") == "SESSION_END"]
+    if result is not None:
+        if len(endings) != 1 or endings[0] != len(journal) - 1:
+            reasons.append("SESSION_END_ORDER_UNVERIFIED")
+        elif journal[-1].get("status") != result.get("status"):
+            reasons.append("SESSION_END_RESULT_MISMATCH")
     if checkpoint is None or state is None:
         reasons.append("CHECKPOINT_OR_STATE_MISSING")
     if result is not None and result.get("status") == "RECONCILE_REQUIRED":
