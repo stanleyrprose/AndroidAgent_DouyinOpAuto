@@ -227,6 +227,20 @@ def inspect_job(
             reasons.append("CANONICAL_CLAIM_IDENTITY_MISMATCH")
         elif claim.get("reconcile_required") is True:
             reasons.append("CANONICAL_CLAIM_RECONCILE_REQUIRED")
+        if isinstance(expected_guard, dict):
+            # A Claim ID alone does not bind the original backend/Capability.
+            # Keep legacy owners independent of Capability Job fabrication.
+            for key in ("owner_kind", "backend_job_id", "claim_generation"):
+                expected = expected_guard.get(key)
+                if expected is not None and (
+                        not isinstance(claim, dict)
+                        or claim.get(key) != expected):
+                    reasons.append("CANONICAL_CLAIM_" + key.upper() + "_MISMATCH")
+            if isinstance(claim, dict) and claim.get("owner_kind") == "CAPABILITY":
+                expected_capability = expected_guard.get("capability_job_id")
+                if (not isinstance(expected_capability, str)
+                        or claim.get("capability_job_id") != expected_capability):
+                    reasons.append("CANONICAL_CAPABILITY_IDENTITY_UNVERIFIED")
     # This inspector does not authorize replay even when evidence is complete.
     return {
         "job_id": job_id,

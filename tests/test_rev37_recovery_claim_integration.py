@@ -83,3 +83,33 @@ class RecoveryClaimIntegrationTests(unittest.TestCase):
             out.write(json.dumps({"phase": "SESSION_END", "status": "PASS"}) + "\n")
         report = ui_recovery_inspector.inspect_job(self.job, claim=self.guard)
         self.assertIn("SESSION_END_RESULT_MISMATCH", report["reason_codes"])
+
+    def test_backend_identity_drift_is_detected(self):
+        guard = {**self.guard, "backend_job_id": "original-backend"}
+        workflow = {"job_id": "job-1", "session_id": "session-1",
+                    "resource_guard": guard, "actions": [{"action_id": "a1"}]}
+        self.write("workflow.json", workflow)
+        report = ui_recovery_inspector.inspect_job(
+            self.job, claim={**guard, "backend_job_id": "replacement-backend"})
+        self.assertIn("CANONICAL_CLAIM_BACKEND_JOB_ID_MISMATCH", report["reason_codes"])
+
+    def test_claim_generation_drift_is_detected(self):
+        guard = {**self.guard, "claim_generation": 3}
+        self.write("workflow.json", {"job_id": "job-1", "session_id": "session-1",
+                                     "resource_guard": guard,
+                                     "actions": [{"action_id": "a1"}]})
+        report = ui_recovery_inspector.inspect_job(
+            self.job, claim={**guard, "claim_generation": 4})
+        self.assertIn("CANONICAL_CLAIM_CLAIM_GENERATION_MISMATCH",
+                      report["reason_codes"])
+
+    def test_capability_owner_needs_exact_capability_identity(self):
+        guard = {**self.guard, "owner_kind": "CAPABILITY",
+                 "capability_job_id": "cap-original"}
+        self.write("workflow.json", {"job_id": "job-1", "session_id": "session-1",
+                                     "resource_guard": guard,
+                                     "actions": [{"action_id": "a1"}]})
+        report = ui_recovery_inspector.inspect_job(
+            self.job, claim={**guard, "capability_job_id": "cap-other"})
+        self.assertIn("CANONICAL_CAPABILITY_IDENTITY_UNVERIFIED",
+                      report["reason_codes"])

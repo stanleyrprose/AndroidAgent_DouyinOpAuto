@@ -2882,3 +2882,13 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   Missing, reordered or conflicting terminal evidence stays non-replayable.
 - Added source-only regression candidates for missing terminal journal and
   contradictory terminal status. No tests or acceptance gates were run.
+
+### 2026-10-12 Capability / backend / Claim generation correlation
+
+- Read-only UI recovery evidence now also checks the originally bound
+  backend Job ID, owner kind and Claim generation when present in the
+  workflow's resource guard. A CAPABILITY owner additionally requires an
+  exact capability_job_id match; a LEGACY owner never fabricates one.
+- These identity checks do not call Capability Reconcile Runtime or
+  Resource release. Source-only regression candidates cover backend drift,
+  Claim replacement generation and Capability ID mismatch.
