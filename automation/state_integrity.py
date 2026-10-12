@@ -278,52 +278,42 @@ def _validate_state(state: Any) -> dict[str, Any]:
 
 
 def load_state() -> dict[str, Any]:
+    """Read authority under the same lock used by all revision writers.
+
+    The returned snapshot is consistent at the lock's linearization point;
+    callers must still use CAS expectations before any mutation.
+    """
     _ensure_dir()
-    try:
-        state = _read_existing_state()
-    except FileNotFoundError:
-        with _state_writer_lock():
-            try:
-                return _validate_state(_read_existing_state())
-            except FileNotFoundError:
-                if _marker_present():
-                    raise StateIntegrityError(
-                        "STATE_INTEGRITY_UNAVAILABLE: canonical state missing after initialization"
-                    )
-                state = {
-                    "state_version": 1,
-                    "state_epoch": "epoch-" + secrets.token_hex(16),
-                    "revision": 0,
-                    "fingerprint_version": FINGERPRINT_VERSION,
-                    "initialized_at": _now_iso(),
-                    "updated_at": _now_iso(),
-                }
-                # Persist the one-time initialization marker before publishing
-                # the canonical state. A missing state with an existing marker
-                # is a loss of authority, never permission to reset revision.
-                _install_initialization_marker()
-                _create_initial_state(state)
-                return state
-    except (OSError, ValueError, UnicodeError) as exc:
-        raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: device-state corrupt") from exc
-    validated = _validate_state(state)
-    # Existing installations may predate the marker. Only a verified existing
-    # authority state may be backfilled, under the same writer lock used for
-    # epoch/revision transitions. Never backfill an absent or corrupt state.
-    if not _marker_present():
-        with _state_writer_lock():
-            validated = _validate_state(_read_existing_state())
-            if not _marker_present():
-                _install_initialization_marker()
-    else:
-        # Detect a concurrent epoch/revision transition before returning a
-        # state read outside the writer lock. Callers must not consume a
-        # superseded revision as fresh authority evidence.
-        current = _validate_state(_read_existing_state())
-        if (validated["state_epoch"], validated["revision"]) != (
-                current["state_epoch"], current["revision"]):
-            raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: concurrent state transition")
-    return validated
+    with _state_writer_lock():
+        try:
+            state = _validate_state(_read_existing_state())
+        except FileNotFoundError:
+            if _marker_present():
+                raise StateIntegrityError(
+                    "STATE_INTEGRITY_UNAVAILABLE: canonical state missing after initialization"
+                )
+            state = {
+                "state_version": 1,
+                "state_epoch": "epoch-" + secrets.token_hex(16),
+                "revision": 0,
+                "fingerprint_version": FINGERPRINT_VERSION,
+                "initialized_at": _now_iso(),
+                "updated_at": _now_iso(),
+            }
+            # The marker is durable first. Interrupted initialization then
+            # fails closed instead of manufacturing a new epoch on restart.
+            _install_initialization_marker()
+            _create_initial_state(state)
+            return state
+        except (OSError, ValueError, UnicodeError) as exc:
+            raise StateIntegrityError(
+                "STATE_INTEGRITY_UNAVAILABLE: device-state corrupt"
+            ) from exc
+        # Legacy migration is permitted only with a validated, existing
+        # authority file; it cannot reset epoch or revision.
+        if not _marker_present():
+            _install_initialization_marker()
+        return state
 
 
 def _normalize(value: Any) -> Any:

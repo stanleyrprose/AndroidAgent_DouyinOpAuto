@@ -2727,3 +2727,14 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
 - Added source-only regression candidates for a concurrent revision change
   and stable repeated reads. This detects sampled transitions but does not
   provide a linearizable reader snapshot under an adversarial same-UID writer.
+
+### 2026-10-12 authority read lock consolidation
+
+- Replaced the earlier double-sampling `load_state` guard with a single
+  writer-lock-protected read. Readers and canonical revision/epoch writers now
+  share the same lock; the returned state is consistent at that lock boundary.
+- Initialization and legacy marker backfill are performed within that lock.
+  Mutation still requires CAS validation because the state can advance after
+  `load_state` returns. Adjusted source-only regression candidates accordingly.
+- This is a source change, not a tested or accepted migration. A hostile
+  same-UID process replacing the lock inode remains outside this guarantee.
