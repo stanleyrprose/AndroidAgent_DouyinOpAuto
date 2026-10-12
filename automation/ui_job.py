@@ -89,6 +89,16 @@ def read_json(path: Path, default=None):
 def append_journal(path: Path, row: dict[str, Any]) -> None:
     """Durable append; never follow or silently chmod a replaced journal."""
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Resolve no symbolic directory components for a mutation journal.
+    # A trusted leaf name inside an untrusted ancestor is not sufficient.
+    cursor = path.parent
+    while True:
+        component = os.lstat(cursor)
+        if stat.S_ISLNK(component.st_mode):
+            raise UiJobError("JOURNAL_DIRECTORY_SYMLINK")
+        if cursor == cursor.parent:
+            break
+        cursor = cursor.parent
     directory = os.lstat(path.parent)
     if (not stat.S_ISDIR(directory.st_mode)
             or directory.st_uid != os.geteuid()

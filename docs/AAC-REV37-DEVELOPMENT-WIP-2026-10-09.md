@@ -2646,3 +2646,12 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
 - Added an unexecuted regression candidate that injects an inconsistent CAS
   return and verifies that no MUTATION_COMMITTED record is emitted.
 - Tests/build/device execution remain outside this source-only batch.
+
+### 2026-10-12 Sprint 1 journal directory path hardening
+
+- `append_journal` rejects symlink components anywhere in its parent path,
+  rather than only checking the leaf journal inode and directory owner/mode.
+- Added source-only regression candidates for symlinked immediate and
+  intermediate directories. This does not remove same-UID race exposure;
+  descriptor-relative directory traversal would be stronger if threat model
+  expands. No tests or builds were executed.

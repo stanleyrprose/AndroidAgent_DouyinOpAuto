@@ -60,3 +60,28 @@ class JournalDurabilityTests(unittest.TestCase):
                 with self.assertRaises((ui_job.UiJobError, OSError)):
                     ui_job.append_journal(path, {"phase": "MUTATION_PREPARED"})
                 self.assertEqual(victim.read_text(encoding="utf-8"), "unchanged")
+
+class JournalParentPathTests(unittest.TestCase):
+    def test_symlinked_parent_directory_is_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            real = base / "real"
+            real.mkdir(mode=0o700)
+            alias = base / "alias"
+            alias.symlink_to(real, target_is_directory=True)
+            with self.assertRaises(ui_job.UiJobError):
+                ui_job.append_journal(alias / "journal.jsonl", {"phase": "HEARTBEAT"})
+            self.assertFalse((real / "journal.jsonl").exists())
+
+    def test_ancestor_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            real = base / "real"
+            real.mkdir(mode=0o700)
+            leaf = real / "job"
+            leaf.mkdir(mode=0o700)
+            (base / "alias").symlink_to(real, target_is_directory=True)
+            with self.assertRaises(ui_job.UiJobError):
+                ui_job.append_journal(base / "alias" / "job" / "journal.jsonl",
+                                      {"phase": "HEARTBEAT"})
+            self.assertFalse((leaf / "journal.jsonl").exists())
