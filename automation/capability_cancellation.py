@@ -220,6 +220,9 @@ def finalize_pre_submit_cancel_from_durable_proof(
             and state.get("phase") == "CANCELLING",
             "CANCEL_INTENT_NOT_DURABLE",
         )
+        _need(not (job.path / "effect-boundary.json").is_symlink()
+              and not (job.path / "result.json").is_symlink(),
+              "CANCEL_PROOF_PATH_UNTRUSTED")
         _need(not (job.path / "effect-boundary.json").exists()
               and not (job.path / "result.json").exists()
               and state.get("backend_submitted") is False
@@ -229,6 +232,8 @@ def finalize_pre_submit_cancel_from_durable_proof(
 
         backend_path = job.path / "backend.json"
         witness_path = job.path / "backend-execution.json"
+        _need(not backend_path.is_symlink() and not witness_path.is_symlink(),
+              "CANCEL_BACKEND_WITNESS_UNTRUSTED")
         if backend_path.exists() or witness_path.exists():
             binding = _read_json(backend_path)
             execution = _read_json(witness_path)
@@ -326,6 +331,13 @@ def classify_cancel_completion(job: AdmittedJob) -> dict[str, Any]:
             }
         backend = job.path / "backend.json"
         execution = job.path / "backend-execution.json"
+        if backend.is_symlink() or execution.is_symlink():
+            return {
+                "status": "RECONCILE_REQUIRED",
+                "reason_code": "CANCEL_BACKEND_WITNESS_UNTRUSTED",
+                "terminal": False,
+                "external_effect_retry_allowed": False,
+            }
         if backend.exists() or execution.exists():
             try:
                 binding = _read_json(backend)
@@ -342,6 +354,7 @@ def classify_cancel_completion(job: AdmittedJob) -> dict[str, Any]:
                 and binding.get("request_sha256") == job.request_sha256
                 and witness.get("backend_job_id")
                     == binding.get("backend_job_id")
+                and witness.get("request_sha256") == job.request_sha256
                 and witness.get("phase") == "NEVER_CREATED"
                 and witness.get("submission_possible") is False
                 and witness.get("attempt_serial") == 0

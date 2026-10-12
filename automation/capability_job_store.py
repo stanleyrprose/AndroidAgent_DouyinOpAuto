@@ -309,6 +309,7 @@ def _append(path: Path, entry: Mapping[str, Any]) -> None:
 @contextmanager
 def _locked(path: Path, *, shared: bool = False) -> Iterator[None]:
     """Per-job transition flock; a shared status lookup NEVER creates files."""
+    _need(hasattr(os, "O_NOFOLLOW"), "TRANSITION_LOCK_NOFOLLOW_UNAVAILABLE")
     if shared or path.name == "transition.lock":
         _need(path.parent.is_dir() and not path.parent.is_symlink(),
               "CAPABILITY_PATH_UNTRUSTED")
@@ -316,11 +317,11 @@ def _locked(path: Path, *, shared: bool = False) -> Iterator[None]:
         # publication. Missing lock = corrupt/incomplete identity, never
         # silently create a new lock inode (which would split owners).
         flags = (os.O_RDONLY if shared else os.O_RDWR) \
-                | getattr(os, "O_NOFOLLOW", 0)
+                | os.O_NOFOLLOW
     else:
         _root_dir(path.parent)
         flags = (os.O_RDWR | os.O_CREAT
-                 | getattr(os, "O_NOFOLLOW", 0))
+                 | os.O_NOFOLLOW)
     try:
         fd = os.open(path, flags, 0o600)
     except OSError as exc:
@@ -328,10 +329,19 @@ def _locked(path: Path, *, shared: bool = False) -> Iterator[None]:
     try:
         metadata = os.fstat(fd)
         _need(stat.S_ISREG(metadata.st_mode)
+              and metadata.st_nlink == 1
               and metadata.st_uid == _expected_protected_owner(path)
               and stat.S_IMODE(metadata.st_mode) == 0o600,
               "TRANSITION_LOCK_UNTRUSTED")
         fcntl.flock(fd, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+        # A replaced lock inode splits mutually exclusive writers. Refuse
+        # even when flock on the old descriptor succeeded.
+        current = os.stat(path, follow_symlinks=False)
+        _need(stat.S_ISREG(current.st_mode)
+              and current.st_nlink == 1
+              and (current.st_dev, current.st_ino)
+                  == (metadata.st_dev, metadata.st_ino),
+              "TRANSITION_LOCK_IDENTITY_DRIFT")
         yield
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
@@ -972,7 +982,10 @@ class CapabilityStore:
                     and outcome in {"VERIFIED", "OUTCOME_NOT_ACHIEVED"}
                     and exact_backend_id is not None),
                 "RECONCILE_REQUIRED")
-            effect_boundary_exists = (source / "effect-boundary.json").exists()
+            effect_boundary_path = source / "effect-boundary.json"
+            _need(not effect_boundary_path.is_symlink(),
+                  "EFFECT_BOUNDARY_PATH_UNTRUSTED")
+            effect_boundary_exists = effect_boundary_path.exists()
             _need(not effect_boundary_exists
                   or outcome in {"VERIFIED", "OUTCOME_NOT_ACHIEVED"},
                   "EFFECT_BOUNDARY_PREVENTS_CANCEL_OR_FAILURE")
@@ -993,6 +1006,14 @@ class CapabilityStore:
                     "SUBMISSION_POSSIBLE", "SUBMITTED_ACKNOWLEDGED",
                 }
             )
+            # A malformed or missing execution witness cannot turn a
+            # previously bound Backend into a never-created Backend.
+            binding_path = source / "backend.json"
+            _need(not binding_path.is_symlink(),
+                  "BACKEND_BINDING_PATH_UNTRUSTED")
+            if binding_path.exists() or execution_file.is_symlink():
+                _need(execution is not None,
+                      "BACKEND_EXECUTION_WITNESS_UNAVAILABLE")
             already_submitted = (
                 state.get("backend_submitted") is True
                 or submission_possible

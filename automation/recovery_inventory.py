@@ -57,6 +57,10 @@ def inspect_active_exact_readonly(
                 return _blocked(job_id, "TERMINAL_ARCHIVE_PENDING")
             binding_file = path / "backend.json"
             witness_file = path / "backend-execution.json"
+            if (binding_file.is_symlink() or witness_file.is_symlink()
+                    or (path / "effect-boundary.json").is_symlink()
+                    or (path / "result.json").is_symlink()):
+                return _blocked(job_id, "DURABLE_RECOVERY_PATH_UNTRUSTED")
             if not binding_file.exists() and not witness_file.exists():
                 if (state.get("phase") == "ADMITTED"
                         and not state.get("mutation_uncertain")
