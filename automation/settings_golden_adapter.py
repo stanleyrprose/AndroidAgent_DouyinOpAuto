@@ -342,6 +342,23 @@ def execute_settings_golden(
           and not (job.path / "result.json").exists()
           and not (job.path / "cancel.json").exists(),
           "SETTINGS_JOB_NOT_MUTABLE")
+    # Deny replay BEFORE even the first navigation mutation. A prior run
+    # may have crashed after touching Settings but before recording its
+    # baseline; neither that run nor its partially restored successor can
+    # be silently resumed under a fresh invocation.
+    from pathlib import Path
+    from automation.capability_job_store import _root_dir
+    request_root = Path("/opt/y700/runtime/gateway-settings")
+    _root_dir(request_root)
+    _need(not any((job.path / name).exists()
+                  or (job.path / name).is_symlink()
+                  for name in ("settings-initial.json",
+                               "settings-restore-result.json")),
+          "SETTINGS_REPLAY_DENIED")
+    _need(not any((request_root / (f"{backend_job_id}--settings-{step}-01.json")).exists()
+                  or (request_root / (f"{backend_job_id}--settings-{step}-01.json")).is_symlink()
+                  for step in ("initial", "change", "restore", "verify")),
+          "SETTINGS_SUBJOB_RETRY_DENIED")
 
     # Initial navigation is reversible, but uses the same canonical
     # owner and a fresh AUTO StateToken at each mutation boundary.
