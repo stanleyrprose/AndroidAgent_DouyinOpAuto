@@ -117,11 +117,48 @@ def atomic_json(path: Path, obj: Any) -> None:
     atomic_write(path, (json.dumps(obj, ensure_ascii=False, indent=2) + "\n").encode())
 
 
-def read_json(path: Path, default=None):
-    if not path.exists():
+def read_json(path: Path, default=None, *, max_bytes: int = 1024 * 1024):
+    """Bounded, owner-only control-file read without following final symlinks."""
+    if type(max_bytes) is not int or max_bytes <= 0:
+        raise UiJobError("CONTROL_READ_LIMIT_INVALID")
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise UiJobError("CONTROL_READ_NOFOLLOW_UNAVAILABLE")
+    try:
+        directory = os.lstat(path.parent)
+    except FileNotFoundError:
         return default
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    if (not stat.S_ISDIR(directory.st_mode)
+            or directory.st_uid != os.geteuid()
+            or stat.S_IMODE(directory.st_mode) != 0o700):
+        raise UiJobError("CONTROL_READ_DIRECTORY_UNTRUSTED")
+    cursor = path.parent
+    while True:
+        if stat.S_ISLNK(os.lstat(cursor).st_mode):
+            raise UiJobError("CONTROL_READ_DIRECTORY_SYMLINK")
+        if cursor == cursor.parent:
+            break
+        cursor = cursor.parent
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return default
+    try:
+        info = os.fstat(fd)
+        named = os.lstat(path)
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+                or (info.st_dev, info.st_ino) != (named.st_dev, named.st_ino)):
+            raise UiJobError("CONTROL_READ_FILE_UNTRUSTED")
+        if info.st_size > max_bytes:
+            raise UiJobError("CONTROL_READ_OVERSIZE")
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            raw = stream.read(max_bytes + 1)
+        if len(raw) > max_bytes:
+            raise UiJobError("CONTROL_READ_OVERSIZE")
+        return json.loads(raw.decode("utf-8"))
+    finally:
+        os.close(fd)
 
 
 def append_journal(path: Path, row: dict[str, Any]) -> None:

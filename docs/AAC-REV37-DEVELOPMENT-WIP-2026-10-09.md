@@ -2665,3 +2665,15 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
 - Added source-only tests for create/replace, symlink targets, untrusted parent
   mode, and symlink parent. No tests or builds executed. Remaining same-UID
   TOCTOU and noncooperating-writer races are not claimed solved.
+
+### 2026-10-12 Sprint 1 bounded UI control-file reads
+
+- `ui_job.read_json` now bounds file size and bytes read, checks owner-only
+  mode, regular-file type, single link, and inode continuity. It opens with
+  O_NOFOLLOW and O_NONBLOCK to avoid symlink traversal and FIFO blocking.
+- Parent directory and ancestry are validated before reads. Missing control
+  files retain the existing default-return behavior; malformed or untrusted
+  existing files fail closed.
+- Added source-only candidates for missing, round-trip, link, oversize, and
+  FIFO scenarios. Tests/build/device verification deferred. Same-UID races
+  remain an explicit threat-model limitation.

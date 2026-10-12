@@ -48,3 +48,51 @@ class AtomicControlFileTests(unittest.TestCase):
             with self.assertRaises(ui_job.UiJobError):
                 ui_job.atomic_write(Path(root) / "alias" / "state.json", b"data")
             self.assertFalse((folder / "state.json").exists())
+
+class BoundedControlReadTests(unittest.TestCase):
+    def test_missing_file_returns_default(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root) / "job"
+            folder.mkdir(mode=0o700)
+            self.assertEqual(ui_job.read_json(folder / "missing.json", {}), {})
+
+    def test_round_trip_json(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root) / "job"
+            folder.mkdir(mode=0o700)
+            target = folder / "state.json"
+            ui_job.atomic_json(target, {"status": "PASS"})
+            self.assertEqual(ui_job.read_json(target), {"status": "PASS"})
+
+    def test_symlink_and_hardlink_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root) / "job"
+            folder.mkdir(mode=0o700)
+            victim = folder / "victim.json"
+            ui_job.atomic_json(victim, {"safe": True})
+            alias = folder / "alias.json"
+            alias.symlink_to(victim)
+            with self.assertRaises((ui_job.UiJobError, OSError)):
+                ui_job.read_json(alias)
+            alias.unlink()
+            os.link(victim, alias)
+            with self.assertRaises(ui_job.UiJobError):
+                ui_job.read_json(alias)
+
+    def test_oversized_control_file_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root) / "job"
+            folder.mkdir(mode=0o700)
+            target = folder / "state.json"
+            ui_job.atomic_write(target, b'{"payload":"123456789"}')
+            with self.assertRaises(ui_job.UiJobError):
+                ui_job.read_json(target, max_bytes=8)
+
+    def test_fifo_is_not_opened_as_control_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root) / "job"
+            folder.mkdir(mode=0o700)
+            fifo = folder / "state.json"
+            os.mkfifo(fifo, 0o600)
+            with self.assertRaises(ui_job.UiJobError):
+                ui_job.read_json(fifo)
