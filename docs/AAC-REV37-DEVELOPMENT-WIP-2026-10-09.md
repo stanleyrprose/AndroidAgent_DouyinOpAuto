@@ -2447,3 +2447,13 @@ not permission to mint fresh provenance. This is static source only.
 No acceptance producer or release-switch gate was enabled. The work is
 source-only and requires the deferred consolidated test/fault-injection
 batch plus real Y700 evidence before any acceptance decision.
+
+### 2026-10-12 Sprint 1A native read-only state continuity
+
+`Rev37NativeStateObserver` now checks both SOT mtime and ctime in its
+fixed-path root-owned metadata sandwich. It also samples native display
+rotation and dimensions before foreground/window observations and rejects
+any display drift on the final Activity check, returning the original
+observed geometry rather than mixing dimensions from different frames.
+This remains a read-only UNTESTED candidate, with D-G3 closed and no
+accepted native frame-age calibration or TikTok modal contract.

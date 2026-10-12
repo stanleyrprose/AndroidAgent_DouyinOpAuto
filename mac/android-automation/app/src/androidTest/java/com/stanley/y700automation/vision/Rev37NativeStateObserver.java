@@ -107,11 +107,11 @@ public final class Rev37NativeStateObserver {
         // GNU stat without -L observes the inode at the fixed path, so a
         // symlink is never accepted as the root-owned SOT. Metadata is
         // rechecked around the fixed-path read to detect replacement.
-        String raw = fixedShell(i, "su -c 'stat -c \"%u %a %F %d %i %h %s %Y\" "
+        String raw = fixedShell(i, "su -c 'stat -c \"%u %a %F %d %i %h %s %Y %Z\" "
                 + SOT + "'");
         if (raw == null) return null;
         String[] fields = raw.trim().split(" ");
-        if (fields.length != 9 || !"0".equals(fields[0])
+        if (fields.length != 10 || !"0".equals(fields[0])
                 || !"600".equals(fields[1])
                 || !"regular".equals(fields[2])
                 || !"file".equals(fields[3])) return null;
@@ -119,7 +119,7 @@ public final class Rev37NativeStateObserver {
             long size = Long.parseLong(fields[7]);
             if (!"1".equals(fields[6])) return null;
             if (size <= 0 || size > MAX_CAPTURE_CHARS) return null;
-            for (int index : new int[]{4, 5, 8}) {
+            for (int index : new int[]{4, 5, 8, 9}) {
                 if (Long.parseLong(fields[index]) < 0) return null;
             }
         } catch (NumberFormatException ignored) {
@@ -259,6 +259,12 @@ public final class Rev37NativeStateObserver {
         String boot = bootBefore.trim();
         if (!BOOT.matcher(boot).matches())
             return unavailable("BOOT_ID_INVALID");
+        int rotationBefore = device.getDisplayRotation();
+        int widthBefore = device.getDisplayWidth();
+        int heightBefore = device.getDisplayHeight();
+        if (widthBefore <= 0 || heightBefore <= 0
+                || rotationBefore < 0 || rotationBefore > 3)
+            return unavailable("FRAME_DISPLAY_UNAVAILABLE");
         String component = foregroundComponent(instrumentation);
         if (component == null || !component.startsWith(expectedPackage + "/")
                 || !expectedPackage.equals(device.getCurrentPackageName()))
@@ -300,7 +306,10 @@ public final class Rev37NativeStateObserver {
         // The second window walk and semantic selectors are also async
         // reads. Reobserve Activity before issuing the final snapshot.
         if (!component.equals(foregroundComponent(instrumentation))
-                || !expectedPackage.equals(device.getCurrentPackageName()))
+                || !expectedPackage.equals(device.getCurrentPackageName())
+                || rotationBefore != device.getDisplayRotation()
+                || widthBefore != device.getDisplayWidth()
+                || heightBefore != device.getDisplayHeight())
             return unavailable("FRAME_FOREGROUND_DRIFT");
         long observationFinishedMs = SystemClock.elapsedRealtimeNanos() / 1_000_000L;
         if (observationFinishedMs < observationStartedMs
@@ -313,9 +322,9 @@ public final class Rev37NativeStateObserver {
                     .put("state_epoch", stateAfter.getString("state_epoch"))
                     .put("revision", stateAfter.getInt("revision"))
                     .put("display_id", 0)
-                    .put("rotation", device.getDisplayRotation())
-                    .put("width", device.getDisplayWidth())
-                    .put("height", device.getDisplayHeight())
+                    .put("rotation", rotationBefore)
+                    .put("width", widthBefore)
+                    .put("height", heightBefore)
                     .put("foreground", new JSONObject()
                             .put("package", expectedPackage)
                             .put("activity", activity))
