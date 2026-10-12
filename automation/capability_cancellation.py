@@ -209,7 +209,11 @@ def finalize_pre_submit_cancel_from_durable_proof(
             identity.get("capability_job_id") == job.job_id
             and identity.get("request_sha256") == job.request_sha256
             and state.get("capability_job_id") == job.job_id
-            and state.get("request_sha256") == job.request_sha256,
+            and state.get("request_sha256") == job.request_sha256
+            and identity.get("effective_policy_sha256")
+                == job.effective_policy_sha256
+            and state.get("effective_policy_sha256")
+                == job.effective_policy_sha256,
             "CANCEL_DURABLE_IDENTITY_MISMATCH",
         )
         cancel = _read_json(job.path / "cancel.json")
