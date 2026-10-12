@@ -171,7 +171,11 @@ def archive_verified_publisher_after_acceptance(
             "capability_job_id": capability_job_id,
             "backend_job_id": backend_id,
             "publisher_job_id": publisher_id,
-            "external_effect_attempts": 0,
+            # This archive-only operation makes zero NEW external attempts;
+            # it does not prove the original TikTok COMMIT never happened.
+            "external_effect_attempts": None,
+            "external_effect_attempts_by_recovery": 0,
+            "external_effect_retry_allowed": False,
             "backend_resubmitted": False,
             "capability_terminalized": False,
         }

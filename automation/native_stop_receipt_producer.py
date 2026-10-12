@@ -199,5 +199,8 @@ def publish_generation_bound_stop_receipt(
         "descendant_count": descendant_count,
         "business_outcome_mutated": False,
         "claim_released": False,
-        "external_effect_attempts": 0,
+        # Physical UI quiescence is NOT a business-effect count. The
+        # external publish attempt may have occurred before stop proof.
+        "external_effect_attempts": None,
+        "external_effect_retry_allowed": False,
     }

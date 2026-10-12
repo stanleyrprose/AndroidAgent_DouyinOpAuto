@@ -2404,3 +2404,13 @@ both before starting and when persisting the initial Settings baseline.
 
 This is development-only source. No Settings UI action, build, test or
 hardware acceptance was performed. The Settings execution gate is CLOSED.
+
+### 2026-10-12 continued Sprint 3/6: quiescence is not effect absence
+
+The inactive native stop-receipt producer and Publisher archive-only
+recovery previously returned `external_effect_attempts: 0` even though
+neither operation can know whether the original TikTok COMMIT occurred.
+Both now return `null` for the original effect count, deny external retry,
+and distinguish zero NEW attempts performed by archive recovery. A positive
+mutator-stop receipt only proves resource quiescence; it cannot retroactively
+establish that the business effect was never attempted.
