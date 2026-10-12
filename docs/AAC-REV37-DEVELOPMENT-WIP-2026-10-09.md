@@ -2527,3 +2527,17 @@ CI, device mutation, or production release was performed. D-G3 remains CLOSED.
 - This is a source-only compatibility candidate. Consolidated unit,
   concurrency, crash and real-device verification remain deferred under
   the explicit no-tests/no-builds instruction.
+
+### 2026-10-12 Sprint 1 / 1A typed-proof batch
+
+- `state_integrity` rejects boolean or malformed token version/revision,
+  boolean maximum-age/observed time and negative caller-supplied boottime.
+- `frame_guard` requires explicit `ambiguous=false` rather than accepting
+  absent ambiguity evidence; rejects conflicting bounds plus semantic target
+  and boolean version/display/rotation fields.
+- `route_selection` rejects duplicate route identifiers and refuses to
+  silently choose HOST_PRIMITIVE for EXTERNAL_IRREVERSIBLE actions.
+
+This batch is static-only. No test, build, PR, CI, deployment, or gate
+activation. Remaining initialization/concurrency and device acceptance
+questions are not represented as PASS.

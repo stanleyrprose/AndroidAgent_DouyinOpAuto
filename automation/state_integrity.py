@@ -416,8 +416,10 @@ def issue_token(
 ) -> dict[str, Any]:
     if fingerprint_profile_id not in PROFILES:
         raise StateIntegrityError("STATE_TOKEN_PROFILE_MISMATCH")
-    if not 0 < int(max_age_ms) <= MAX_TOKEN_AGE_MS:
+    if type(max_age_ms) is not int or not 0 < max_age_ms <= MAX_TOKEN_AGE_MS:
         raise StateIntegrityError("STATE_TOKEN_MAX_AGE_INVALID")
+    if boottime_ms is not None and (type(boottime_ms) is not int or boottime_ms < 0):
+        raise StateIntegrityError("STATE_TOKEN_BOOTTIME_INVALID")
     state = load_state()
     return {
         "token_version": 1,
@@ -442,12 +444,15 @@ def assert_token(
     boot_id: str | None = None,
     boottime_ms: int | None = None,
 ) -> dict[str, Any]:
-    if not isinstance(token, dict) or token.get("token_version") != 1:
+    if (not isinstance(token, dict)
+            or type(token.get("token_version")) is not int
+            or token["token_version"] != 1):
         raise StateIntegrityError("UNGUARDED_MUTATION_NOT_ALLOWED")
     state = load_state()
     if token.get("state_epoch") != state.get("state_epoch"):
         raise StateIntegrityError("STALE_STATE_EPOCH")
-    if token.get("revision") != state.get("revision"):
+    if (type(token.get("revision")) is not int
+            or token["revision"] != state.get("revision")):
         raise StateIntegrityError("STALE_STATE_REVISION")
     if token.get("fingerprint_version") != FINGERPRINT_VERSION:
         raise StateIntegrityError("STALE_STATE_HASH")
@@ -459,7 +464,7 @@ def assert_token(
     now_ms = int(boottime_ms if boottime_ms is not None else _boottime_ms())
     observed = token.get("observed_boottime_ms")
     max_age = token.get("max_age_ms")
-    if not isinstance(observed, int) or not isinstance(max_age, int) or max_age <= 0 or max_age > MAX_TOKEN_AGE_MS:
+    if type(observed) is not int or type(max_age) is not int or max_age <= 0 or max_age > MAX_TOKEN_AGE_MS:
         raise StateIntegrityError("STATE_TOKEN_EXPIRED")
     age = now_ms - observed
     if age < 0:

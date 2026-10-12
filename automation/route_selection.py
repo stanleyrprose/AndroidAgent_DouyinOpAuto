@@ -41,7 +41,8 @@ def select_execution_route(
     routes = contract.get("route_ids")
     if not isinstance(routes, Mapping) or set(routes) != ROUTE_CLASSES:
         raise RouteContractError("RUNTIME_CONTRACT_MISMATCH")
-    if any(not isinstance(v, str) or not v for v in routes.values()):
+    if (any(not isinstance(v, str) or not v for v in routes.values())
+            or len(set(routes.values())) != len(ROUTE_CLASSES)):
         raise RouteContractError("RUNTIME_CONTRACT_MISMATCH")
     if (
         not isinstance(target_state, str) or not target_state
@@ -68,7 +69,9 @@ def select_execution_route(
         # An attempted but unavailable/stale vision path must not silently
         # escape to an unrelated host primitive (unsafe transparent fallback).
         route_class = "BLOCKED"
-    elif host_primitive_ready and bool(contract.get("host_primitive_allowed", False)):
+    elif (host_primitive_ready
+          and contract.get("host_primitive_allowed") is True
+          and action_class != "EXTERNAL_IRREVERSIBLE"):
         route_class = "HOST_PRIMITIVE"
     else:
         route_class = "BLOCKED"

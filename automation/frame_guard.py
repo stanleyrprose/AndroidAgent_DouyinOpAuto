@@ -48,7 +48,8 @@ def validate_frame_guard(
     _required(type(expected_max_age_ms) is int and 0 < expected_max_age_ms <= 10000)
     _required(type(now_boottime_ms) is int and now_boottime_ms >= 0)
     _required(isinstance(expected_locator_contract_version, str) and bool(expected_locator_contract_version))
-    _required(frame.get("frame_token_version") == 1)
+    _required(type(frame.get("frame_token_version")) is int
+              and frame["frame_token_version"] == 1)
     frame_id = frame.get("frame_id")
     _required(isinstance(frame_id, str) and frame_id.startswith("frame-") and len(frame_id) > 6)
     _required(frame.get("source") in SOURCES)
@@ -71,6 +72,7 @@ def validate_frame_guard(
     bounds = locator.get("bounds")
     target = locator.get("semantic_target")
     if bounds is not None:
+        _required(target is None, "LOCATOR_AMBIGUOUS")
         _required(
             isinstance(bounds, (list, tuple)) and len(bounds) == 4
             and all(type(v) is int for v in bounds),
@@ -84,13 +86,15 @@ def validate_frame_guard(
         )
     else:
         _required(isinstance(target, str) and bool(target.strip()), "LOCATOR_AMBIGUOUS")
-    _required(locator.get("ambiguous") is not True, "LOCATOR_AMBIGUOUS")
+    _required(locator.get("ambiguous") is False, "LOCATOR_AMBIGUOUS")
 
     _required(current.get("boot_id") == frame["observed_boot_id"], "FRAME_BOOT_MISMATCH")
     _required(current.get("state_epoch") == frame["state_epoch"], "FRAME_STALE")
     _required(type(current.get("revision")) is int and current["revision"] == frame["revision"], "FRAME_REVISION_STALE")
-    _required(current.get("display_id") == frame["display_id"], "FRAME_DISPLAY_CHANGED")
-    _required(current.get("rotation") == frame["rotation"], "FRAME_ROTATION_CHANGED")
+    _required(type(current.get("display_id")) is int
+              and current["display_id"] == frame["display_id"], "FRAME_DISPLAY_CHANGED")
+    _required(type(current.get("rotation")) is int
+              and current["rotation"] == frame["rotation"], "FRAME_ROTATION_CHANGED")
     _required(current.get("width") == frame["width"] and current.get("height") == frame["height"], "FRAME_DISPLAY_CHANGED")
     active = current.get("foreground")
     _required(isinstance(active, Mapping) and active == foreground, "FRAME_FOREGROUND_DRIFT")
