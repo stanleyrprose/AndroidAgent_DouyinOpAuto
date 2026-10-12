@@ -103,7 +103,10 @@ def _journal(path: Path) -> list[dict[str, Any]] | None:
     return result
 
 
-def inspect_job(job_dir: Path, *, expected_job_id: str | None = None) -> dict[str, Any]:
+def inspect_job(
+    job_dir: Path, *, expected_job_id: str | None = None,
+    claim: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Classify evidence only; all uncertainty is a replay prohibition."""
     directory = os.lstat(job_dir)
     if (not stat.S_ISDIR(directory.st_mode)
@@ -193,6 +196,16 @@ def inspect_job(job_dir: Path, *, expected_job_id: str | None = None) -> dict[st
         reasons.append("CHECKPOINT_OR_STATE_MISSING")
     if result is not None and result.get("status") == "RECONCILE_REQUIRED":
         reasons.append("RECONCILIATION_REQUIRED")
+    if prepared or committed or ambiguous:
+        expected_guard = request.get("resource_guard")
+        if not isinstance(expected_guard, dict) or not isinstance(claim, dict):
+            reasons.append("CANONICAL_CLAIM_UNVERIFIED")
+        elif (claim.get("resource") != "android_ui"
+              or claim.get("claim_id") != expected_guard.get("claim_id")
+              or claim.get("owner_id") != expected_guard.get("owner_id")):
+            reasons.append("CANONICAL_CLAIM_IDENTITY_MISMATCH")
+        elif claim.get("reconcile_required") is True:
+            reasons.append("CANONICAL_CLAIM_RECONCILE_REQUIRED")
     # This inspector does not authorize replay even when evidence is complete.
     return {
         "job_id": job_id,
@@ -218,8 +231,15 @@ def correlate_claim(evidence: dict[str, Any], *, claim: dict[str, Any] | None) -
           or not isinstance(claim.get("claim_id"), str)
           or not claim.get("claim_id")):
         reasons.append("CANONICAL_CLAIM_INVALID")
-    elif claim.get("reconcile_required") is True:
-        reasons.append("CANONICAL_CLAIM_RECONCILE_REQUIRED")
+    else:
+        active_job = claim.get("active_ui_job_id")
+        active_session = claim.get("active_session_id")
+        if active_job is not None and active_job != evidence.get("job_id"):
+            reasons.append("CANONICAL_CLAIM_JOB_IDENTITY_MISMATCH")
+        if active_session is not None and active_session != evidence.get("session_id"):
+            reasons.append("CANONICAL_CLAIM_SESSION_IDENTITY_MISMATCH")
+        if claim.get("reconcile_required") is True:
+            reasons.append("CANONICAL_CLAIM_RECONCILE_REQUIRED")
     # Exact job/claim association is not inferred from PID or checkpoint.
     # This diagnostic cannot promote an apparently clean terminal receipt.
     return {

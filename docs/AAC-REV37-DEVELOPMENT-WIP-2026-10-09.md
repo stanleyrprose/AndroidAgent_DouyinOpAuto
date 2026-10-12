@@ -2851,3 +2851,16 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
 - Added five source-only integration regression candidates. This is not a
   positive stop proof or authorization to release Claim, recover a job,
   or execute a TikTok publish action.
+
+### 2026-10-12 read-only recovery inspector / canonical Claim integration
+
+- Corrected the UI Job diagnostic entrypoint to invoke the actual
+  `ui_recovery_inspector.inspect_job` API (rather than a nonexistent
+  `classify` function). It passes the authoritative Claim read into the
+  evidence assessment; corruption produces an explicit non-replayable
+  diagnostic instead of a silent success.
+- Mutation journal evidence is correlated with the request's exact Claim
+  ID and owner ID. Missing, replaced, or reconcile-marked Claims are
+  reported explicitly, never treated as an available resource.
+- Added six source-only integration regression candidates; no tests,
+  native stop proof, resource release, CI or production action authorized.

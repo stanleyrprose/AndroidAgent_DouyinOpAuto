@@ -1316,30 +1316,25 @@ def status(job_id: str) -> dict[str, Any]:
 
 
 def inspect_recovery(job_id: str) -> dict[str, Any]:
-    """Explicit read-only recovery diagnostic; never schedules a replay.
-
-    An unreadable/corrupt Claim is a hard error, not evidence that the UI
-    resource is free. No state, checkpoint or Claim is changed here.
-    """
+    """Fail-closed read-only diagnostic: never dispatch or release ownership."""
     if not JOB_RE.fullmatch(job_id):
         raise UiJobError("invalid job id")
     directory = UI_JOBS / job_id
     try:
-        evidence = ui_recovery_inspector.inspect_job(
-            directory, expected_job_id=job_id,
-        )
         claim = resource_arbiter.read_claim()
+        return ui_recovery_inspector.inspect_job(
+            directory, expected_job_id=job_id, claim=claim,
+        )
     except (ui_recovery_inspector.RecoveryEvidenceError,
             resource_arbiter.ResourceError, OSError) as exc:
         return {
             "job_id": job_id,
             "classification": "RECONCILE_REQUIRED",
-            "reason_codes": ["RECOVERY_EVIDENCE_OR_CLAIM_UNAVAILABLE"],
+            "reason_codes": [str(exc).split(":", 1)[0]],
             "automatic_replay_allowed": False,
             "claim_release_authorized": False,
             "mutation_dispatch_allowed": False,
         }
-    return ui_recovery_inspector.correlate_claim(evidence, claim=claim)
 
 
 def cancel(job_id: str, reason: str = "user_requested") -> dict[str, Any]:

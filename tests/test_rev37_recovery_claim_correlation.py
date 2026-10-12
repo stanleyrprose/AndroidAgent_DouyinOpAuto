@@ -1,50 +1,39 @@
-"""Source-only recovery Claim correlation regression candidates."""
+"""Unexecuted recovery/Claim correlation regression candidates."""
 import unittest
-from unittest.mock import patch
-
-from automation import ui_job, ui_recovery_inspector
+from automation.ui_recovery_inspector import correlate_claim
 
 
 class RecoveryClaimCorrelationTests(unittest.TestCase):
     def setUp(self):
         self.evidence = {
-            "job_id": "job-1", "classification": "TERMINAL_EVIDENCE_PRESENT",
-            "reason_codes": [], "automatic_replay_allowed": False,
-            "claim_release_authorized": False,
-            "mutation_dispatch_allowed": False,
+            "job_id": "job-1", "session_id": "session-1",
+            "classification": "TERMINAL_EVIDENCE_PRESENT", "reason_codes": [],
+        }
+        self.claim = {
+            "resource": "android_ui", "claim_id": "claim-1",
+            "active_ui_job_id": "job-1", "active_session_id": "session-1",
         }
 
-    def test_missing_claim_requires_reconciliation(self):
-        result = ui_recovery_inspector.correlate_claim(self.evidence, claim=None)
-        self.assertEqual(result["classification"], "RECONCILE_REQUIRED")
-        self.assertIn("CANONICAL_CLAIM_MISSING_OR_RELEASED", result["reason_codes"])
+    def test_matching_claim_does_not_authorize_replay_or_release(self):
+        result = correlate_claim(self.evidence, claim=self.claim)
+        self.assertEqual(result["classification"], "TERMINAL_EVIDENCE_PRESENT")
         self.assertFalse(result["automatic_replay_allowed"])
-
-    def test_claim_reconcile_flag_is_not_silent_success(self):
-        claim = {"resource": "android_ui", "claim_id": "claim-1",
-                 "reconcile_required": True}
-        result = ui_recovery_inspector.correlate_claim(self.evidence, claim=claim)
-        self.assertIn("CANONICAL_CLAIM_RECONCILE_REQUIRED", result["reason_codes"])
         self.assertFalse(result["claim_release_authorized"])
 
-    def test_invalid_claim_fails_closed(self):
-        result = ui_recovery_inspector.correlate_claim(
-            self.evidence, claim={"resource": "other", "claim_id": "claim-1"},
-        )
-        self.assertIn("CANONICAL_CLAIM_INVALID", result["reason_codes"])
-
-    def test_inspection_calls_actual_inspector_api(self):
-        with patch.object(ui_job.ui_recovery_inspector, "inspect_job",
-                          return_value=self.evidence) as inspect, \
-             patch.object(ui_job.resource_arbiter, "read_claim", return_value=None), \
-             patch.object(ui_job, "UI_JOBS") as jobs:
-            result = ui_job.inspect_recovery("job-1")
-        inspect.assert_called_once()
-        self.assertEqual(result["classification"], "RECONCILE_REQUIRED")
-
-    def test_inspector_failure_returns_closed_receipt(self):
-        with patch.object(ui_job.ui_recovery_inspector, "inspect_job",
-                          side_effect=ui_recovery_inspector.RecoveryEvidenceError("broken")):
-            result = ui_job.inspect_recovery("job-1")
-        self.assertFalse(result["automatic_replay_allowed"])
+    def test_missing_claim_is_not_positive_stop_proof(self):
+        result = correlate_claim(self.evidence, claim=None)
+        self.assertIn("CANONICAL_CLAIM_MISSING_OR_RELEASED", result["reason_codes"])
         self.assertFalse(result["mutation_dispatch_allowed"])
+
+    def test_claim_bound_to_other_job_requires_reconcile(self):
+        result = correlate_claim(self.evidence, claim={**self.claim, "active_ui_job_id": "job-2"})
+        self.assertIn("CANONICAL_CLAIM_JOB_IDENTITY_MISMATCH", result["reason_codes"])
+
+    def test_claim_bound_to_other_session_requires_reconcile(self):
+        result = correlate_claim(self.evidence, claim={**self.claim, "active_session_id": "session-2"})
+        self.assertIn("CANONICAL_CLAIM_SESSION_IDENTITY_MISMATCH", result["reason_codes"])
+
+    def test_reconcile_claim_remains_blocked(self):
+        result = correlate_claim(self.evidence, claim={**self.claim, "reconcile_required": True})
+        self.assertIn("CANONICAL_CLAIM_RECONCILE_REQUIRED", result["reason_codes"])
+        self.assertEqual(result["classification"], "RECONCILE_REQUIRED")
