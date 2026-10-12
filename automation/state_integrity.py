@@ -306,7 +306,16 @@ def load_state() -> dict[str, Any]:
                 return state
     except (OSError, ValueError, UnicodeError) as exc:
         raise StateIntegrityError("STATE_INTEGRITY_UNAVAILABLE: device-state corrupt") from exc
-    return _validate_state(state)
+    validated = _validate_state(state)
+    # Existing installations may predate the marker. Only a verified existing
+    # authority state may be backfilled, under the same writer lock used for
+    # epoch/revision transitions. Never backfill an absent or corrupt state.
+    if not _marker_present():
+        with _state_writer_lock():
+            validated = _validate_state(_read_existing_state())
+            if not _marker_present():
+                _install_initialization_marker()
+    return validated
 
 
 def _normalize(value: Any) -> Any:

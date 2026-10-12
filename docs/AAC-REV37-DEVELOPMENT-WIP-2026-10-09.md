@@ -2706,3 +2706,14 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
   the unittest main guard after all test classes for direct-file discovery.
 - This is source-only; legacy marker migration and device acceptance remain
   open, as do same-UID concurrent path-replacement races.
+
+### 2026-10-12 legacy state marker backfill candidate
+
+- Added a source-only legacy migration path: when canonical state is already
+  present and valid but the new initialized marker is absent, acquire the
+  state writer lock, re-read and validate canonical authority, then durably
+  install the marker without resetting epoch or revision.
+- Missing or corrupt canonical state is never migrated by this path. Added
+  regression candidates for valid backfill and corrupt-state rejection.
+- Acceptance requires migration fault-injection and legacy-device evidence;
+  this does not authorize a production migration or release.

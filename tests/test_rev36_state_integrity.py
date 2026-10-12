@@ -289,6 +289,29 @@ class MarkerTrustRegressionTests(unittest.TestCase):
                 si.load_state()
             self.assertFalse(si.STATE_PATH.exists())
 
+class LegacyMarkerMigrationTests(unittest.TestCase):
+    load = StateIntegritySprint1Tests.load
+
+    def test_existing_valid_authority_backfills_marker_without_epoch_reset(self):
+        with tempfile.TemporaryDirectory() as td:
+            si = self.load(Path(td))
+            state = si.load_state()
+            si.STATE_INITIALIZED_MARKER.unlink()
+            loaded = si.load_state()
+            self.assertEqual(loaded["state_epoch"], state["state_epoch"])
+            self.assertEqual(loaded["revision"], state["revision"])
+            self.assertTrue(si._marker_present())
+
+    def test_corrupt_existing_authority_does_not_backfill_marker(self):
+        with tempfile.TemporaryDirectory() as td:
+            si = self.load(Path(td))
+            si.load_state()
+            si.STATE_INITIALIZED_MARKER.unlink()
+            si.STATE_PATH.write_bytes(b"not-json")
+            with self.assertRaises((si.StateIntegrityError, ValueError)):
+                si.load_state()
+            self.assertFalse(si.STATE_INITIALIZED_MARKER.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
