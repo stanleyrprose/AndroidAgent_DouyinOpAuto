@@ -397,11 +397,26 @@ def _run_mutation(
             **visual_metrics,
         })
 
-    journal_append(
-        _prepared_row(
-            req, action, index, claim, proof, request_sha, now_iso
+    try:
+        journal_append(
+            _prepared_row(
+                req, action, index, claim, proof, request_sha, now_iso
+            )
         )
-    )
+    except Exception:
+        # No Android input was requested. The journal may have partially
+        # persisted PREPARED, so conservatively fence the job for reconcile.
+        return None, {
+            "status": "RECONCILE_REQUIRED",
+            "job_id": req["job_id"],
+            "session_id": req["session_id"],
+            "protocol_version": 2,
+            "actions": results,
+            "action_attempts": 0,
+            "error": {"code": "MUTATION_PREPARE_DURABILITY_UNAVAILABLE",
+                      "retryable": False},
+            "host_duration_ms": round((time.monotonic() - started) * 1000, 1),
+        }, None
 
     dispatch = json.loads(json.dumps(action))
     dispatch["retry"] = 0

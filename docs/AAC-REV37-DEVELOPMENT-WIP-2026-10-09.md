@@ -2759,3 +2759,15 @@ remain pending. D-G3 and external COMMIT gates remain CLOSED.
 - Added source-only fault-injection candidates for committed-journal and
   checkpoint exceptions. Actual durable recovery, claim retention and replay
   gates require consolidated tests and device acceptance.
+
+### 2026-10-12 PREPARED journal durability fence
+
+- A PREPARED append exception now returns non-retryable
+  `MUTATION_PREPARE_DURABILITY_UNAVAILABLE` and `RECONCILE_REQUIRED`, with
+  `action_attempts=0`, before dispatching Android input. Even if an append
+  partially succeeded before fsync failure, it must not permit replay.
+- `ui_job` marks `mutation_prepared` before attempting the append so a
+  partially persisted PREPARED record cannot be mistaken for an unprepared
+  session during liveness handling.
+- Added source-only fault-injection regression candidate. No test, native
+  execution, CI, PR, merge, or deployment acceptance is claimed.

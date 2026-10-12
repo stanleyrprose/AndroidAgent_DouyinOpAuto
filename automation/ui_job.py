@@ -992,6 +992,8 @@ def run_workflow(path: Path, *, internal_backend: bool = False) -> dict[str, Any
         def journal_record(row: dict[str, Any]) -> None:
             nonlocal mutation_prepared
             if row.get("phase") == "MUTATION_PREPARED":
+                # Mark potential ownership ambiguity before append: a failed
+                # fsync can leave a durable PREPARED row on disk.
                 mutation_prepared = True
             append_journal(ui_dir / "journal.jsonl", row)
 

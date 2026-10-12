@@ -471,6 +471,46 @@ class Rev37DurabilityFailureTests(unittest.TestCase):
             self.assertEqual(si.load_state()["revision"], 1)
             self.assertTrue(any(row.get("phase") == "MUTATION_PREPARED" for row in journal))
 
+class Rev37PrepareDurabilityTests(unittest.TestCase):
+    modules = Rev36CoreV2Tests.modules
+    req = Rev36CoreV2Tests.req
+    driver = Rev36CoreV2Tests.driver
+
+    def test_prepared_append_exception_never_dispatches_mutation(self):
+        with tempfile.TemporaryDirectory() as td:
+            ra, si, core = self.modules(Path(td))
+            calls = []
+            rows = []
+
+            def append(row):
+                if row.get("phase") == "MUTATION_PREPARED":
+                    raise OSError("fsync interrupted")
+                rows.append(row)
+
+            with ra.acquire_android_ui(
+                owner_kind="LEGACY", owner_id="legacy:test", backend_type="test",
+                backend_job_id="rev37-prepare-durability",
+                request_sha256=ra.request_identity({"stage": "prepare"}),
+            ) as guard:
+                request = self.req({
+                    "action_id": "home", "action": "pressHome",
+                    "side_effect": "REVERSIBLE_LOCAL",
+                }, guard.as_dict())
+                result = core.run(
+                    request,
+                    driver_run=self.driver([observation()], calls),
+                    activity_read=lambda label: "com.example/.MainActivity",
+                    journal_append=append,
+                    checkpoint_write=lambda index, safe: None,
+                    cancel_check=lambda: False,
+                    now_iso=lambda: "2026-10-07T00:00:00+00:00",
+                )
+            self.assertEqual(result["status"], "RECONCILE_REQUIRED")
+            self.assertEqual(result["action_attempts"], 0)
+            self.assertEqual(result["error"]["code"], "MUTATION_PREPARE_DURABILITY_UNAVAILABLE")
+            self.assertEqual(si.load_state()["revision"], 0)
+            self.assertFalse(any("pressHome" in names for names in calls))
+
 
 if __name__ == "__main__":
     unittest.main()
