@@ -102,7 +102,7 @@ class MediaLifecycleTest(unittest.TestCase):
         original = source / "original.mp4"
         original.write_bytes(b"network failure fixture")
         atomic_json(source / "source.json", {"video_path": str(original)})
-        with patch("pipeline.media_lifecycle.subprocess.run") as run:
+        with patch("pipeline.telegram_media.deliver"), patch("pipeline.media_lifecycle.subprocess.run") as run:
             run.return_value.returncode = 255
             with self.assertRaisesRegex(TransferSafetyError, "Y700 pull failed"):
                 pull_verify_clean(self.root, ssh_target="y700", manifest_url="https://example.com/cap/manifest.json", intent="DIRECT_DOWNLOAD")

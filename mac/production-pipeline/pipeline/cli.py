@@ -56,6 +56,8 @@ def _canonicalize(job: Job, source_url: str, video: Path, result: dict, *, allow
 
 
 def _direct_export(job: Job, *, ttl_seconds: int = 3600) -> dict:
+    from .telegram_media import deliver
+    deliver(job.dir, intent="DIRECT_DOWNLOAD")
     source = read_json(job.dir / "source" / "source.json")
     video = Path(source["video_path"])
     export_dir = job.dir / "export"
@@ -460,6 +462,13 @@ def cmd_layout_set(args) -> int:
     return 0 if report["status"] != "BLOCKED" else 20
 
 
+def cmd_telegram_media(args) -> int:
+    from .telegram_media import deliver
+    result = deliver(get_job(args.job_id).dir)
+    print(json.dumps({"status": result["status"], "job_id": result["job_id"]}))
+    return 0
+
+
 def cmd_pull_verify_clean(args) -> int:
     from .media_lifecycle import pull_verify_clean
     job = get_job(args.job_id)
@@ -608,6 +617,10 @@ def main() -> int:
     p.add_argument("--mode", choices=["avoid_original", "cover_and_replace", "retain_original"], required=True)
     p.add_argument("--evidence-frame", action="append", default=[])
     p.set_defaults(func=cmd_layout_set)
+
+    p = sp.add_parser("telegram-media")
+    p.add_argument("job_id")
+    p.set_defaults(func=cmd_telegram_media)
 
     p = sp.add_parser("pull-verify-clean")
     p.add_argument("job_id")

@@ -32,3 +32,5 @@ Hard boundaries:
 - For Telegram-originated jobs, emit public-safe state transitions with `bash mac/production-pipeline/scripts/tg-notify.sh`.
 - Notification failure is observational only: it must not mutate job truth, trigger republish, or weaken fail-closed behavior.
 - Reject unrelated requests with a concise explanation that this bot is dedicated to Y700 automation.
+
+- Before any Y700 pull for these three normalized intents, require `pipeline.sh telegram-media <job>` success. Mac export also enforces delivery for intent-marked jobs. Bind the exact ingress numeric chat in private job state (`telegram_chat_id`) or dedicated deployment `Y700_TG_CHAT_ID`. Media delivery is mandatory, unlike status notifications; never bypass a size, rejection or uncertain-delivery block. See `mac/production-pipeline/docs/TELEGRAM-MEDIA-HANDOFF.md`.

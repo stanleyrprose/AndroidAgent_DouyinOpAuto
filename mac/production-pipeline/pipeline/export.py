@@ -4,10 +4,15 @@ import json
 import subprocess
 from pathlib import Path
 
-from .common import MEDIA_EXPORT, atomic_json, run
+from .common import MEDIA_EXPORT, atomic_json, run, read_json
 
 
 def export(job_dir: Path, *, ttl_seconds: int = 3600) -> dict:
+    from .telegram_media import deliver
+    # Only intent-marked control jobs require this Telegram handoff.
+    state = read_json(job_dir / "state.json", {})
+    if state.get("workflow_intent"):
+        deliver(job_dir)
     source = json.load(open(job_dir / "source" / "source.json", encoding="utf-8"))
     loc = json.load(open(job_dir / "localization" / "localization.json", encoding="utf-8"))
     prod = job_dir / "production"
