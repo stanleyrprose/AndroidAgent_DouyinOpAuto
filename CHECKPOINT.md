@@ -1139,3 +1139,13 @@ Scope: close instrumentation launch/evidence/health-check issues only. Frozen OC
 - Exact feature source: 77 production-pipeline tests PASS using the existing production virtual environment; affected shell syntax and diff whitespace checks PASS. System Python lacks numpy and is not the verification environment.
 - Repository webhook inventory empty; validate workflow triggers only main push and pull_request. No pre-existing feature PR. Runtime's existing shell punctuation hotfix is reconciled in this feature.
 - Release CI and deployment closure are recorded after their actual completion.
+
+## Telegram MP4 → Y700 synthetic acceptance — PASS (2026-10-13)
+
+- Owner authorized end-to-end acceptance with synthetic fixtures only; TikTok COMMIT and R0-04 remain excluded.
+- GitHub PR #57 merged at 2026-10-13T03:12:34Z; origin/main is 7be30b87afc9bb9c96906db97597c651afe99391. No code fix, new PR, CI or merge required.
+- Job telegram-synthetic-acceptance-20261013 passed production store_album_job.py: STORED_IN_ALBUM, Movies/Y700Agent, MediaStore row 274, ZUI Notes notes_v2 matching caption count 1.
+- READY and Android album SHA-256: e40f93b1b8ebebe6ad5f3ae683492b8bfc50110c1bbdba631a28a98b1962b2bc. Synthetic caption contract valid.
+- Repeat returned idempotent=true; matching Notes count remained 1; device screen restored ASLEEP. Manifest remains DRY_RUN.
+- Synthetic DIRECT_DOWNLOAD/publish routing: 7 tests PASS; Telegram media gates: 9 PASS; resume/immutable intent/reconciliation gates: 11 PASS. These fixture checks do not claim live DIRECT_DOWNLOAD or TikTok UI acceptance.
+- No TikTok publication, runtime deployment, secret or media committed. No acceptance blockers.
