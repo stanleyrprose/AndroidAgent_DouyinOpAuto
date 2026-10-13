@@ -58,6 +58,8 @@ remote() {
     "$USER@$HOST" "$command"
 }
 
+bash "$PIPELINE_CMD" telegram-media "$JOB_ID" >/dev/null
+
 bash "$TG_NOTIFY" TRANSFERRING "$JOB_ID" --detail "正在传输到 Y700 相册 $ALBUM" >/dev/null || true
 
 # Capability URL is intentionally never echoed. Pull is idempotent at job scope;

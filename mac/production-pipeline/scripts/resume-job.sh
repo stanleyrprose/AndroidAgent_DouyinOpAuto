@@ -230,6 +230,9 @@ fi
 if [ "$ready" != "true" ]; then
   refresh_export_if_needed
   url="$(manifest_url)"
+  if ! bash "$PIPELINE_CMD" telegram-media "$JOB_ID" >/dev/null; then
+    waiting "Telegram MP4 delivery blocked; Y700 pull not attempted"
+  fi
   if ! remote "cd /opt/y700/workspaces/y700-agent && python3 publisher/pull_job.py '$url'" >/dev/null 2>&1; then
     waiting "Y700 pull failed before DRY_RUN; safe to retry /resume later"
   fi

@@ -54,6 +54,8 @@ remote() {
     "$USER@$HOST" "$command"
 }
 
+bash "$PIPELINE_CMD" telegram-media "$JOB_ID" >/dev/null
+
 bash "$TG_NOTIFY" TRANSFERRING "$JOB_ID" --detail "正在把原始抖音视频传输到 Y700 相册 $ALBUM" >/dev/null || true
 
 remote "cd /opt/y700/workspaces/y700-agent && python3 scripts/pull-artifact-bundle.py --manifest-url '$manifest_url' --target-root /opt/y700/runtime/direct-download" >/dev/null
@@ -73,7 +75,7 @@ if [ "$status" != "DIRECT_DOWNLOADED" ]; then
 fi
 
 bash "$PIPELINE_CMD" mark-direct-downloaded "$JOB_ID" --album "$ALBUM" --device-path "$device_path" >/dev/null
-notify_json="$(bash "$TG_NOTIFY" DIRECT_DOWNLOADED "$JOB_ID" --detail "原始抖音视频已保存到 Y700 / Movies/$ALBUM；未分析、未翻译、未写 Notes、未启动 TikTok" || true)"
+notify_json="$(bash "$TG_NOTIFY" DIRECT_DOWNLOADED "$JOB_ID" --detail "原始抖音视频已保存到 Y700 / Movies/${ALBUM}；未分析、未翻译、未写 Notes、未启动 TikTok" || true)"
 python3 - "$RECEIPT" "$JOB_ID" "$ALBUM" "$device_path" "$notify_json" <<'PY'
 import json,os,sys,time
 path,job,album,device,raw=sys.argv[1:]

@@ -1130,3 +1130,12 @@ Scope: close instrumentation launch/evidence/health-check issues only. Frozen OC
 - Security: private SSH keys, Google OAuth tokens, account/VPS identifiers and runtime-only settings remain outside Git. The launcher checks expected egress before invoking agy and fails closed on unavailable proxy.
 - Boundary: no reboot, Android sleep/background-kill, Wi-Fi/hotspot transition or long-duration OAuth renewal acceptance is claimed. No Android global network or publisher/automation authorization changed; startup remains on demand.
 - Public-safe runbook and evidence: `docs/Y700-AGY-BKK-VERIFIED-BASELINE-2026-10-11.md`. Documentation records the accepted live-device state; it is not a byte-for-byte deployment artifact for private runtime configuration.
+
+## Telegram MP4 before Y700 — release verification 2026-10-13
+
+- Owner authorized real Telegram synthetic acceptance, PR/CI/merge and Mac rollout; TikTok publishing remains forbidden for this rollout.
+- Dedicated existing Hermes profile credentials and allowlisted home destination were resolved locally without logging secrets; deployment-local environment files use mode 0600 and remain outside Git.
+- Real synthetic H.264 MP4 (2326 bytes) uploaded through Telegram sendDocument: SENT. A second invocation reused the identical durable receipt without resending. No Y700 pull or publication was executed by acceptance.
+- Exact feature source: 77 production-pipeline tests PASS using the existing production virtual environment; affected shell syntax and diff whitespace checks PASS. System Python lacks numpy and is not the verification environment.
+- Repository webhook inventory empty; validate workflow triggers only main push and pull_request. No pre-existing feature PR. Runtime's existing shell punctuation hotfix is reconciled in this feature.
+- Release CI and deployment closure are recorded after their actual completion.

@@ -241,6 +241,11 @@ def pull_verify_clean(job_dir: Path, *, ssh_target: str, manifest_url: str,
         expected_status = "READY"
     else:
         raise TransferSafetyError("unsupported workflow intent")
+    from .telegram_media import deliver, MediaDeliveryError
+    try:
+        deliver(job_dir, intent=intent)
+    except MediaDeliveryError as exc:
+        raise TransferSafetyError(str(exc)) from None
     try:
         p = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
                             ssh_target, command], capture_output=True, text=True,
