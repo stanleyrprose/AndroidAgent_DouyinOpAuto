@@ -148,7 +148,7 @@ if [ "$intent" = "DIRECT_DOWNLOAD" ]; then
   esac
   refresh_export_if_needed
   if ! bash "$DIRECT_CMD" "$JOB_ID" Y700Agent; then
-    waiting "Y700 direct-download handoff did not complete; keep Mac original and retry 继续任务 / Resume Task after connectivity returns"
+    waiting "Y700 下载包或相册验收未完成；Mac 原视频已保留。请检查 Android Host Executor、MediaStore 及连接状态，再执行 继续任务 / Resume Task"
   fi
   exit 0
 fi

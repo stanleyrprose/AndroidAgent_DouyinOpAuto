@@ -22,7 +22,6 @@ RUN_ROOT = Path(os.environ.get("Y700_DIRECT_RUN_ROOT", "/opt/y700/runtime/direct
 STATE = Path(os.environ.get("Y700_DIRECT_STATE", "/opt/y700/runtime/state/direct-download.json"))
 ROOT_EXEC = Path(os.environ.get("Y700_ROOT_EXEC", str(ROOT / "bridge" / "root-exec.sh")))
 ANDROIDCTL = Path(os.environ.get("Y700_ANDROIDCTL", str(ROOT / "bridge" / "androidctl.sh")))
-SECURE_UNLOCK = Path(os.environ.get("Y700_SECURE_UNLOCK", str(ROOT / "bridge" / "secure-unlock.sh")))
 DEFAULT_ALBUM = "Y700Agent"
 ALBUM_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 JOB_RE = re.compile(r"^dd-[0-9]{5,32}$")
@@ -149,7 +148,8 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
     })
 
     try:
-        run(["bash", SECURE_UNLOCK], timeout=45)
+        # Direct file storage uses Android host shell, not an interactive UI.
+        # Unlocking an asleep screen is unnecessary and can fail before the copy.
         src = f"{HOST_PULL_ROOT}/{job_id}/original.mp4"
         album_dir = f"/sdcard/Movies/{album}"
         display_name = f"{job_id}.mp4"

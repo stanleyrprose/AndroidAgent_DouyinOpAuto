@@ -76,7 +76,8 @@ esac
             androidctl.chmod(0o755)
 
             unlock = td / "secure-unlock.sh"
-            unlock.write_text('#!/bin/bash\necho DEVICE_UNLOCK_OK\n', encoding="utf-8")
+            # Direct download must succeed without needing a screen unlock.
+            unlock.write_text('#!/bin/bash\nexit 91\n', encoding="utf-8")
             unlock.chmod(0o755)
 
             env = os.environ.copy()
