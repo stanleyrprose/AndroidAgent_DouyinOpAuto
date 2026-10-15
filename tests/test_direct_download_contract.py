@@ -106,11 +106,11 @@ esac
             commands = root_log.read_text(encoding="utf-8")
             self.assertIn("original.mp4", commands)
             self.assertIn("Movies/Y700Agent", commands)
-            self.assertIn("KEYCODE_SLEEP", commands)
+            self.assertNotIn("KEYCODE_SLEEP", commands)
             self.assertNotIn("com.zui.notes", commands)
             self.assertNotIn("tiktok", commands.lower())
             power = json.loads((run_root / job_id / "power-restore.json").read_text(encoding="utf-8"))
-            self.assertEqual(power["status"], "RESTORED_ASLEEP")
+            self.assertEqual(power["status"], "NO_SCREEN_MUTATION")
 
     def test_direct_store_rejects_non_original_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -135,6 +135,85 @@ esac
             p = subprocess.run(["python3", str(STORE), job_id], env=env, text=True, capture_output=True)
             self.assertNotEqual(p.returncode, 0)
             self.assertIn("DIRECT_DOWNLOAD_FAILED", p.stdout)
+
+    def test_direct_store_reconciles_existing_verified_file_without_copy_or_unlock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            td = Path(tmp)
+            job_id = "dd-1234567890123456789"
+            original = b"already-present-original-mp4"
+            digest = __import__("hashlib").sha256(original).hexdigest()
+            bundle = td / "pull" / job_id
+            bundle.mkdir(parents=True)
+            (bundle / ".complete").write_text("verified\n", encoding="utf-8")
+            (bundle / "manifest.json").write_text(json.dumps({
+                "schema_version": 1, "kind": "generic-artifact", "job_id": job_id,
+                "artifacts": [{"name": "original.mp4", "size": len(original),
+                               "sha256": digest, "url": "https://example.invalid/file"}],
+            }), encoding="utf-8")
+            album = td / "host-media" / "Movies" / "Y700Agent"
+            album.mkdir(parents=True)
+            (album / f"{job_id}.mp4").write_bytes(original)
+            commands = td / "commands"
+            root = td / "root.sh"
+            root.write_text(
+                '#!/bin/bash\nprintf "%s\\n" "$*" >> "' + str(commands) + '"\n'
+                'case "$*" in *"content query"*) '
+                'echo "Row: 0 _id=1, _display_name=' + job_id
+                + '.mp4, relative_path=Movies/Y700Agent/" ;; esac\n',
+                encoding="utf-8",
+            )
+            root.chmod(0o755)
+            screen = td / "screen.sh"
+            screen.write_text('#!/bin/bash\necho "mWakefulness=Asleep"\n', encoding="utf-8")
+            screen.chmod(0o755)
+            env = {**os.environ,
+                   "Y700_DIRECT_PULL_ROOT": str(td / "pull"),
+                   "Y700_DIRECT_HOST_MEDIA_ROOT": str(td / "host-media"),
+                   "Y700_DIRECT_RUN_ROOT": str(td / "runs"),
+                   "Y700_DIRECT_STATE": str(td / "state.json"),
+                   "Y700_ROOT_EXEC": str(root),
+                   "Y700_ANDROIDCTL": str(screen)}
+            proc = subprocess.run(["python3", str(STORE), job_id],
+                                  env=env, capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            result = json.loads(proc.stdout)
+            self.assertEqual(result["status"], "DIRECT_DOWNLOADED")
+            self.assertTrue(result["reconciled_existing_file"])
+            self.assertNotIn("cp ", commands.read_text())
+            self.assertNotIn("KEYCODE_SLEEP", commands.read_text())
+
+            # A repeated resume must use the success receipt without new actions.
+            commands.unlink()
+            proc = subprocess.run(["python3", str(STORE), job_id],
+                                  env=env, capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0)
+            self.assertTrue(json.loads(proc.stdout)["idempotent"])
+            self.assertFalse(commands.exists())
+
+    def test_direct_store_rejects_different_existing_video_without_overwriting(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            td = Path(tmp)
+            job_id = "dd-12345"
+            bundle = td / "pull" / job_id
+            bundle.mkdir(parents=True)
+            (bundle / ".complete").write_text("verified\n", encoding="utf-8")
+            (bundle / "manifest.json").write_text(json.dumps({
+                "schema_version": 1, "kind": "generic-artifact", "job_id": job_id,
+                "artifacts": [{"name": "original.mp4", "size": 5,
+                               "sha256": "a" * 64, "url": "https://example.invalid/file"}],
+            }), encoding="utf-8")
+            album = td / "host-media" / "Movies" / "Y700Agent"
+            album.mkdir(parents=True)
+            existing = album / f"{job_id}.mp4"
+            existing.write_bytes(b"wrong")
+            env = {**os.environ,
+                   "Y700_DIRECT_PULL_ROOT": str(td / "pull"),
+                   "Y700_DIRECT_HOST_MEDIA_ROOT": str(td / "host-media")}
+            proc = subprocess.run(["python3", str(STORE), job_id],
+                                  env=env, capture_output=True, text=True)
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("SHA-256 mismatch", proc.stdout)
+            self.assertEqual(existing.read_bytes(), b"wrong")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -18,6 +19,7 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[1]
 PULL_ROOT = Path(os.environ.get("Y700_DIRECT_PULL_ROOT", "/opt/y700/runtime/direct-download"))
 HOST_PULL_ROOT = os.environ.get("Y700_DIRECT_HOST_PULL_ROOT", "/data/local/y700-agent/runtime/direct-download")
+HOST_MEDIA_ROOT = Path(os.environ.get("Y700_DIRECT_HOST_MEDIA_ROOT", "/proc/1/root/data/media/0"))
 RUN_ROOT = Path(os.environ.get("Y700_DIRECT_RUN_ROOT", "/opt/y700/runtime/direct-download-runs"))
 STATE = Path(os.environ.get("Y700_DIRECT_STATE", "/opt/y700/runtime/state/direct-download.json"))
 ROOT_EXEC = Path(os.environ.get("Y700_ROOT_EXEC", str(ROOT / "bridge" / "root-exec.sh")))
@@ -78,15 +80,8 @@ def capture_power_state() -> tuple[str, str]:
 
 
 def restore_power_state(initial: str) -> dict:
-    if initial != "ASLEEP":
-        return {"status": "RESTORE_NOT_REQUIRED", "initial_power_state": initial}
-    root_exec("input keyevent KEYCODE_SLEEP", timeout_ms=10000)
-    return {
-        "status": "RESTORED_ASLEEP",
-        "initial_power_state": "ASLEEP",
-        "restore_action": "KEYCODE_SLEEP",
-        "restored_at": now_iso(),
-    }
+    # Direct-download has no UI step; do not wake, unlock, or sleep the device.
+    return {"status": "NO_SCREEN_MUTATION", "initial_power_state": initial}
 
 
 def load_direct_manifest(job_id: str) -> dict:
@@ -104,6 +99,25 @@ def load_direct_manifest(job_id: str) -> dict:
     if artifacts[0].get("name") != "original.mp4":
         raise DirectStoreError("direct download artifact must be original.mp4")
     return data
+
+
+def verified_album_file(job_id: str, album: str, artifact: dict) -> bool:
+    """Read-only reconciliation of Android's backing media file."""
+    file = HOST_MEDIA_ROOT / "Movies" / album / f"{job_id}.mp4"
+    if not file.exists():
+        return False
+    if file.is_symlink() or not file.is_file():
+        raise DirectStoreError("unsafe existing album file")
+    if file.stat().st_size != artifact["size"]:
+        raise DirectStoreError("existing album file size mismatch; refusing overwrite")
+    expected = str(artifact["sha256"]).lower()
+    digest = hashlib.sha256()
+    with file.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    if digest.hexdigest() != expected:
+        raise DirectStoreError("existing album file SHA-256 mismatch; refusing overwrite")
+    return True
 
 
 def existing_result(job_id: str) -> dict | None:
@@ -124,14 +138,21 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         raise DirectStoreError("invalid direct-download job id")
     if not ALBUM_RE.fullmatch(album):
         raise DirectStoreError("invalid album name")
+    manifest = load_direct_manifest(job_id)
+    artifact = manifest["artifacts"][0]
+    present = verified_album_file(job_id, album, artifact)
     previous = existing_result(job_id)
     if previous:
+        if not present or previous.get("album") != album:
+            raise DirectStoreError("previous success receipt does not match existing album media")
         return {**previous, "idempotent": True}
 
-    load_direct_manifest(job_id)
     run_dir = RUN_ROOT / job_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    initial, raw = capture_power_state()
+    try:
+        initial, raw = capture_power_state()
+    except (OSError, DirectStoreError) as exc:
+        initial, raw = "UNKNOWN", f"screen_state_unavailable:{type(exc).__name__}"
     write_json_atomic(run_dir / "initial-power-state.json", {
         "schema_version": 1,
         "job_id": job_id,
@@ -140,7 +161,7 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         "raw_screen_state": raw,
     })
     write_json_atomic(STATE, {
-        "status": "UNLOCKING_FOR_DIRECT_DOWNLOAD",
+        "status": "VERIFYING_DIRECT_DOWNLOAD",
         "job_id": job_id,
         "album": album,
         "initial_power_state": initial,
@@ -155,17 +176,23 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         display_name = f"{job_id}.mp4"
         dst = f"{album_dir}/{display_name}"
         part = f"{album_dir}/.{display_name}.part"
-        root_exec(
-            f"mkdir -p {shlex.quote(album_dir)}; "
-            f"cp {shlex.quote(src)} {shlex.quote(part)}; "
-            f"chmod 644 {shlex.quote(part)}; "
-            f"mv -f {shlex.quote(part)} {shlex.quote(dst)}",
-            timeout_ms=30000,
-        )
-        root_exec(
-            f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{dst} >/dev/null",
-            timeout_ms=10000,
-        )
+        if not present:
+            root_exec(
+                f"mkdir -p {shlex.quote(album_dir)}; "
+                f"cp {shlex.quote(src)} {shlex.quote(part)}; "
+                f"chmod 644 {shlex.quote(part)}; "
+                f"mv -f {shlex.quote(part)} {shlex.quote(dst)}",
+                timeout_ms=30000,
+            )
+        if present:
+            write_json_atomic(run_dir / "file-verification.json", {
+                "status": "FILE_SHA256_VERIFIED",
+                "job_id": job_id,
+                "album": album,
+                "size": artifact["size"],
+                "sha256": artifact["sha256"],
+                "verified_at": now_iso(),
+            })
 
         relative_path = f"Movies/{album}/"
         query = (
@@ -173,14 +200,28 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
             "--projection _id:_display_name:relative_path "
             f"--where \"_display_name='{display_name}' AND relative_path='{relative_path}'\""
         )
-        for _ in range(30):
-            q = root_exec(query, check=False, timeout_ms=5000)
-            text = q.stdout or ""
-            if display_name in text and relative_path in text:
+        indexed = False
+        # For an existing file, query first; don't trigger another scan unless
+        # the MediaStore row is absent. Neither path re-copies the video.
+        for attempt in range(10):
+            try:
+                q = root_exec(query, check=False, timeout_ms=5000)
+                indexed = display_name in (q.stdout or "") and relative_path in (q.stdout or "")
+            except DirectStoreError:
+                indexed = False
+            if indexed:
                 break
+            if attempt == 0:
+                try:
+                    root_exec(
+                        f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{dst} >/dev/null",
+                        timeout_ms=10000,
+                    )
+                except DirectStoreError:
+                    pass
             time.sleep(1)
-        else:
-            raise DirectStoreError("MediaStore scan timeout")
+        if not indexed:
+            raise DirectStoreError("album file may exist, but MediaStore verification is pending")
 
         result = {
             "status": "DIRECT_DOWNLOADED",
@@ -188,6 +229,7 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
             "album": album,
             "device_path": dst,
             "media_store_verified": True,
+            "reconciled_existing_file": present,
             "note_saved": False,
             "stored_at": now_iso(),
             "initial_power_state": initial,
