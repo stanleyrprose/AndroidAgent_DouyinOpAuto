@@ -36,7 +36,7 @@ class DirectDownloadContractTests(unittest.TestCase):
         self.assertNotIn("caption.my.txt", joined)
         self.assertNotIn("apps.tiktok", joined)
 
-    def test_y700_direct_store_verifies_media_and_restores_asleep(self) -> None:
+    def test_y700_direct_store_verifies_media_without_screen_actions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             td = Path(tmp)
             job_id = "dd-1234567890123456789"
@@ -81,7 +81,11 @@ esac
             root_exec.chmod(0o755)
 
             androidctl = td / "androidctl.sh"
-            androidctl.write_text('#!/bin/bash\necho "mWakefulness=Asleep"\n', encoding="utf-8")
+            screen_used = td / "screen-used.txt"
+            androidctl.write_text(
+                '#!/bin/bash\n' + f'touch "{screen_used}"\n' + 'exit 87\n',
+                encoding="utf-8",
+            )
             androidctl.chmod(0o755)
 
             unlock = td / "secure-unlock.sh"
@@ -118,6 +122,7 @@ esac
             self.assertIn("Movies/Y700Agent", commands)
             self.assertIn("set -e", commands)
             self.assertNotIn("KEYCODE_SLEEP", commands)
+            self.assertFalse(screen_used.exists())
             self.assertTrue((run_root / job_id / "file-verification.json").is_file())
             self.assertNotIn("com.zui.notes", commands)
             self.assertNotIn("tiktok", commands.lower())
@@ -286,6 +291,47 @@ esac
             self.assertNotEqual(proc.returncode, 0)
             self.assertIn("SHA-256 mismatch", proc.stdout)
             self.assertEqual(existing.read_bytes(), b"wrong")
+
+    def test_mediastore_unavailable_preserves_file_proof_without_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            td = Path(tmp)
+            job_id = "dd-1234567890123456789"
+            original = b"already-in-gallery"
+            bundle = td / "pull" / job_id
+            bundle.mkdir(parents=True)
+            (bundle / ".complete").write_text("verified\\n", encoding="utf-8")
+            (bundle / "manifest.json").write_text(json.dumps({
+                "schema_version": 1, "kind": "generic-artifact", "job_id": job_id,
+                "artifacts": [{"name": "original.mp4", "size": len(original),
+                               "sha256": hashlib.sha256(original).hexdigest()}],
+            }), encoding="utf-8")
+            media = td / "media" / "Movies" / "Y700Agent"
+            media.mkdir(parents=True)
+            album_file = media / (job_id + ".mp4")
+            album_file.write_bytes(original)
+            root = td / "root.sh"
+            root.write_text(
+                '#!/bin/bash\\n'
+                'case "$*" in *"content query"*) exit 42 ;; esac\\n',
+                encoding="utf-8",
+            )
+            root.chmod(0o755)
+            env = {**os.environ,
+                   "Y700_DIRECT_PULL_ROOT": str(td / "pull"),
+                   "Y700_DIRECT_HOST_MEDIA_ROOT": str(td / "media"),
+                   "Y700_DIRECT_RUN_ROOT": str(td / "runs"),
+                   "Y700_DIRECT_STATE": str(td / "state.json"),
+                   "Y700_ROOT_EXEC": str(root)}
+            proc = subprocess.run(["python3", str(STORE), job_id],
+                                  env=env, capture_output=True, text=True)
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("MediaStore query failed rc=42", proc.stdout)
+            self.assertTrue((td / "runs" / job_id / "file-verification.json").is_file())
+            self.assertFalse((td / "runs" / job_id / "result.json").exists())
+            failure = json.loads((td / "runs" / job_id / "last-error.json").read_text())
+            self.assertEqual(failure["stage"], "VERIFY_MEDIASTORE")
+            self.assertEqual(failure["status"], "DIRECT_DOWNLOAD_HANDOFF_PENDING")
+            self.assertEqual(album_file.read_bytes(), original)
 
 
 if __name__ == "__main__":
