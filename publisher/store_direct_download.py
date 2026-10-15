@@ -96,8 +96,13 @@ def load_direct_manifest(job_id: str) -> dict:
     artifacts = data.get("artifacts")
     if not isinstance(artifacts, list) or len(artifacts) != 1:
         raise DirectStoreError("direct download requires exactly one artifact")
-    if artifacts[0].get("name") != "original.mp4":
+    artifact = artifacts[0]
+    if not isinstance(artifact, dict) or artifact.get("name") != "original.mp4":
         raise DirectStoreError("direct download artifact must be original.mp4")
+    if type(artifact.get("size")) is not int or artifact["size"] <= 0:
+        raise DirectStoreError("invalid original.mp4 size in manifest")
+    if not isinstance(artifact.get("sha256"), str) or not re.fullmatch(r"[0-9a-fA-F]{64}", artifact["sha256"]):
+        raise DirectStoreError("invalid original.mp4 SHA-256 in manifest")
     return data
 
 
@@ -149,10 +154,9 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
 
     run_dir = RUN_ROOT / job_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        initial, raw = capture_power_state()
-    except (OSError, DirectStoreError) as exc:
-        initial, raw = "UNKNOWN", f"screen_state_unavailable:{type(exc).__name__}"
+    # Filesystem-only transfer: querying screen state still calls the host
+    # executor and can time out even though we never touch the screen.
+    initial, raw = "NOT_QUERIED", "Direct download never changes screen state"
     write_json_atomic(run_dir / "initial-power-state.json", {
         "schema_version": 1,
         "job_id": job_id,
@@ -168,6 +172,7 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         "timestamp": now_iso(),
     })
 
+    stage = "COPY_OR_VERIFY_FILE"
     try:
         # Direct file storage uses Android host shell, not an interactive UI.
         # Unlocking an asleep screen is unnecessary and can fail before the copy.
@@ -178,22 +183,34 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         part = f"{album_dir}/.{display_name}.part"
         if not present:
             root_exec(
-                f"mkdir -p {shlex.quote(album_dir)}; "
+                f"set -e; mkdir -p {shlex.quote(album_dir)}; "
                 f"cp {shlex.quote(src)} {shlex.quote(part)}; "
                 f"chmod 644 {shlex.quote(part)}; "
                 f"mv -f {shlex.quote(part)} {shlex.quote(dst)}",
                 timeout_ms=30000,
             )
-        if present:
-            write_json_atomic(run_dir / "file-verification.json", {
-                "status": "FILE_SHA256_VERIFIED",
-                "job_id": job_id,
-                "album": album,
-                "size": artifact["size"],
-                "sha256": artifact["sha256"],
-                "verified_at": now_iso(),
-            })
+        # A successful cp or a preexisting MediaStore row is not proof that
+        # the bytes now in the Android gallery match this job's source.
+        if not verified_album_file(job_id, album, artifact):
+            raise DirectStoreError("Android album file missing after copy")
+        write_json_atomic(run_dir / "file-verification.json", {
+            "status": "FILE_SHA256_VERIFIED",
+            "job_id": job_id,
+            "album": album,
+            "size": artifact["size"],
+            "sha256": artifact["sha256"],
+            "reconciled_existing_file": present,
+            "verified_at": now_iso(),
+        })
 
+        stage = "VERIFY_MEDIASTORE"
+        write_json_atomic(STATE, {
+            "status": "VERIFYING_MEDIASTORE",
+            "job_id": job_id,
+            "album": album,
+            "file_sha256_verified": True,
+            "timestamp": now_iso(),
+        })
         relative_path = f"Movies/{album}/"
         query = (
             "content query --uri content://media/external/video/media "
@@ -241,6 +258,23 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         write_json_atomic(run_dir / "result.json", result)
         write_json_atomic(STATE, {**result, "timestamp": now_iso()})
         return result
+    except Exception as exc:
+        # The file may already exist. Persist an accurate stage so a resume
+        # can reconcile instead of copying it again.
+        failure = {
+            "status": "DIRECT_DOWNLOAD_HANDOFF_PENDING",
+            "job_id": job_id,
+            "album": album,
+            "stage": stage,
+            "reason": str(exc),
+            "timestamp": now_iso(),
+        }
+        try:
+            write_json_atomic(run_dir / "last-error.json", failure)
+            write_json_atomic(STATE, failure)
+        except OSError:
+            pass
+        raise
     finally:
         try:
             power = restore_power_state(initial)
