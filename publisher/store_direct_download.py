@@ -207,8 +207,12 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
             try:
                 q = root_exec(query, check=False, timeout_ms=5000)
                 indexed = display_name in (q.stdout or "") and relative_path in (q.stdout or "")
-            except DirectStoreError:
-                indexed = False
+            except DirectStoreError as exc:
+                # A bridge timeout is not an indexing delay. Repeating the same
+                # root command can create a backlog of ambiguous host jobs.
+                raise DirectStoreError(f"MediaStore query unavailable: {exc}") from exc
+            if q.returncode != 0:
+                raise DirectStoreError(f"MediaStore query failed rc={q.returncode}")
             if indexed:
                 break
             if attempt == 0:
@@ -217,8 +221,8 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
                         f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{dst} >/dev/null",
                         timeout_ms=10000,
                     )
-                except DirectStoreError:
-                    pass
+                except DirectStoreError as exc:
+                    raise DirectStoreError(f"MediaStore scan unavailable: {exc}") from exc
             time.sleep(1)
         if not indexed:
             raise DirectStoreError("album file may exist, but MediaStore verification is pending")
