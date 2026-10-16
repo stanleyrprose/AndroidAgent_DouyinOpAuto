@@ -299,7 +299,7 @@ esac
             original = b"already-in-gallery"
             bundle = td / "pull" / job_id
             bundle.mkdir(parents=True)
-            (bundle / ".complete").write_text("verified\\n", encoding="utf-8")
+            (bundle / ".complete").write_text("verified\n", encoding="utf-8")
             (bundle / "manifest.json").write_text(json.dumps({
                 "schema_version": 1, "kind": "generic-artifact", "job_id": job_id,
                 "artifacts": [{"name": "original.mp4", "size": len(original),
@@ -311,8 +311,8 @@ esac
             album_file.write_bytes(original)
             root = td / "root.sh"
             root.write_text(
-                '#!/bin/bash\\n'
-                'case "$*" in *"content query"*) exit 42 ;; esac\\n',
+                '#!/bin/bash\n'
+                'case "$*" in *"content query"*) exit 42 ;; esac\n',
                 encoding="utf-8",
             )
             root.chmod(0o755)
