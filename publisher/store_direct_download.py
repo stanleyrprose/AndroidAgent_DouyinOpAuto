@@ -222,7 +222,7 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
         # the MediaStore row is absent. Neither path re-copies the video.
         for attempt in range(10):
             try:
-                q = root_exec(query, check=False, timeout_ms=5000)
+                q = root_exec(query, check=False, timeout_ms=30000)
                 indexed = display_name in (q.stdout or "") and relative_path in (q.stdout or "")
             except DirectStoreError as exc:
                 # A bridge timeout is not an indexing delay. Repeating the same
@@ -236,7 +236,7 @@ def store(job_id: str, album: str = DEFAULT_ALBUM) -> dict:
                 try:
                     root_exec(
                         f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{dst} >/dev/null",
-                        timeout_ms=10000,
+                        timeout_ms=30000,
                     )
                 except DirectStoreError as exc:
                     raise DirectStoreError(f"MediaStore scan unavailable: {exc}") from exc
