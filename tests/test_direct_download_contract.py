@@ -73,7 +73,10 @@ case "$*" in
     mkdir -p "{host_media}/Movies/Y700Agent"
     cp "{mock_source}" "{host_media}/Movies/Y700Agent/{job_id}.mp4"
     ;;
-  *"content query"*) echo "Row: 0 _id=1, _display_name={job_id}.mp4, relative_path=Movies/Y700Agent/" ;;
+  *"content query"*)
+    [ "$Y700_BRIDGE_TIMEOUT_MS" -ge 30000 ] || exit 42
+    echo "Row: 0 _id=1, _display_name={job_id}.mp4, relative_path=Movies/Y700Agent/"
+    ;;
 esac
 ''',
                 encoding="utf-8",
