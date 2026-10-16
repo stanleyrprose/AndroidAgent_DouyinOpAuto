@@ -56,10 +56,19 @@ remote() {
 
 bash "$PIPELINE_CMD" telegram-media "$JOB_ID" >/dev/null
 
-bash "$TG_NOTIFY" TRANSFERRING "$JOB_ID" --detail "正在把原始抖音视频传输到 Y700 相册 $ALBUM" >/dev/null || true
-
-remote "cd /opt/y700/workspaces/y700-agent && python3 scripts/pull-artifact-bundle.py --manifest-url '$manifest_url' --target-root /opt/y700/runtime/direct-download" >/dev/null
-store_json="$(remote "cd /opt/y700/workspaces/y700-agent && ./scripts/store-direct-download.sh '$JOB_ID' '$ALBUM'")"
+# A verified durable bundle is already on Y700 after an interrupted handoff.
+# Reuse it rather than re-downloading or overwriting the same job.
+bundle="/opt/y700/runtime/direct-download/$JOB_ID"
+if ! remote "test -f '$bundle/.complete' && test -f '$bundle/manifest.json' && test -s '$bundle/original.mp4'" >/dev/null 2>&1; then
+  bash "$TG_NOTIFY" TRANSFERRING "$JOB_ID" --detail "正在把原始抖音视频传输到 Y700 相册 $ALBUM" >/dev/null || true
+  remote "cd /opt/y700/workspaces/y700-agent && python3 scripts/pull-artifact-bundle.py --manifest-url '$manifest_url' --target-root /opt/y700/runtime/direct-download" >/dev/null
+fi
+if ! store_json="$(remote "cd /opt/y700/workspaces/y700-agent && ./scripts/store-direct-download.sh '$JOB_ID' '$ALBUM'")"; then
+  # Keep the device-side error instead of mislabeling an Android bridge
+  # failure as a Cloudflare transfer failure on the resume path.
+  printf '%s\n' "${store_json:-Y700 store command did not return a result}" >&2
+  exit 4
+fi
 
 read -r status device_path < <(python3 - "$store_json" <<'PY'
 import json,sys
