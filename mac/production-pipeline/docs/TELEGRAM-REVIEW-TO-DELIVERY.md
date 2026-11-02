@@ -1,0 +1,36 @@
+# Telegram review → Burmese video delivery (dynamic_v04)
+
+## Goal and acceptance evidence
+
+An allowlisted user sends `重新缅语化：<Douyin URL>` or the supported new-localization intent to the dedicated Y700 bot. Mac creates a durable versioned job, extracts the original Chinese subtitles, translates each eligible event one-to-one into Burmese, independently audits the translation, and renders a video. No TikTok publication or Y700 album transfer occurs for this workflow.
+
+If a quality gate needs a human decision, the Mac bot sends **actual event evidence** to Telegram with the exact reply command and retains all source/intermediate media. The review reply must reference the correct evidence message (`reply_to_message_id`) in the same allowlisted chat. Successful Telegram video `sendVideo` acknowledgment (`message_id`) is required before task-scoped cleanup; an uncertain/failed send is never retried blindly.
+
+### Review commands
+
+- OCR noise: Reply to the bot's annotated OCR screenshot with `审核：<job_id>：英文OCR=误识别`. This excludes only the current bound `LATIN_ONLY_OCR_REVIEW` events and retains the original OCR observations and evidence hashes.
+- Semantic ambiguity: Reply to the bot's Chinese/Burmese event comparison with `审核：<job_id>：语义：<event_id>：含义=<中文解释>` (4–180 chars). Mac retranslates only that event with the verified context, then executes an independent semantic audit again. The human explanation is **not** a blanket QA pass.
+- Subtitle layout: Reply to the bot's position/contact-sheet evidence with `审核：<job_id>：布局=通过`. Approval is bound to the current `evidence_revision`; other blocking codes cannot be cleared by this review.
+
+All other text is rejected or handled as ordinary conversation. The assistant should never instruct the user to edit Mac files or restart a finished job merely to record a review decision.
+
+## Deterministic ingress
+
+Hermes `gateway/run_inbound.py` is minimally patched **after platform admission/auth** and before LLM dispatch, via `scripts/install-hermes-review-ingress.py`. The handler loads the installed `scripts/tg-review-ingress.py`, validates exact command shape, requires the Telegram `reply_to_message_id`, uses a per-job `flock` claim, and invokes the bounded `tg-review-and-resume.sh` script (no user text interpolated into shell). The actual review handler validates chat, job, message ID and evidence/translation hashes. Review commands cannot access arbitrary shell/root tools.
+
+The Hermes source injection is a small **reversible** runtime adapter, not the repo's SOT. It is intentionally protected by an anchored installer to reject incompatible upstream changes; upgrade/reinstall requires re-applying the installer and verifying its status. Rollback: `install-hermes-review-ingress.py remove --gateway-file <Hermes gateway/run_inbound.py>` then restart the dedicated gateway. Original prepatch file is saved beside the Hermes module as `run_inbound.py.y700-review-prepatch`.
+
+## QA → TG routing
+
+1. Download and analyze: Chinese ASR/OCR event IDs and timestamps remain immutable; questionable low-confidence text stays `review_required`, not silently dropped.
+2. Initial translation (one Chinese event → one Burmese event), independent semantic audit. A `REVIEW_REQUIRED_LAYOUT` result can cause `semantic-audit-auto` to return code 20 **even if all semantic findings pass**; the caller must inspect the actual quality codes rather than treating it as a translation failure.
+3. Any OCR/semantic review: `tg-review-next.py` generates the relevant red-frame evidence or per-event bilingual comparison, stores a send intent before transmission, then binds the confirmed Telegram message ID. No duplicate sending after ambiguous delivery.
+4. For layout-only warning, `tg-layout-evidence.py` sends video-derived source frames showing original-text regions versus planned Burmese overlay positions. It never treats a human reply as approval for semantic or hard blocking codes.
+5. Once QA is `PASS`, render actual Burmese captions, run **post-render Q3** QA and re-evaluate hashes. Only then send MP4 to Telegram.
+6. On verified `sendVideo` receipt persist the delivery ID/hash, compact review evidence, and final job state, then remove task-scoped `source/`, `analysis/`, `localization/`, `production/`, `export/`, `evidence/` and task-scoped export cache. Preserve `state.json`, `events.jsonl`, delivery receipt and review-claim metadata. Failed/ambiguous send retains video and intermediate files, requiring reconciliation before retry.
+
+## Verification boundary
+
+- Static checks and scoped regression tests cover the command parser, invalid reply references, OCR decision binding, semantic context preservation, layout approval binding, pre-render versus Q3 QA, acceptance/cleanup, and existing localization integration.
+- The 2026-11-02 real `r001` job provided evidence that manual Mac-assisted review, translation, Q3 render, Telegram receipt and cleanup can finish. That run **did not prove** the newly injected deterministic Telegram ingress.
+- A *new real Telegram reply* is needed for complete ingress acceptance: match a sent evidence `message_id` to the inbound `reply_to_id`, observe the deterministic review invocation, verify subsequent QA/status and video/cleanup receipts. Do not mark production ingress PASS before this evidence exists.
