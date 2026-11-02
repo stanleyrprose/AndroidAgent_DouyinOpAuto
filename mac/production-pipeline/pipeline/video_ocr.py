@@ -72,8 +72,11 @@ def select_candidate_times(video: Path, duration: float, cfg: OCRConfig) -> tupl
     last_extra = -10.0
     scan_count = 0
     changes = 0
+    last_scanned_ts = 0.0
+    baseline_candidates: set[float] = set()
     for ts, frame in _video_frames(video, cfg, duration):
         scan_count += 1
+        last_scanned_ts = ts
         baseline = ts - last_base >= 1 / cfg.baseline_fps - .02
         changed = False
         if prev is not None:
@@ -86,6 +89,7 @@ def select_candidate_times(video: Path, duration: float, cfg: OCRConfig) -> tupl
         prev = frame.copy()
         if baseline:
             last_base = ts
+            baseline_candidates.add(round(ts, 3))
         if changed:
             changes += 1
         if baseline or (changed and ts - last_extra >= 0.5):
@@ -98,22 +102,34 @@ def select_candidate_times(video: Path, duration: float, cfg: OCRConfig) -> tupl
     retained: list[float] = []
     discarded: list[float] = []
     minute_counts: dict[int, int] = {}
-    for ts in chosen:
+    # Reserve a full-duration baseline before spending capacity on motion extras.
+    # Otherwise early high-motion frames can starve later subtitles.
+    ordered = sorted(chosen, key=lambda t: (t not in baseline_candidates, t))
+    for ts in ordered:
         minute = int(ts // 60)
         if minute_counts.get(minute, 0) < per_minute_limit:
             retained.append(ts)
             minute_counts[minute] = minute_counts.get(minute, 0) + 1
         else:
             discarded.append(ts)
+    retained.sort()
+    # A decoded stream ending early is not evidence of a text-free tail.
+    tail_start = min(duration, last_scanned_ts + 0.5 / cfg.scan_fps)
+    tail_missing = scan_count == 0 or duration - tail_start > max(1.0, 2 / cfg.scan_fps)
+    unscanned = [[round(max(0, t - 0.25), 3), round(min(duration, t + .25), 3)]
+                 for t in discarded[:80]]
+    if tail_missing:
+        unscanned.append([round(tail_start, 3), round(duration, 3)])
     return retained, {
         "scan_frames": scan_count, "change_frames": changes, "candidate_frames": len(chosen),
         "ocr_calls_planned": len(retained), "ocr_budget_limit_per_minute": per_minute_limit,
         "budget_exhausted": bool(discarded),
-        "coverage_incomplete": bool(discarded) or scan_count == 0 or not retained,
-        "coverage_reason": "SCAN_EMPTY" if scan_count == 0 or not retained else (
-            "OCR_BUDGET_EXHAUSTED" if discarded else None),
-        "unscanned": [[round(max(0, t - 0.25), 3), round(min(duration, t + .25), 3)] for t in discarded[:80]],
-        "unscanned_count": len(discarded),
+        "coverage_incomplete": bool(discarded) or tail_missing or not retained,
+        "coverage_reason": "SCAN_EMPTY" if scan_count == 0 else (
+            "SCAN_TRUNCATED" if tail_missing else (
+                "OCR_BUDGET_EXHAUSTED" if discarded else None)),
+        "unscanned": unscanned,
+        "unscanned_count": len(discarded) + int(tail_missing),
         "scan_budget": asdict(cfg),
     }
 

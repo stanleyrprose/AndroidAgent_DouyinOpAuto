@@ -27,6 +27,15 @@ def extract_audio(video: Path, wav: Path) -> None:
     ])
 
 
+def asr_hotwords() -> str | None:
+    """Explicit opt-in contextual terms; never force corrections by substring."""
+    raw = os.environ.get("Y700_ASR_HOTWORDS", "").strip()
+    terms = [term.strip() for term in re.split(r"[,，;；\n]+", raw) if term.strip()]
+    if len(terms) > 32 or any(len(term) > 40 for term in terms):
+        raise ValueError("ASR hotwords exceed bounded vocabulary")
+    return "，".join(dict.fromkeys(terms)) or None
+
+
 def transcribe(wav_path: Path, model_path: Path = MODEL_DEFAULT) -> dict:
     import numpy as np
     from faster_whisper import WhisperModel
@@ -39,6 +48,7 @@ def transcribe(wav_path: Path, model_path: Path = MODEL_DEFAULT) -> dict:
         audio,
         language="zh",
         beam_size=5,
+        hotwords=asr_hotwords(),
         vad_filter=True,
         word_timestamps=os.environ.get("Y700_WHISPER_WORD_TIMESTAMPS", "0") == "1",
     )

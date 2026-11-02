@@ -67,6 +67,77 @@ def evaluate(job_dir: Path, *, after_render: bool = False) -> dict:
         # Cannot distinguish truly text-free video from total OCR miss without review.
         codes.append("REVIEW_REQUIRED_OCR")
     if timeline:
+        # Independently audited translations must be tied to this exact timeline.
+        # Missing review is a block, not implicit AI approval.
+        from .subtitle_localization import semantic_audit_request, validate_semantic_audit, TranslationContractError
+        targets = [e for e in ledger.get("canonical_events", [])
+                   if e.get("fact_disposition") == "translate_target"]
+        translated_map = {e["event_id"]: e.get("localization", {}).get("text_my", "")
+                          for e in timeline.get("events", []) if e.get("fact_disposition") == "translate_target"}
+        if targets and set(translated_map) == {e["event_id"] for e in targets} and all(translated_map.values()):
+            request = semantic_audit_request(ledger, translated_map)
+            audit = read_json(job_dir / "localization" / "semantic_audit.json", {}) or {}
+            try:
+                validate_semantic_audit(request, audit)
+            except (TranslationContractError, AttributeError, TypeError, KeyError):
+                codes.append("BLOCKED_SEMANTIC_AUDIT_MISSING_OR_STALE")
+            else:
+                for finding in audit["findings"]:
+                    if finding["verdict"] != "pass":
+                        codes.append("BLOCKED_SEMANTIC_AUDIT_FAILED" if finding["verdict"] == "fail"
+                                     else "BLOCKED_SEMANTIC_AUDIT_UNCERTAIN")
+                        detail.append({"semantic_event_id": finding["event_id"],
+                                       "verdict": finding["verdict"], "reason": finding["reason"]})
+        # Independent ASR-to-render coverage: ledger cardinality alone cannot
+        # establish that spoken Chinese survives onto the rendered timeline.
+        transcript = read_json(job_dir / "analysis" / "transcript.zh.json", {}) or {}
+        spoken_segments = [s for s in transcript.get("segments", [])
+                           if str(s.get("text", "")).strip()
+                           and float(s.get("end", 0)) > float(s.get("start", 0))]
+        primary_cues = [e for e in timeline.get("events", [])
+                        if e.get("role") == "primary_subtitle"
+                        and e.get("localization", {}).get("text_my")]
+        if analysis.get("meaningful_speech") and not spoken_segments:
+            codes.append("BLOCKED_ASR_TRANSCRIPT_EMPTY")
+        for index, segment in enumerate(transcript.get("segments", []), 1):
+            start, end = float(segment.get("start", 0)), float(segment.get("end", 0))
+            if not str(segment.get("text", "")).strip() or end <= start:
+                continue
+            # Match the same source segment, not an unrelated overlapping subtitle.
+            source_ref = f"analysis/transcript.zh.json#seg{index:03d}"
+            related = [c for c in primary_cues
+                       if source_ref in c.get("source_refs", [])]
+            intersections = sorted((max(start, float(c["start"])), min(end, float(c["end"])))
+                                   for c in related if float(c["start"]) < end
+                                   and float(c["end"]) > start)
+            covered, right = 0.0, start
+            for left, finish in intersections:
+                if finish > right:
+                    covered += finish - max(left, right)
+                    right = finish
+            if covered < .5 * (end - start):
+                codes.append("BLOCKED_SPEECH_SUBTITLE_GAP")
+                detail.append({"speech_gap": [start, end], "source_ref": source_ref,
+                               "primary_coverage_fraction": round(covered / (end - start), 3)})
+        # Detect gaps in OCR-derived narrative independently of ASR coverage.
+        for source_event in ledger.get("source_events", []):
+            if source_event.get("source_kind") != "visual_text":
+                continue
+            if not source_event.get("track_stable", False):
+                continue
+            start, end = float(source_event["start"]), float(source_event["end"])
+            relevant = [e for e in timeline.get("events", [])
+                        if source_event.get("source_id") in e.get("source_event_ids", [])]
+            if (relevant and all(e.get("fact_disposition") == "excluded_with_reason"
+                                 for e in relevant)):
+                continue
+            if not any(float(c["start"]) < end and float(c["end"]) > start
+                       for c in timeline.get("events", [])
+                       if c.get("localization", {}).get("text_my") and
+                       source_event.get("source_id") in c.get("source_event_ids", [])):
+                codes.append("BLOCKED_VISUAL_SUBTITLE_GAP")
+                detail.append({"visual_gap": [start, end],
+                               "source_id": source_event.get("source_id")})
         if (timeline.get("fused_events_sha256") != digest(ledger)
             or timeline.get("canonical_lock") != ledger.get("canonical_lock")
             or timeline.get("source_video_sha256") != ledger.get("source_video_sha256")
@@ -78,14 +149,40 @@ def evaluate(job_dir: Path, *, after_render: bool = False) -> dict:
                       if e.get("fact_disposition") == "translate_target"]
         if len(output_ids) != len(set(output_ids)) or set(output_ids) != {e["event_id"] for e in eligible}:
             codes.append("BLOCKED_UNRESOLVED_EVENT")
+        timeline_by_id = {e.get("event_id"): e for e in timeline.get("events", [])}
+        for source_event in ledger.get("canonical_events", []):
+            if source_event.get("fact_disposition") != "excluded_with_reason":
+                continue
+            output = timeline_by_id.get(source_event.get("event_id"))
+            if output and (output.get("fact_disposition") != "excluded_with_reason"
+                           or output.get("localization", {}).get("text_my")):
+                codes.append("BLOCKED_EXCLUDED_EVENT_RENDERED")
+                detail.append({"event_id": source_event.get("event_id"),
+                               "reason": "EXCLUDED_SOURCE_TRANSLATED_OR_REINSTATED"})
         for e in timeline.get("events", []):
             eid = e.get("event_id")
-            if e.get("fact_disposition") == "review_required" or e.get("review_flags"):
+            if e.get("fact_disposition") == "review_required":
+                # No final render until this source event is adjudicated.
+                codes.append("BLOCKED_UNRESOLVED_EVENT")
+                detail.append({"event_id": eid, "reason": "SOURCE_REVIEW_PENDING"})
+            elif e.get("review_flags"):
                 codes.append("REVIEW_REQUIRED_OCR")
                 detail.append({"event_id": eid, "review_flags": e.get("review_flags", [])})
             if e.get("fact_disposition") == "translate_target" and not e.get("localization", {}).get("text_my"):
                 codes.append("BLOCKED_UNRESOLVED_EVENT")
                 detail.append({"event_id": eid, "reason": "MISSING_TRANSLATION"})
+            # Numeric changes are high-risk for factual and scientific videos.
+            # Only flag for review: a translator may legitimately spell numbers out.
+            source_numbers = re.findall(r"[0-9０-９]+(?:[.,][0-9０-９]+)*", e.get("text_zh", ""))
+            localized = e.get("localization", {}).get("text_my", "")
+            target_numbers = re.findall(r"[0-9０-９၀-၉]+(?:[.,][0-9０-９၀-၉]+)*", localized)
+            def _ascii_digits(value: str) -> str:
+                return "".join(str(int(ch)) if ch.isdecimal() else ch for ch in value)
+            if source_numbers and (sorted(map(_ascii_digits, source_numbers)) !=
+                                   sorted(map(_ascii_digits, target_numbers))):
+                codes.append("REVIEW_REQUIRED_NUMERIC_SEMANTICS")
+                detail.append({"event_id": eid, "source_numbers": source_numbers,
+                               "translation_numbers": target_numbers})
             start, end = float(e.get("start", -1)), float(e.get("end", -1))
             if start < 0 or end <= start or end > duration + .01:
                 codes.append("BLOCKED_INVALID_TIMELINE")

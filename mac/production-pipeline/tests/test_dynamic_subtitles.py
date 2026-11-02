@@ -29,6 +29,18 @@ def make_speech():
     }, 7.0)
 
 
+class ContextualAsrTests(unittest.TestCase):
+    def test_hotwords_are_opt_in_bounded_and_deduplicated(self):
+        from pipeline.analyze import asr_hotwords
+        with patch.dict("os.environ", {"Y700_ASR_HOTWORDS": "中微子, 地幔,地幔;核聚变"}):
+            self.assertEqual(asr_hotwords(), "中微子，地幔，核聚变")
+        with patch.dict("os.environ", {"Y700_ASR_HOTWORDS": ""}):
+            self.assertIsNone(asr_hotwords())
+        with patch.dict("os.environ", {"Y700_ASR_HOTWORDS": ",".join(["a"] * 33)}):
+            with self.assertRaises(ValueError):
+                asr_hotwords()
+
+
 class VisualOnlyInputTests(unittest.TestCase):
     def test_dynamic_analysis_accepts_video_without_audio_track(self):
         from pipeline.analyze import analyze
@@ -79,7 +91,7 @@ class TextTrackTests(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertIn("SHORT_EVENT_REVIEW", events[0]["review_flags"])
 
-    def test_uncertain_short_flash_still_has_translation_target(self):
+    def test_uncertain_short_flash_requires_review_before_translation(self):
         visual = track_ocr([{
             "frame_ts": 1.0, "text_zh_raw": "不",
             "bbox_norm": [.1, .7, .4, .8], "ocr_confidence": .75,
@@ -87,13 +99,76 @@ class TextTrackTests(unittest.TestCase):
         ledger = fuse_events([], visual, source_sha256="a" * 64, duration=3.0)
         events = ledger["canonical_events"]
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["fact_disposition"], "translate_target")
+        self.assertEqual(events[0]["fact_disposition"], "review_required")
         self.assertIn("SHORT_EVENT_REVIEW", events[0]["review_flags"])
-        self.assertEqual(len(translation_request(ledger)["target_events"]), 1)
+        self.assertEqual(len(translation_request(ledger)["target_events"]), 0)
+
+    def test_global_layout_prevents_simultaneous_overlays(self):
+        from pipeline.subtitle_layout import plan_timeline, intersects
+        geometry = {'source_dimensions': [1080, 1920],
+                    'source_to_output_affine_matrix': [[1, 0, 0], [0, 1, 0], [0, 0, 1]]}
+        events = [{'event_id': f'e{i}', 'start': 0, 'end': 2, 'role': 'callout'}
+                  for i in range(2)]
+        positions = plan_timeline(events, geometry)
+        a, b = (positions[x['event_id']] for x in events)
+        self.assertFalse(intersects((a['x'], a['y'], a['x'] + 900, a['y'] + 260),
+                                    (b['x'], b['y'], b['x'] + 900, b['y'] + 260), margin=0))
+        with self.assertRaisesRegex(ValueError, 'BLOCKED_CONCURRENT_SUBTITLE_LAYOUT'):
+            plan_timeline([dict(events[0], event_id=f'overflow-{i}') for i in range(7)], geometry)
+
+    def test_aligned_ocr_does_not_clip_speech_tail(self):
+        speech = speech_events({"segments": [{"start": 0.0, "end": 4.0,
+                                               "text": "还没有结束"}]}, 6.0)
+        visual = track_ocr([{"frame_ts": t, "text_zh_raw": "还没有结束",
+                             "bbox_norm": [.1, .7, .9, .8], "ocr_confidence": .95}
+                            for t in (1.0, 1.5)], 6.0)
+        ledger = fuse_events(speech, visual, source_sha256="a" * 64, duration=6.0)
+        aligned = ledger["canonical_events"][0]
+        self.assertEqual(aligned["source_kind"], "ocr_asr_aligned")
+        self.assertEqual((aligned["start"], aligned["end"]), (0.0, 4.0))
 
     def test_bbox(self):
         self.assertAlmostEqual(bbox_iou([0, 0, 1, 1], [0, 0, 1, 1]), 1)
         self.assertEqual(bbox_iou([0, 0, .2, .2], [.8, .8, 1, 1]), 0)
+
+
+class HumanGtCalibrationContracts(unittest.TestCase):
+    def test_candidate_only_gt_does_not_count_exclusions_as_accepted(self):
+        from importlib.util import spec_from_file_location, module_from_spec
+        script = Path(__file__).resolve().parents[1] / "scripts" / "extract_gt_calibration.py"
+        spec = spec_from_file_location("extract_gt_calibration", script)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for layer in ("ocr", "asr", "fusion"):
+                atomic_json(root / f"{layer}-human-gt.json", {
+                    "meta": {"source_sha256": "a" * 64},
+                    "events": [
+                        {"index": 1, "decision": "accept", "start": 0, "end": 1,
+                         "machine_text_zh": "地盒", "human_text_zh": "地核"},
+                        {"index": 2, "decision": "false_positive_exclude",
+                         "machine_text_zh": "凶"},
+                    ],
+                })
+            result = module.build_cases(root)
+            self.assertFalse(result["independent_recall_evidence"])
+            self.assertEqual(result["layers"]["ocr"]["accepted_count"], 1)
+            self.assertEqual(len(result["layers"]["asr"]["corrections"]), 1)
+            self.assertEqual(len(result["layers"]["fusion"]["excluded"]), 1)
+
+
+class FullSpanQualityRegressionTests(unittest.TestCase):
+    def test_numeric_review_does_not_silently_pass(self):
+        from pipeline.subtitle_quality import review_status
+        self.assertEqual(review_status(["REVIEW_REQUIRED_NUMERIC_SEMANTICS"]),
+                         "REVIEW_REQUIRED")
+
+    def test_missing_late_speech_cue_blocks_qa(self):
+        from pipeline.subtitle_quality import review_status
+        self.assertEqual(review_status(["BLOCKED_SPEECH_SUBTITLE_GAP"]), "BLOCKED")
+        self.assertEqual(review_status(["BLOCKED_VISUAL_SUBTITLE_GAP"]), "BLOCKED")
+        self.assertEqual(review_status(["BLOCKED_SEMANTIC_AUDIT_UNCERTAIN"]), "BLOCKED")
 
 
 class LockedTranslationTests(unittest.TestCase):
@@ -117,6 +192,48 @@ class LockedTranslationTests(unittest.TestCase):
                 {"event_id": self.req["target_events"][0]["event_id"],
                  "text_my": "မင်္ဂလာပါ", "start": 0}
             ]})
+
+    def test_semantic_audit_tracks_all_event_ids(self):
+        from pipeline.subtitle_localization import semantic_audit_request, validate_semantic_audit
+        translations = {e["event_id"]: "မင်္ဂလာပါ" for e in self.ledger["canonical_events"]}
+        request = semantic_audit_request(self.ledger, translations)
+        response = {"audit_request_sha256": request["audit_request_sha256"],
+                    "findings": [{"event_id": e["event_id"], "verdict": "uncertain",
+                                  "reason": "needs independent comparison"}
+                                 for e in self.ledger["canonical_events"]]}
+        self.assertEqual(validate_semantic_audit(request, response), response)
+        with self.assertRaises(TranslationContractError):
+            validate_semantic_audit(request, {**response, "findings": response["findings"][:-1]})
+        with self.assertRaises(TranslationContractError):
+            validate_semantic_audit(request, {**response, "audit_request_sha256": "stale"})
+
+    def test_semantic_repair_only_rewrites_flagged_events(self):
+        from pipeline.subtitle_localization import semantic_audit_request, semantic_repair_request, apply_semantic_repairs
+        translations = {e["event_id"]: "မင်္ဂလာပါ" for e in self.ledger["canonical_events"]}
+        audit_req = semantic_audit_request(self.ledger, translations)
+        bad_id = audit_req["pairs"][0]["event_id"]
+        audit = {"audit_request_sha256": audit_req["audit_request_sha256"],
+                 "findings": [{"event_id": p["event_id"],
+                               "verdict": "fail" if p["event_id"] == bad_id else "pass",
+                               "reason": "meaning changed" if p["event_id"] == bad_id else ""}
+                              for p in audit_req["pairs"]]}
+        repair = semantic_repair_request(audit_req, audit)
+        self.assertEqual(len(repair["target_events"]), 1)
+        updated = apply_semantic_repairs(audit_req, repair,
+                  {"translations": [{"event_id": bad_id, "text_my": "ဟုတ်ကဲ့"}]})
+        with self.assertRaises(TranslationContractError):
+            apply_semantic_repairs(audit_req, repair,
+                {"translations": [{"event_id": bad_id, "text_my": translations[bad_id]}]})
+        self.assertEqual(updated[bad_id], "ဟုတ်ကဲ့")
+        self.assertTrue(all(updated[k] == v for k, v in translations.items() if k != bad_id))
+        with self.assertRaises(TranslationContractError):
+            semantic_repair_request(audit_req, audit, attempt=3)
+
+    def test_chinese_or_english_echo_is_not_burmese_translation(self):
+        for wrong in ("怎么回事", "This is a summary"):
+            with self.assertRaises(TranslationContractError):
+                validate_response({"target_events": [{"event_id": "evt-test"}]},
+                                  {"translations": [{"event_id": "evt-test", "text_my": wrong}]})
 
     def test_retry_only_network_and_timeout(self):
         calls = []
@@ -198,6 +315,21 @@ class QualityGateTests(unittest.TestCase):
         self.timeline, self.projection = build_timeline(self.ledger, bundle)
         atomic_json(self.job / "localization" / "subtitle_timeline.json", self.timeline)
         atomic_json(self.job / "localization" / "localization.json", self.projection)
+        # QA requires an independent audit; an unaudited synthetic translation
+        # must never be treated as clean simply because it contains Burmese.
+        from pipeline.subtitle_localization import semantic_audit_request
+        translations = {e["event_id"]: e["localization"]["text_my"]
+                        for e in self.timeline["events"] if e["fact_disposition"] == "translate_target"}
+        audit_request = semantic_audit_request(self.ledger, translations)
+        atomic_json(self.job / "localization" / "semantic_audit.json", {
+            "audit_request_sha256": audit_request["audit_request_sha256"],
+            "findings": [{"event_id": eid, "verdict": "pass", "reason": "fixture"}
+                         for eid in translations],
+        })
+        atomic_json(self.job / "analysis" / "transcript.zh.json", {
+            "segments": [{"start": e["start"], "end": e["end"], "text": e["text_zh"]}
+                         for e in self.ledger["source_events"] if e["source_kind"] == "speech"]
+        })
 
     def test_clean_three_cues_pass_data_gate(self):
         report = evaluate(self.job)

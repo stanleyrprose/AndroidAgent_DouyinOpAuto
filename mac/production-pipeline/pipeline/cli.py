@@ -232,6 +232,65 @@ def refresh_index(job: Job) -> None:
     )
 
 
+def cmd_translate_auto(args) -> int:
+    """Generate a locked complete translation bundle using Mac Codex CLI."""
+    from .semantic_transport import invoke_json
+    from .subtitle_localization import validate_response
+    from .subtitle_events import digest
+    from tempfile import NamedTemporaryFile
+    job = get_job(args.job_id)
+    if job.state().get("subtitle_mode") != "dynamic_v04" or job.state().get("state") != "ANALYZED":
+        raise RuntimeError("automatic translation requires ANALYZED dynamic job")
+    ledger = read_json(job.dir / "analysis" / "fused_events.zh.json")
+    requests = read_json(job.dir / "analysis" / "translation_requests.json")
+    if not ledger or not requests:
+        raise RuntimeError("locked translation inputs missing")
+    if (requests.get("canonical_lock") != ledger["canonical_lock"] or
+            requests.get("fused_events_sha256") != digest(ledger)):
+        raise RuntimeError("translation request and source ledger differ")
+    translated = {}
+    for batch in requests["batches"]:
+        if (batch["canonical_lock"] != ledger["canonical_lock"] or
+                batch["locked_fused_sha256"] != digest(ledger)):
+            raise RuntimeError("batch source hash differs")
+        style = ("NORMAL: precise, concise and natural scientific Burmese; avoid jokes."
+                 if args.render_preset == "dynamic_clean" else
+                 "FUNNY: mild natural humor only; do not change source facts, certainty, "
+                 "negations, numbers, or scientific terms.")
+        # Model-only presentation instruction: the validated canonical request
+        # and its hash remain unchanged for deterministic ID verification.
+        response = invoke_json({**batch, "translation_style": style},
+                               role="translate", timeout=180)
+        result = validate_response(batch, response)
+        if set(translated).intersection(result):
+            raise RuntimeError("translation event appears in multiple batches")
+        translated.update(result)
+    targets = {e["event_id"] for e in ledger["canonical_events"]
+               if e["fact_disposition"] == "translate_target"}
+    if set(translated) != targets:
+        raise RuntimeError("incomplete full-duration translation")
+    bundle = {
+        "canonical_lock": ledger["canonical_lock"],
+        "fused_events_sha256": digest(ledger),
+        "translations": [{"event_id": event_id, "text_my": translated[event_id]}
+                         for event_id in sorted(targets)],
+        "title_my": args.title_my,
+        "caption_my": args.caption_my,
+        "visibility": args.visibility,
+        "render_preset": args.render_preset,
+    }
+    with NamedTemporaryFile(mode="w", suffix=".json", encoding="utf-8", delete=False) as tmp:
+        json.dump(bundle, tmp, ensure_ascii=False)
+        bundle_path = Path(tmp.name)
+    try:
+        status = cmd_localize(argparse.Namespace(job_id=args.job_id, file=str(bundle_path)))
+        if status != 0 or not args.audit:
+            return status
+        return cmd_semantic_audit_auto(argparse.Namespace(job_id=args.job_id))
+    finally:
+        bundle_path.unlink(missing_ok=True)
+
+
 def cmd_localize(args) -> int:
     job = get_job(args.job_id)
     data = json.load(open(args.file, encoding="utf-8"))
@@ -264,12 +323,29 @@ def cmd_localize(args) -> int:
             raise
         projection_validated = validate(projection, timeline["duration_s"])
         projection_validated["dynamic_timeline_hash"] = projection["dynamic_timeline_hash"]
+        from .subtitle_localization import semantic_audit_request
+        from .subtitle_events import digest
+        translations = {e["event_id"]: e["localization"]["text_my"] for e in timeline["events"]
+                        if e["fact_disposition"] == "translate_target"}
+        audit_request = semantic_audit_request(ledger, translations)
+        atomic_json(job.dir / "localization" / "semantic_audit_request.json", audit_request)
+        # A new translation invalidates any audit from an earlier localization.
+        (job.dir / "localization" / "semantic_audit.json").unlink(missing_ok=True)
+        (job.dir / "localization" / "semantic_repair_request.json").unlink(missing_ok=True)
+        # A fresh manual localization begins a new audit lifecycle. Without
+        # clearing history, a previously reviewed job cannot be audited again.
+        (job.dir / "localization" / "semantic_audit_attempts.json").unlink(missing_ok=True)
+        (job.dir / "localization" / "semantic_repair_response.json").unlink(missing_ok=True)
         atomic_json(job.dir / "localization" / "subtitle_timeline.json", timeline)
         atomic_json(job.dir / "localization" / "localization.json", projection_validated)
         qa = evaluate(job.dir)
         notify_if_blocked(job.dir, qa)
-        if qa["status"] == "BLOCKED":
+        blocking_codes = [code for code in qa["codes"]
+                          if code != "BLOCKED_SEMANTIC_AUDIT_MISSING_OR_STALE"]
+        if any(code.startswith("BLOCKED") for code in blocking_codes):
             raise RuntimeError("dynamic localization BLOCKED: " + ",".join(qa["codes"]))
+        # Audit-pending localization may persist as LOCALIZED, but render/export
+        # remains blocked until an independent reviewer supplies a valid audit.
         loc = projection_validated
     else:
         loc = save_localization(job.dir, data)
@@ -444,6 +520,214 @@ def cmd_quality_review(args) -> int:
     return 0 if report["status"] == "PASS" else 20
 
 
+def cmd_semantic_audit_import(args) -> int:
+    from .subtitle_localization import validate_semantic_audit
+    from .subtitle_quality import evaluate
+    job = get_job(args.job_id)
+    if job.state().get("subtitle_mode") != "dynamic_v04" or job.state().get("state") not in ("LOCALIZED", "RENDERED"):
+        raise RuntimeError("semantic audit import requires localized, unpublished dynamic job")
+    request = read_json(job.dir / "localization" / "semantic_audit_request.json")
+    if not request:
+        raise RuntimeError("semantic audit request missing")
+    response = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    validated = validate_semantic_audit(request, response)
+    atomic_json(job.dir / "localization" / "semantic_audit.json", validated)
+    from .subtitle_localization import semantic_repair_request
+    repair = semantic_repair_request(request, validated)
+    atomic_json(job.dir / "localization" / "semantic_repair_request.json", repair)
+    report = evaluate(job.dir, after_render=(job.dir / "production" / "render-result.json").exists())
+    print(json.dumps({"status": report["status"], "codes": report["codes"]}, ensure_ascii=False))
+    return 0 if report["status"] == "PASS" else 20
+
+
+def cmd_semantic_audit_auto(args) -> int:
+    """Bounded external audit/repair cycle for already localized jobs."""
+    from .semantic_transport import invoke_json
+    from .subtitle_localization import (
+        semantic_repair_request, apply_semantic_repairs, validate_semantic_audit
+    )
+    from .subtitle_events import digest
+    from .subtitle_quality import evaluate
+    job = get_job(args.job_id)
+    if job.state().get("subtitle_mode") != "dynamic_v04" or job.state().get("state") != "LOCALIZED":
+        raise RuntimeError("automatic audit requires unpublished LOCALIZED dynamic job")
+    history_path = job.dir / "localization" / "semantic_audit_attempts.json"
+    history = read_json(history_path, {"attempts": []}) or {"attempts": []}
+    start_attempt = 1
+    recovered_review = None
+    recovered_repair = None
+    repair_response_path = job.dir / "localization" / "semantic_repair_response.json"
+    if history.get("attempts"):
+        latest = history["attempts"][-1]
+        request = read_json(job.dir / "localization" / "semantic_audit_request.json") or {}
+        reviewed = read_json(job.dir / "localization" / "semantic_audit.json") or {}
+        if (latest.get("state") in ("INVOKED", "REVIEWED")
+                and latest.get("audit_request_sha256") == request.get("audit_request_sha256")
+                and reviewed):
+            validate_semantic_audit(request, reviewed)
+            report = evaluate(job.dir)
+            if all(item["verdict"] == "pass" for item in reviewed["findings"]):
+                print(json.dumps({"status": report["status"], "reused_review": True,
+                                  "codes": report["codes"]}, ensure_ascii=False))
+                return 0 if report["status"] == "PASS" else 20
+            recovered_review = reviewed
+            start_attempt = int(latest["attempt"])
+        elif (latest.get("state") == "REPAIR_INVOKED"
+                and latest.get("audit_request_sha256") == request.get("audit_request_sha256")
+                and reviewed and repair_response_path.exists()):
+            validate_semantic_audit(request, reviewed)
+            recovered_review = reviewed
+            recovered_repair = read_json(repair_response_path)
+            start_attempt = int(latest["attempt"])
+        elif (latest.get("state") == "REPAIR_INVOKED"
+                and latest.get("audit_request_sha256") != request.get("audit_request_sha256")
+                and repair_response_path.exists()
+                and not reviewed
+                and len(history["attempts"]) == 1):
+            # The repaired audit request was persisted before the journal.
+            # Prove that the persisted timeline really backs that request;
+            # a changed hash alone must not allow advancing the journal.
+            from .subtitle_localization import semantic_audit_request
+            ledger = read_json(job.dir / "analysis" / "fused_events.zh.json")
+            timeline = read_json(job.dir / "localization" / "subtitle_timeline.json")
+            projection = read_json(job.dir / "localization" / "localization.json")
+            if not ledger or not timeline or not projection:
+                raise RuntimeError("partial repair write: missing ledger/timeline/projection")
+            actual_translations = {
+                event["event_id"]: event.get("localization", {}).get("text_my")
+                for event in timeline.get("events", [])
+                if event.get("fact_disposition") == "translate_target"
+            }
+            expected_request = semantic_audit_request(ledger, actual_translations)
+            if (expected_request["audit_request_sha256"] != request["audit_request_sha256"]
+                    or projection.get("dynamic_timeline_hash") != digest(timeline)):
+                raise RuntimeError("partial repair write: audit/timeline/projection mismatch")
+            latest["state"] = "REPAIRED"
+            latest["next_audit_request_sha256"] = request["audit_request_sha256"]
+            atomic_json(history_path, history)
+            repair_response_path.unlink(missing_ok=True)
+            start_attempt = 2
+        elif (latest.get("state") == "REPAIRED"
+                and len(history["attempts"]) == 1
+                and latest.get("next_audit_request_sha256") == request.get("audit_request_sha256")
+                and not reviewed):
+            # Reuse the already persisted repaired timeline. Only the second
+            # independent audit is pending; do not repeat the translator call.
+            start_attempt = 2
+        else:
+            raise RuntimeError("unfinished semantic audit: reconcile prior invocation before retry")
+    for attempt in range(start_attempt, 3):
+        request = read_json(job.dir / "localization" / "semantic_audit_request.json")
+        if not request:
+            raise RuntimeError("semantic audit request missing")
+        if recovered_review is not None:
+            validated = recovered_review
+            recovered_review = None
+        else:
+            history["attempts"].append({"attempt": attempt,
+                                        "audit_request_sha256": request["audit_request_sha256"],
+                                        "state": "INVOKED"})
+            atomic_json(history_path, history)
+            result = invoke_json(request, role="audit")
+            validated = validate_semantic_audit(request, result)
+            # Persist the validated response before updating the journal.
+            atomic_json(job.dir / "localization" / "semantic_audit.json", validated)
+        history["attempts"][-1]["state"] = "REVIEWED"
+        history["attempts"][-1]["verdicts"] = {x["event_id"]: x["verdict"]
+                                                 for x in validated["findings"]}
+        atomic_json(history_path, history)
+        report = evaluate(job.dir)
+        if all(item["verdict"] == "pass" for item in validated["findings"]):
+            print(json.dumps({"status": report["status"], "attempts": attempt,
+                              "codes": report["codes"]}, ensure_ascii=False))
+            return 0 if report["status"] == "PASS" else 20
+        if attempt == 2:
+            break
+        repair = semantic_repair_request(request, validated, attempt=attempt)
+        atomic_json(job.dir / "localization" / "semantic_repair_request.json", repair)
+        history["attempts"][-1]["state"] = "REPAIR_INVOKED"
+        atomic_json(history_path, history)
+        if recovered_repair is not None:
+            repaired = recovered_repair
+            recovered_repair = None
+        else:
+            repaired = invoke_json(repair, role="repair")
+        translations = apply_semantic_repairs(request, repair, repaired)
+        # Journal a validated repair response before writing the replacement
+        # timeline. Recovery must never silently repeat the model operation.
+        atomic_json(repair_response_path, repaired)
+        ledger = read_json(job.dir / "analysis" / "fused_events.zh.json")
+        timeline = read_json(job.dir / "localization" / "subtitle_timeline.json")
+        from .subtitle_localization import build_timeline
+        from .localize import validate
+        bundle = {
+            "canonical_lock": ledger["canonical_lock"],
+            "fused_events_sha256": digest(ledger),
+            "translations": [{"event_id": e["event_id"], "text_my": translations[e["event_id"]]}
+                             for e in ledger["canonical_events"]
+                             if e["fact_disposition"] == "translate_target"],
+            "title_my": timeline["title_my"], "caption_my": timeline["caption_my"],
+            "visibility": timeline["visibility"], "render_preset": timeline["render_preset"],
+        }
+        updated, projection = build_timeline(ledger, bundle)
+        checked = validate(projection, updated["duration_s"])
+        checked["dynamic_timeline_hash"] = projection["dynamic_timeline_hash"]
+        from .subtitle_localization import semantic_audit_request
+        atomic_json(job.dir / "localization" / "subtitle_timeline.json", updated)
+        atomic_json(job.dir / "localization" / "localization.json", checked)
+        atomic_json(job.dir / "localization" / "semantic_audit_request.json",
+                    semantic_audit_request(ledger, translations))
+        (job.dir / "localization" / "semantic_audit.json").unlink(missing_ok=True)
+        history["attempts"][-1]["state"] = "REPAIRED"
+        history["attempts"][-1]["next_audit_request_sha256"] = (
+            read_json(job.dir / "localization" / "semantic_audit_request.json")["audit_request_sha256"])
+        atomic_json(history_path, history)
+        repair_response_path.unlink(missing_ok=True)
+    report = evaluate(job.dir)
+    print(json.dumps({"status": "BLOCKED_SEMANTIC_REPAIR_EXHAUSTED",
+                      "codes": report["codes"]}, ensure_ascii=False))
+    return 20
+
+
+def cmd_semantic_repair_import(args) -> int:
+    """Merge only audited corrections, then use the existing localization gate."""
+    from .subtitle_localization import apply_semantic_repairs, validate_semantic_audit, semantic_repair_request
+    from .subtitle_events import digest
+    from tempfile import NamedTemporaryFile
+    job = get_job(args.job_id)
+    if job.state().get("subtitle_mode") != "dynamic_v04" or job.state().get("state") != "LOCALIZED":
+        raise RuntimeError("semantic repair requires unpublished LOCALIZED dynamic job")
+    request = read_json(job.dir / "localization" / "semantic_audit_request.json")
+    audit = read_json(job.dir / "localization" / "semantic_audit.json")
+    timeline = read_json(job.dir / "localization" / "subtitle_timeline.json")
+    ledger = read_json(job.dir / "analysis" / "fused_events.zh.json")
+    if not all((request, audit, timeline, ledger)):
+        raise RuntimeError("semantic repair source artifacts missing")
+    validate_semantic_audit(request, audit)
+    repair = semantic_repair_request(request, audit, attempt=args.attempt)
+    response = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    translations = apply_semantic_repairs(request, repair, response)
+    bundle = {
+        "canonical_lock": ledger["canonical_lock"],
+        "fused_events_sha256": digest(ledger),
+        "translations": [{"event_id": e["event_id"], "text_my": translations[e["event_id"]]}
+                         for e in ledger["canonical_events"]
+                         if e["fact_disposition"] == "translate_target"],
+        "title_my": timeline["title_my"],
+        "caption_my": timeline["caption_my"],
+        "visibility": timeline["visibility"],
+        "render_preset": timeline["render_preset"],
+    }
+    # Reuse the canonical localize entrypoint; never patch timeline or hashes in place.
+    with NamedTemporaryFile(mode="w", suffix=".json", encoding="utf-8", delete=False) as tmp:
+        json.dump(bundle, tmp, ensure_ascii=False)
+        path = Path(tmp.name)
+    try:
+        return cmd_localize(argparse.Namespace(job_id=args.job_id, file=str(path)))
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def cmd_layout_set(args) -> int:
     from .subtitle_localization import revise_layout
     from .subtitle_quality import evaluate
@@ -506,6 +790,31 @@ def main() -> int:
     p.add_argument("job_id")
     p.add_argument("file")
     p.set_defaults(func=cmd_localize)
+
+    p = sp.add_parser("translate-auto")
+    p.add_argument("job_id")
+    p.add_argument("--title-my", required=True)
+    p.add_argument("--caption-my", required=True)
+    p.add_argument("--visibility", default="PRIVATE", choices=("PRIVATE", "FRIENDS", "PUBLIC"))
+    p.add_argument("--render-preset", default="dynamic_clean", choices=("dynamic_clean", "dynamic_fun"))
+    p.add_argument("--audit", action="store_true",
+                   help="After localization, invoke independent semantic audit and bounded repair")
+    p.set_defaults(func=cmd_translate_auto)
+
+    p = sp.add_parser("semantic-audit-import")
+    p.add_argument("job_id")
+    p.add_argument("file")
+    p.set_defaults(func=cmd_semantic_audit_import)
+
+    p = sp.add_parser("semantic-audit-auto")
+    p.add_argument("job_id")
+    p.set_defaults(func=cmd_semantic_audit_auto)
+
+    p = sp.add_parser("semantic-repair-import")
+    p.add_argument("job_id")
+    p.add_argument("file")
+    p.add_argument("--attempt", type=int, default=1, choices=(1, 2))
+    p.set_defaults(func=cmd_semantic_repair_import)
 
     p = sp.add_parser("render")
     p.add_argument("job_id")

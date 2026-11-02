@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -60,11 +61,126 @@ def translation_request(ledger: dict, *, start: int = 0,
         "instruction": (
             "Return ONLY a translations array of {event_id,text_my} for target_events. "
             "Preserve IDs one-to-one. No extra IDs or fields, no timing edits. "
-            "Use surrounding_events as read-only context. Do not invent plot details."
+            "Use surrounding_events as read-only context. Do not invent plot details. "
+            "Translate every source clause faithfully: preserve negation, numbers, "
+            "named entities, scientific terminology, and speaker intent. "
+            "Never replace an event with a summary of the video."
         ),
     }
     output["request_hash"] = digest(output)
     return output
+
+
+def semantic_audit_request(ledger: dict, translations: dict[str, str]) -> dict:
+    """Separate translation audit input; never alter canonical source events."""
+    targets = translation_targets(ledger)
+    expected = {e["event_id"] for e in targets}
+    if set(translations) != expected:
+        raise TranslationContractError("semantic audit requires complete target IDs")
+    payload = {
+        "schema_version": 1,
+        "canonical_lock": ledger["canonical_lock"],
+        "fused_events_sha256": digest(ledger),
+        "pairs": [{"event_id": e["event_id"], "text_zh": e["text_zh"],
+                   "text_my": translations[e["event_id"]]}
+                  for e in targets],
+        "verified_source_context": [
+            {"event_id": e["event_id"], "meaning": e["human_verified_meaning"]}
+            for e in targets if e.get("human_verified_meaning")
+        ],
+        "audit_instruction": (
+            "Treat verified_source_context as the human-confirmed intended meaning "
+            "of the original Chinese phrase; do not reinterpret its referent as a "
+            "proper name when the reviewer has clarified the metaphor. "
+            "Independently compare each Chinese source and Burmese translation. "
+            "Identify omissions, changed negations, numerical errors, scientific "
+            "terms, names and unrelated paraphrases. Return event_id, verdict "
+            "(pass|fail|uncertain), reason and proposed correction. "
+            "Do not infer correctness from Myanmar characters alone. "
+            "Return JSON with audit_request_sha256 copied exactly from this request "
+            "and findings array containing every event_id once. "
+            "For every finding include verdict and reason."
+        ),
+    }
+    payload["audit_request_sha256"] = digest(payload)
+    return payload
+
+
+def validate_semantic_audit(request: dict, response: dict) -> dict:
+    """Check that an independent audit is complete and bound to its source."""
+    if not isinstance(response, dict) or not isinstance(request, dict):
+        raise TranslationContractError("semantic audit expects JSON objects")
+    if response.get("audit_request_sha256") != request.get("audit_request_sha256"):
+        raise TranslationContractError("semantic audit request hash mismatch")
+    expected = {pair["event_id"] for pair in request["pairs"]}
+    findings = response.get("findings")
+    if not isinstance(findings, list) or len(findings) != len(expected):
+        raise TranslationContractError("semantic audit findings incomplete")
+    ids = [row.get("event_id") for row in findings if isinstance(row, dict)]
+    if len(ids) != len(expected) or set(ids) != expected:
+        raise TranslationContractError("semantic audit IDs invalid")
+    if any(row.get("verdict") not in ("pass", "fail", "uncertain")
+           or not isinstance(row.get("reason"), str)
+           or (row.get("verdict") != "pass" and not row["reason"].strip())
+           for row in findings):
+        raise TranslationContractError("semantic audit verdict invalid")
+    return response
+
+
+def semantic_repair_request(request: dict, audit: dict, *, attempt: int = 1,
+                            max_attempts: int = 2) -> dict:
+    """Bounded, evidence-backed repair task for an external translator.
+
+    No model invocation occurs here. Canonical IDs and Chinese facts stay locked.
+    """
+    validate_semantic_audit(request, audit)
+    if not 1 <= attempt <= max_attempts:
+        raise TranslationContractError("semantic repair attempt limit exceeded")
+    findings = {row["event_id"]: row for row in audit["findings"]}
+    targets = []
+    for pair in request["pairs"]:
+        finding = findings[pair["event_id"]]
+        if finding["verdict"] != "pass":
+            targets.append({**pair, "verdict": finding["verdict"],
+                            "audit_reason": finding["reason"]})
+    payload = {
+        "schema_version": 1,
+        "audit_request_sha256": request["audit_request_sha256"],
+        "attempt": attempt,
+        "max_attempts": max_attempts,
+        "target_events": targets,
+        "verified_source_context": [
+            row for row in request.get("verified_source_context", [])
+            if row.get("event_id") in {event["event_id"] for event in targets}
+        ],
+        "instruction": (
+            "Human-verified source context is authoritative about meaning and referents. "
+            "Do not substitute a different creature or named entity against verified context. "
+            "Correct ONLY target_events. Preserve event IDs and Chinese meaning, "
+            "including negations, numbers, science terms and names. "
+            "Return translations array of {event_id,text_my}. "
+            "Do not alter canonical IDs, timing or source facts."
+        ),
+    }
+    payload["request_hash"] = digest(payload)
+    return payload
+
+
+def apply_semantic_repairs(request: dict, repair: dict,
+                           repaired_response: dict) -> dict[str, str]:
+    """Return complete translations with reviewed non-target rows untouched."""
+    if repair.get("audit_request_sha256") != request.get("audit_request_sha256"):
+        raise TranslationContractError("repair bound to different audit")
+    fixed = validate_response(repair, repaired_response)
+    original = {row["event_id"]: row["text_my"] for row in request["pairs"]}
+    unchanged = [event_id for event_id, value in fixed.items()
+                 if value == original.get(event_id)]
+    if unchanged:
+        raise TranslationContractError("repair did not change flagged translation IDs: "
+                                       + ",".join(sorted(unchanged)))
+    if not set(fixed).issubset(original):
+        raise TranslationContractError("unknown repair ID")
+    return {**original, **fixed}
 
 
 def validate_response(request: dict, response: dict) -> dict[str, str]:
@@ -88,6 +204,10 @@ def validate_response(request: dict, response: dict) -> dict[str, str]:
             raise TranslationContractError("empty/non-text translation")
         if "\ufffd" in value:
             raise TranslationContractError("replacement glyph not allowed")
+        # A nonempty Chinese or English echo is not a Burmese translation.
+        # Leave scientific names in Latin script, but require Burmese text too.
+        if not re.search(r"[\u1000-\u109f\uaa60-\uaa7f]", value):
+            raise TranslationContractError("translation has no Myanmar-script text")
         got[key] = value.strip()
     if set(got) != set(expected):
         raise TranslationContractError("target IDs missing or unexpected")

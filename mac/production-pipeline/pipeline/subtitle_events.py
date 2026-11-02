@@ -204,6 +204,20 @@ def _looks_like_account(event: dict) -> bool:
     return bool(re.search(r"抖音号\s*[:：]|@[\w.-]{4,}", text)) and (box[0] < .30 or box[2] > .70)
 
 
+def _latin_visual_disposition(event: dict) -> tuple[str, str | None]:
+    """Fail closed for Latin-only OCR rather than demanding invented Burmese text.
+
+    Near-identical short-lived Latin overlay variants are likely OCR noise,
+    but meaningful English captions must still be reviewed, never discarded.
+    """
+    value = event["text_zh"].strip()
+    if re.search(r"[\u3400-\u9fff]", value) or not re.search(r"[A-Za-z]", value):
+        return "translate_target", None
+    if re.fullmatch(r"[A-Za-z\s0-9]+", value) and (event["end"] - event["start"] < .5):
+        return "review_required", None
+    return "review_required", None
+
+
 def fuse_events(speech: list[dict], visual: list[dict], *, source_sha256: str,
                 duration: float, rules: EventRules | None = None) -> dict:
     rules = rules or EventRules()
@@ -220,7 +234,10 @@ def fuse_events(speech: list[dict], visual: list[dict], *, source_sha256: str,
             chosen_visual.add(aligned["source_id"])
         source_refs = list(a["source_refs"]) + (list(aligned["source_refs"]) if aligned else [])
         src_ids = [a["source_id"]] + ([aligned["source_id"]] if aligned else [])
-        start, end = ((aligned["start"], aligned["end"]) if aligned else (a["start"], a["end"]))
+        # Matched OCR may cover fewer frames than the spoken sentence.
+        # Preserve speech extent to avoid losing translated tails.
+        start, end = ((min(a["start"], aligned["start"]), max(a["end"], aligned["end"]))
+                      if aligned else (a["start"], a["end"]))
         canonical.append({
             "event_id": "evt-" + digest(src_ids)[:16],
             "source_kind": "ocr_asr_aligned" if aligned else "speech",
@@ -241,9 +258,15 @@ def fuse_events(speech: list[dict], visual: list[dict], *, source_sha256: str,
         if v["source_id"] in chosen_visual:
             continue
         account = _looks_like_account(v)
-        # Uncertain OCR remains a translation target with explicit review flags.
-        # Dropping it from translation would silently erase a possible punchline.
-        status = "excluded_with_reason" if account else "translate_target"
+        # Isolated one-glyph, sub-second OCR observations are untrusted until
+        # adjudicated: translating them automatically invents visual content.
+        # Keep them in the ledger as REVIEW_REQUIRED rather than silently drop.
+        short_uncertain = (len(v["text_zh"].strip()) <= 1
+                           and v["end"] - v["start"] < 0.5
+                           and "SHORT_EVENT_REVIEW" in v.get("review_flags", []))
+        latin_status, _ = _latin_visual_disposition(v)
+        status = ("excluded_with_reason" if account else
+                  "review_required" if short_uncertain else latin_status)
         canonical.append({
             "event_id": "evt-" + digest([v["source_id"]])[:16],
             "source_kind": "visual_text",
@@ -258,7 +281,7 @@ def fuse_events(speech: list[dict], visual: list[dict], *, source_sha256: str,
             "fact_disposition": status,
             "exclude_reason": "WATERMARK_OR_ACCOUNT" if account else None,
             "ocr_bbox_norm": v["bbox_norm"],
-            "review_flags": v.get("review_flags", []),
+            "review_flags": v.get("review_flags", []) + (["LATIN_ONLY_OCR_REVIEW"] if latin_status == "review_required" else []),
         })
     canonical.sort(key=lambda e: (e["start"], e["end"], e["event_id"]))
     return {

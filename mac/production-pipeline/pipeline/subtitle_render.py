@@ -9,7 +9,7 @@ from pathlib import Path
 from .common import ROOT, atomic_json, read_json, run, sha256_file
 from .subtitle_events import digest
 from .subtitle_localization import check_projection
-from .subtitle_layout import plan_position, verified_backplate, source_box_to_output
+from .subtitle_layout import plan_position, plan_timeline, verified_backplate, source_box_to_output
 
 
 def _source_geometry(video: Path) -> tuple[int, int]:
@@ -80,10 +80,11 @@ def render_dynamic(job_dir: Path) -> dict:
     graph = "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black[v0]"
     prev = "v0"
     placements = []
+    planned = plan_timeline(active, geometry)
     for index, event in enumerate(active, 1):
         after = f"v{index}"
         start, end = float(event["start"]), float(event["end"])
-        placed = plan_position(event, geometry)
+        placed = planned[event["event_id"]]
         if placed["collision"]:
             raise RuntimeError("REVIEW_REQUIRED_LAYOUT: no safe overlay region")
         if event.get("layout", {}).get("mode") == "cover_and_replace":
@@ -126,7 +127,16 @@ def render_dynamic(job_dir: Path) -> dict:
     frames_dir = production / "qa-contact-frames"
     frames_dir.mkdir(exist_ok=True)
     sampled = []
-    for idx, event in enumerate(active[:12]):
+    # Distribute QA frames over the full video rather than the first 12 cues.
+    sample_count = min(12, len(active))
+    if sample_count == len(active):
+        sampled_events = active
+    elif sample_count > 1:
+        sampled_events = [active[round(i * (len(active) - 1) / (sample_count - 1))]
+                          for i in range(sample_count)]
+    else:
+        sampled_events = active[:1]
+    for idx, event in enumerate(sampled_events):
         for point in (event["start"] + .02, (event["start"] + event["end"]) / 2, event["end"] - .02):
             if 0 <= point < duration:
                 frame = frames_dir / f"ev-{idx:03d}-{len(sampled):02d}.jpg"
