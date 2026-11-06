@@ -1149,3 +1149,12 @@ Scope: close instrumentation launch/evidence/health-check issues only. Frozen OC
 - Repeat returned idempotent=true; matching Notes count remained 1; device screen restored ASLEEP. Manifest remains DRY_RUN.
 - Synthetic DIRECT_DOWNLOAD/publish routing: 7 tests PASS; Telegram media gates: 9 PASS; resume/immutable intent/reconciliation gates: 11 PASS. These fixture checks do not claim live DIRECT_DOWNLOAD or TikTok UI acceptance.
 - No TikTok publication, runtime deployment, secret or media committed. No acceptance blockers.
+
+## Y700 health-state false-OFFLINE fix — scoped production hotfix PASS (2026-11-06)
+
+- Scope: repair false `network=OFFLINE` / `tunnel=OFFLINE` reporting only. Root causes: a stale cloudflared PID file despite a live expected tunnel process, and an unreachable generic HTTP probe despite working Internet. No Android boot, wake-lock, publisher, or TikTok workflow changes.
+- Source: PR #62, merge commit `e64bc67dfd1926da03b02483a562077809ceb6d6`; PR CI `validate/source` SUCCESS and post-merge `main` CI SUCCESS.
+- Verification: 38/38 affected unittest tests PASS; shell syntax PASS; device network probe `ONLINE`; isolated stale-PID reconciliation fixture PASS.
+- Deployment: only `scripts/network-status.sh` and `scripts/health-loop.sh` were atomically replaced on existing running `y700-agent-release-5228628` baseline, because promoting all of current `main` would also activate unrelated unshipped changes. Preexisting local runtime modifications were left intact. Two original files and a SHA-256 manifest are retained outside Git under `/opt/y700/runtime/deploy-backups/health-state-20261106T073257Z/`; reverting those exact files is the bounded rollback.
+- Post-deployment: automatic health-loop script reload succeeded without killing the live cloudflared process; connectivity `network=ONLINE`, `tunnel_process=HEALTHY`, `tunnel_connections=4`, `remote_plane=READY`, HTTP 200, and CodexPro HEALTHY. The production alias remains on the prior release baseline, intentionally; this was a scoped hotfix, **not** a full-main release promotion.
+- Independent preexisting overall-health warnings remain: `production_sot=DRIFT` and `publisher=FAILED`. Therefore `overall=DEGRADED` is not claimed fixed; those warnings require separate investigation and authorization.
