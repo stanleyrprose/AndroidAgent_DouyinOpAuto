@@ -11,6 +11,8 @@ def export(job_dir: Path, *, ttl_seconds: int = 3600) -> dict:
     from .telegram_media import deliver
     # Only intent-marked control jobs require this Telegram handoff.
     state = read_json(job_dir / "state.json", {})
+    if state.get("workflow_intent") == "TG_LOCALIZED":
+        raise RuntimeError("TG_LOCALIZED is Telegram-only; Y700 export is forbidden")
     if state.get("workflow_intent"):
         deliver(job_dir)
     source = json.load(open(job_dir / "source" / "source.json", encoding="utf-8"))

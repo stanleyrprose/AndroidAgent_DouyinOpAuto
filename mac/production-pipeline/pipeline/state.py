@@ -19,6 +19,8 @@ STATES = {
     "VERIFIED",
     "STORED_IN_ALBUM",
     "DIRECT_DOWNLOADED",
+    "TG_DELIVERED_CLEANUP_PENDING",
+    "TG_DELIVERED",
     "BLOCKED",
     "FAILED",
     "DUPLICATE",
@@ -96,7 +98,7 @@ def index_job(job: Job, *, aweme_id: str | None = None, url_key: str | None = No
         "state": job.state().get("state"),
         "updated_at": now_iso(),
     }
-    terminal = {"PUBLISHED", "VERIFIED"}
+    terminal = {"PUBLISHED", "VERIFIED", "TG_DELIVERED"}
     if aweme_id:
         current = idx.setdefault("aweme", {}).get(aweme_id)
         if not (current and current.get("state") in terminal and summary["state"] not in terminal):
@@ -119,13 +121,13 @@ def mark_published(aweme_id: str, job_id: str, *, verified: bool = False) -> Non
 
 
 def set_workflow_intent(job: Job, intent: str) -> dict[str, Any]:
-    if intent not in {"AUTO_PUBLISH", "STORE_ALBUM", "DIRECT_DOWNLOAD"}:
+    if intent not in {"AUTO_PUBLISH", "STORE_ALBUM", "DIRECT_DOWNLOAD", "TG_LOCALIZED"}:
         raise RuntimeError(f"unsupported workflow intent: {intent}")
     current = job.state()
     existing = current.get("workflow_intent")
     if existing and existing != intent:
         raise RuntimeError(f"workflow intent is immutable: existing={existing} requested={intent}")
-    terminal = {"PUBLISHED", "VERIFIED", "STORED_IN_ALBUM", "DIRECT_DOWNLOADED"}
+    terminal = {"PUBLISHED", "VERIFIED", "STORED_IN_ALBUM", "DIRECT_DOWNLOADED", "TG_DELIVERED"}
     if not existing and current.get("state") in terminal:
         raise RuntimeError(f"cannot backfill workflow intent after terminal state: {current.get('state')}")
     if existing:

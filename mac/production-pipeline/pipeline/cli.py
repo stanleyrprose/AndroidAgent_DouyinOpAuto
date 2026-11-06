@@ -226,10 +226,13 @@ def get_job(job_id: str) -> Job:
 
 def refresh_index(job: Job) -> None:
     source = read_json(job.dir / "source" / "source.json", {}) or {}
-    source_url = source.get("source_url")
+    state = job.state()
+    # TG-only cleanup deletes source metadata, but retains its stable identity in state.
+    source_url = source.get("source_url") or state.get("source_url")
+    aweme_id = source.get("aweme_id") or state.get("aweme_id")
     index_job(
         job,
-        aweme_id=source.get("aweme_id"),
+        aweme_id=aweme_id,
         url_key=url_key(source_url) if source_url else None,
     )
 
@@ -462,6 +465,15 @@ def cmd_layout_set(args) -> int:
     return 0 if report["status"] != "BLOCKED" else 20
 
 
+def cmd_tg_finish(args) -> int:
+    from .tg_localized import finish
+    job = get_job(args.job_id)
+    result = finish(job)
+    refresh_index(job)
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
 def cmd_telegram_media(args) -> int:
     from .telegram_media import deliver
     result = deliver(get_job(args.job_id).dir)
@@ -509,6 +521,7 @@ def cmd_status(args) -> int:
         "export/export-result.json",
         "album-store-closure.json",
         "direct-download-closure.json",
+        "tg-delivery-receipt.json",
     ]:
         p = job.dir / rel
         if p.exists():
@@ -564,7 +577,7 @@ def main() -> int:
 
     p = sp.add_parser("set-intent")
     p.add_argument("job_id")
-    p.add_argument("intent", choices=["AUTO_PUBLISH", "STORE_ALBUM", "DIRECT_DOWNLOAD"])
+    p.add_argument("intent", choices=["AUTO_PUBLISH", "STORE_ALBUM", "DIRECT_DOWNLOAD", "TG_LOCALIZED"])
     p.set_defaults(func=cmd_set_intent)
 
     p = sp.add_parser("mark-direct-downloaded")
@@ -617,6 +630,10 @@ def main() -> int:
     p.add_argument("--mode", choices=["avoid_original", "cover_and_replace", "retain_original"], required=True)
     p.add_argument("--evidence-frame", action="append", default=[])
     p.set_defaults(func=cmd_layout_set)
+
+    p = sp.add_parser("tg-finish")
+    p.add_argument("job_id")
+    p.set_defaults(func=cmd_tg_finish)
 
     p = sp.add_parser("telegram-media")
     p.add_argument("job_id")

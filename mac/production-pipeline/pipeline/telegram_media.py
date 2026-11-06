@@ -59,7 +59,7 @@ def deliver(job_dir: Path, *, intent: str | None = None) -> dict:
     job_dir = job_dir.resolve(strict=True)
     state = read_json(job_dir / 'state.json', {})
     intent = intent or state.get('workflow_intent')
-    if intent not in {'DIRECT_DOWNLOAD', 'STORE_ALBUM', 'AUTO_PUBLISH'}:
+    if intent not in {'DIRECT_DOWNLOAD', 'STORE_ALBUM', 'AUTO_PUBLISH', 'TG_LOCALIZED'}:
         raise MediaDeliveryError('WORKFLOW_INTENT_REQUIRED')
     if state.get('workflow_intent') and state['workflow_intent'] != intent:
         raise MediaDeliveryError('WORKFLOW_INTENT_MISMATCH')
