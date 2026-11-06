@@ -94,12 +94,21 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
 
     def test_connectivity_loop_is_decoupled_and_bounded(self) -> None:
         text = HEALTH_LOOP.read_text()
-        self.assertIn("Y700_HEALTH_LOOP_INTERVAL_SEC:-10", text)
+        self.assertIn("Y700_HEALTH_LOOP_INTERVAL_SEC:-1800", text)
         self.assertIn("Y700_HEALTH_CHECK_INTERVAL_SEC:-60", text)
         self.assertIn("Y700_HEALTH_CHECK_TIMEOUT_SEC:-10", text)
         self.assertIn('if [ "$remote_ready" -eq 1 ]', text)
         self.assertIn('timeout --signal=TERM "$HEALTH_CHECK_TIMEOUT_SEC"', text)
-        self.assertIn('sleep "$LOOP_INTERVAL_SEC"', text)
+        self.assertIn('wait_with_heartbeat "$LOOP_INTERVAL_SEC"', text)
+
+    def test_long_interval_keeps_supervisor_heartbeat_and_fast_recovery(self) -> None:
+        text = HEALTH_LOOP.read_text()
+        heartbeat_sleep = text.split("wait_with_heartbeat() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn("sleep 10", heartbeat_sleep)
+        self.assertIn("publish_heartbeat", heartbeat_sleep)
+        self.assertIn("maybe_self_update", heartbeat_sleep)
+        self.assertIn('if [ "$remote_ready" -eq 1 ]; then', text)
+        self.assertIn('wait_with_heartbeat 10', text)
 
     def test_remote_plane_retry_budget_is_bounded_for_control_plane_slo(self) -> None:
         text = HEALTH_LOOP.read_text()
