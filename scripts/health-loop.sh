@@ -20,6 +20,10 @@ REMOTE_VERIFY_DELAY_SEC="${Y700_CLOUDFLARED_REMOTE_VERIFY_DELAY_SEC:-2}"
 LOOP_INTERVAL_SEC="${Y700_HEALTH_LOOP_INTERVAL_SEC:-1800}"
 HEALTH_CHECK_INTERVAL_SEC="${Y700_HEALTH_CHECK_INTERVAL_SEC:-60}"
 HEALTH_CHECK_TIMEOUT_SEC="${Y700_HEALTH_CHECK_TIMEOUT_SEC:-10}"
+# Pause remote probes and self-heal while the display is physically off. Keep
+# an already connected tunnel alive until a separately gated power-off trial.
+SCREEN_GATE_ENABLED="${Y700_CLOUDFLARED_SCREEN_GATE_ENABLED:-1}"
+BACKLIGHT_POWER="${Y700_BACKLIGHT_POWER_PATH:-/sys/class/backlight/panel0-backlight/bl_power}"
 
 mkdir -p "$(dirname "$LOG")" "$STATE_DIR"
 echo "$BASHPID" > "$PID"
@@ -67,14 +71,30 @@ maybe_self_update() {
   fi
 }
 
-# The supervisor considers a heartbeat stale after 35 seconds. Keep the
-# lightweight heartbeat and script-update check alive during a long idle.
+# Unknown display state is treated as ON so a missing backlight path cannot
+# accidentally disable remote recovery. The value 4 is FB_BLANK_POWERDOWN.
+screen_off() {
+  local blank
+  [ "$SCREEN_GATE_ENABLED" = 1 ] || return 1
+  [ -r "$BACKLIGHT_POWER" ] || return 1
+  IFS= read -r blank < "$BACKLIGHT_POWER" || return 1
+  [ "$blank" = 4 ]
+}
+
+# Maintain the supervisor heartbeat, but interrupt the long healthy wait when
+# the display goes off so remote keepalive checks stop promptly.
 wait_with_heartbeat() {
-  local remaining="$1"
+  local remaining="$1" began_off=0
+  screen_off && began_off=1
   while [[ "$remaining" =~ ^[0-9]+$ ]] && [ "$remaining" -gt 10 ]; do
     sleep 10
     publish_heartbeat
     maybe_self_update
+    if screen_off; then
+      [ "$began_off" -eq 1 ] || return 0
+    else
+      [ "$began_off" -eq 0 ] || return 0
+    fi
     remaining=$((remaining - 10))
   done
   sleep "$remaining"
@@ -206,10 +226,30 @@ next_retry_epoch=0
 disconnected_cycles=0
 last_network=""
 last_health_check_epoch=0
+screen_paused=0
 
 while true; do
   maybe_self_update
   publish_heartbeat
+  if screen_off; then
+    if [ "$screen_paused" -eq 0 ]; then
+      echo "$(date -Is) CLOUDFLARED_KEEPALIVE_PAUSED_SCREEN_OFF" >>"$LOG"
+      write_connectivity_state UNKNOWN UNMONITORED 0 PAUSED_SCREEN_OFF 0 0 000
+      screen_paused=1
+    fi
+    # Do not probe or start/restart cloudflared in standby. Existing tunnel
+    # processes remain untouched until an independently recoverable power trial.
+    wait_with_heartbeat 10
+    continue
+  fi
+  if [ "$screen_paused" -eq 1 ]; then
+    echo "$(date -Is) CLOUDFLARED_KEEPALIVE_RESUMED_SCREEN_ON" >>"$LOG"
+    screen_paused=0
+    failures=0
+    next_retry_epoch=0
+    disconnected_cycles=0
+    last_network=""
+  fi
   now="$(date +%s)"
   # A successful remote HTTPS probe proves Internet reachability even when
   # the chroot cannot expose Android's route or the generic probe host times out.

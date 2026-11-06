@@ -110,6 +110,46 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         self.assertIn('if [ "$remote_ready" -eq 1 ]; then', text)
         self.assertIn('wait_with_heartbeat 10', text)
 
+    def test_screen_off_pauses_remote_probes_without_killing_existing_tunnel(self) -> None:
+        text = HEALTH_LOOP.read_text()
+        self.assertIn("Y700_CLOUDFLARED_SCREEN_GATE_ENABLED:-1", text)
+        self.assertIn("Y700_BACKLIGHT_POWER_PATH:-/sys/class/backlight/panel0-backlight/bl_power", text)
+        self.assertIn("CLOUDFLARED_KEEPALIVE_PAUSED_SCREEN_OFF", text)
+        self.assertIn("PAUSED_SCREEN_OFF", text)
+        self.assertIn("CLOUDFLARED_KEEPALIVE_RESUMED_SCREEN_ON", text)
+        self.assertLess(text.index("if screen_off; then\n    if [ \"$screen_paused\""),
+                        text.index('probe_http="$(remote_probe_http_status)"', text.index("while true; do")))
+        branch = text.split("if screen_off; then\n    if [ \"$screen_paused\"", 1)[1].split("\n  fi", 1)[0]
+        self.assertNotIn("restart_cloudflared", branch)
+        self.assertNotIn("kill ", branch)
+
+    def test_screen_off_sensor_is_fail_open_and_can_be_disabled(self) -> None:
+        text = HEALTH_LOOP.read_text()
+        body = text.split("screen_off() {", 1)[1].split("\n}", 1)[0]
+        command = "screen_off() {" + body + "\n}\nscreen_off\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            backlight = Path(tmp) / "bl_power"
+            env = os.environ.copy()
+            env["BACKLIGHT_POWER"] = str(backlight)
+            env["SCREEN_GATE_ENABLED"] = "1"
+            backlight.write_text("4\n")
+            self.assertEqual(subprocess.run(["bash", "-c", command], env=env).returncode, 0)
+            backlight.write_text("0\n")
+            self.assertNotEqual(subprocess.run(["bash", "-c", command], env=env).returncode, 0)
+            backlight.unlink()
+            self.assertNotEqual(subprocess.run(["bash", "-c", command], env=env).returncode, 0)
+            backlight.write_text("4\n")
+            env["SCREEN_GATE_ENABLED"] = "0"
+            self.assertNotEqual(subprocess.run(["bash", "-c", command], env=env).returncode, 0)
+
+    def test_healthy_wait_rechecks_display_without_waiting_1800_seconds(self) -> None:
+        text = HEALTH_LOOP.read_text()
+        block = text.split("wait_with_heartbeat() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn("sleep 10", block)
+        self.assertIn("screen_off", block)
+        self.assertIn('[ "$began_off" -eq 0 ] || return 0', block)
+        self.assertIn('[ "$began_off" -eq 1 ] || return 0', block)
+
     def test_remote_plane_retry_budget_is_bounded_for_control_plane_slo(self) -> None:
         text = HEALTH_LOOP.read_text()
         self.assertIn("Y700_CLOUDFLARED_BACKOFF_BASE_SEC:-15", text)
