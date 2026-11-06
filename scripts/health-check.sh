@@ -38,6 +38,12 @@ codex=$(status_pid /opt/y700/runtime/codexpro.pid codexpro)
 tunnel=$(status_pid /opt/y700/runtime/cloudflared.pid cloudflared)
 bridge=$(status_pid /opt/y700/runtime/host-executor.pid host-executor.sh)
 bridge_instances=$(count_host_executors)
+# On-demand bridge intentionally has zero executor processes between requests.
+if [ "$bridge" = OFFLINE ] && [ "$bridge_instances" -eq 0 ] && \
+   [ -x /proc/1/root/system/bin/sh ] && \
+   grep -Fq '|| ONESHOT=1' /opt/y700/workspaces/y700-agent/bridge/host-executor.sh 2>/dev/null; then
+  bridge=IDLE
+fi
 
 network=UNKNOWN
 remote_plane=UNKNOWN
@@ -118,7 +124,7 @@ overall=HEALTHY
 if [ "$bridge" = OFFLINE ] || [ "$jobs" = BLOCKED ]; then overall=BLOCKED
 elif [ "$disk_rc" -ne 0 ]; then overall=DEGRADED
 elif [ "$production_sot" = DRIFT ]; then overall=DEGRADED
-elif [ "$bridge_instances" -ne 1 ]; then overall=DEGRADED
+elif [ "$bridge_instances" -gt 1 ]; then overall=DEGRADED
 elif [ "$network" = ONLINE ] && { [ "$codex" = OFFLINE ] || [ "$tunnel" = OFFLINE ]; }; then overall=DEGRADED
 fi
 
