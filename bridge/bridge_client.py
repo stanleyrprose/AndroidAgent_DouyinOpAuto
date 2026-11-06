@@ -15,6 +15,7 @@ import os
 import re
 import secrets
 import shutil
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -168,6 +169,72 @@ def make_job_id(prefix: str = "root") -> str:
     return f"{prefix}-{time.time_ns() // 1_000_000}-{secrets.token_hex(4)}"
 
 
+def on_demand_enabled(paths: BridgePaths) -> bool:
+    mode = os.environ.get("Y700_BRIDGE_DISPATCH_MODE", "")
+    if mode:
+        return mode == "on_demand"
+    # Legacy/local test fixtures retain their passive filesystem semantics.
+    return (
+        paths.jobs == Path("/opt/y700/jobs")
+        and Path("/proc/1/root/system/bin/sh").exists()
+    )
+
+
+def screen_off() -> bool:
+    # Missing sensor data must not block explicit remote recovery indefinitely.
+    if os.environ.get("Y700_BRIDGE_ALLOW_SCREEN_OFF") == "1":
+        return False
+    sensor = Path(os.environ.get(
+        "Y700_BACKLIGHT_POWER_PATH",
+        "/sys/class/backlight/panel0-backlight/bl_power",
+    ))
+    try:
+        return sensor.read_text(encoding="utf-8").strip() == "4"
+    except OSError:
+        return False
+
+
+def dispatch_on_demand(paths: BridgePaths) -> str:
+    """Launch one bounded-life executor per trigger, serialized across clients.
+
+    The flock is held by the worker, not by the submitting client. Every
+    submission creates its own trigger, avoiding a missed-wakeup race at exit.
+    """
+    if not on_demand_enabled(paths):
+        return "LEGACY"
+    if screen_off():
+        return "DEFERRED_SCREEN_OFF"
+
+    android_host = Path("/proc/1/root")
+    host_script = Path("/data/local/y700-agent/workspaces/y700-agent/bridge/host-executor.sh")
+    if not (android_host / "system/bin/sh").exists() or not (android_host / host_script.relative_to("/")).is_file():
+        return "HOST_EXECUTOR_UNAVAILABLE"
+    env = os.environ.copy()
+    env["Y700_BRIDGE_ONESHOT"] = "1"
+    lock_path = paths.runtime / "host-executor-dispatch.lock"
+    log_path = paths.runtime / "host-executor-dispatch.log"
+    command = [
+        "/usr/bin/flock", "-x", str(lock_path),
+        "/usr/sbin/chroot", str(android_host), "/system/bin/sh", str(host_script),
+    ]
+    try:
+        ensure_dir(paths.runtime)
+        # The launcher log may contain privileged job diagnostics.
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        os.close(lock_fd)
+        os.chmod(lock_path, 0o600)
+        log_fd = os.open(log_path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+        os.chmod(log_path, 0o600)
+        with os.fdopen(log_fd, "ab") as log:
+            subprocess.Popen(
+                command, env=env, stdin=subprocess.DEVNULL, stdout=log,
+                stderr=subprocess.STDOUT, start_new_session=True, close_fds=True,
+            )
+    except OSError:
+        return "HOST_EXECUTOR_LAUNCH_FAILED"
+    return "STARTED"
+
+
 def submit_root(
     command: str,
     *,
@@ -242,6 +309,9 @@ def submit_root(
         if stage.exists():
             shutil.rmtree(stage, ignore_errors=True)
         raise
+    dispatch = dispatch_on_demand(paths)
+    if dispatch not in {"STARTED", "LEGACY"}:
+        print(f"bridge dispatch deferred job={job_id} reason={dispatch}", file=sys.stderr)
     return job_id
 
 
@@ -365,6 +435,7 @@ def cancel(
         directory / "journal.jsonl",
         {"timestamp": now_iso(), "event": "CANCEL_REQUESTED", "reason": payload["reason"]},
     )
+    dispatch_on_demand(paths)
     return status(job_id, paths=paths)
 
 
@@ -392,6 +463,7 @@ def request_reconcile(job_id: str | None = None, *, paths: BridgePaths | None = 
     target = "all" if job_id is None else validate_job_id(job_id)
     payload = {"protocol_version": 2, "requested_at": now_iso(), "target": target}
     atomic_json(paths.control / "reconcile.request", payload, max_bytes=CANCEL_MAX_BYTES)
+    dispatch_on_demand(paths)
     return payload
 
 
@@ -423,6 +495,8 @@ def health(*, paths: BridgePaths | None = None) -> dict[str, Any]:
     usage = shutil.disk_usage(paths.jobs)
     return {
         "protocol_version": 2,
+        "dispatch_mode": "on_demand" if on_demand_enabled(paths) else "legacy",
+        "screen_off": screen_off() if on_demand_enabled(paths) else None,
         "executor": _safe_control_json(paths.control / "executor.json"),
         "protocol": _safe_control_json(paths.control / "protocol.json"),
         "metrics": _safe_control_json(paths.control / "metrics.json"),
@@ -476,10 +550,24 @@ def emit_job_logs(snapshot: dict[str, Any]) -> None:
 
 def exec_root(command: str, *, timeout_ms: int, paths: BridgePaths | None = None) -> int:
     paths = paths or BridgePaths.from_env()
+    # A synchronous command must not become a surprise delayed side effect.
+    # Explicit submit-root is the only operation that may queue during standby.
+    if on_demand_enabled(paths) and screen_off():
+        print("SCREEN_OFF_RETRY_AFTER_WAKEUP: no job submitted", file=sys.stderr)
+        return 75
     job_id = submit_root(command, timeout_ms=timeout_ms, paths=paths)
     try:
         snap = wait(job_id, timeout=timeout_ms / 1000 + 30, paths=paths)
     except BridgeError as exc:
+        if on_demand_enabled(paths):
+            # A timed-out synchronous request must not remain an unclaimed
+            # surprise side effect when the display is next turned on.
+            try:
+                pending = status(job_id, paths=paths)
+                if (pending.get("state") or {}).get("state") == "QUEUED" and not pending.get("owner"):
+                    cancel(job_id, reason="synchronous_wait_timeout", paths=paths)
+            except BridgeError:
+                pass
         print(f"root_exec wait failed job={job_id}: {exc}", file=sys.stderr)
         return 124
     emit_job_logs(snap)
@@ -522,6 +610,7 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("job_id", nargs="?")
 
     sp.add_parser("health")
+    sp.add_parser("dispatch-pending")
 
     q = sp.add_parser("cleanup-staging")
     q.add_argument("--ttl-seconds", type=int, default=86_400)
@@ -555,6 +644,8 @@ def main() -> int:
             obj = request_reconcile(args.job_id, paths=paths)
         elif args.cmd == "health":
             obj = health(paths=paths)
+        elif args.cmd == "dispatch-pending":
+            obj = {"dispatch": dispatch_on_demand(paths)}
         elif args.cmd == "cleanup-staging":
             obj = cleanup_staging(ttl_seconds=args.ttl_seconds, paths=paths)
         else:

@@ -2,9 +2,9 @@
 # Y700 Bridge v2 Android-host executor.
 #
 # Filesystem state is authoritative. v2 jobs are committed by atomic
-# .staging -> active rename from the Debian/chroot client. This executor scans
-# active only, keeps v1 direct-job compatibility, never blindly replays an
-# ambiguous privileged command, and never force-kills generic root_exec.
+# .staging -> active rename from the Debian/chroot client. One-shot dispatch
+# scans active only, retains v1 direct-job compatibility, never blindly replays
+# an ambiguous privileged command, and never force-kills generic root_exec.
 umask 0077
 
 AGENT_ROOT="$Y700_AGENT_ROOT"
@@ -30,7 +30,9 @@ RECONCILE_MS="$Y700_BRIDGE_RECONCILE_MS"
 REQUEST_MAX_BYTES="$Y700_BRIDGE_REQUEST_MAX_BYTES"
 [ -n "$REQUEST_MAX_BYTES" ] || REQUEST_MAX_BYTES=262144
 ONESHOT="$Y700_BRIDGE_ONESHOT"
-[ -n "$ONESHOT" ] || ONESHOT=0
+# The production dispatcher launches this executor only on demand.
+# ONESHOT=0 remains an explicit legacy rollback for deployments.
+[ -n "$ONESHOT" ] || ONESHOT=1
 TEST_AFTER_CLAIM_SEC="$Y700_BRIDGE_TEST_AFTER_CLAIM_SEC"
 TEST_AFTER_RESULT_SEC="$Y700_BRIDGE_TEST_AFTER_RESULT_SEC"
 TEST_MODE="$Y700_BRIDGE_TEST_MODE"
@@ -44,10 +46,6 @@ CONTROL="$JOBS/control"
 LOG="$RUNTIME/host-executor.log"
 LOCK_DIR="$RUNTIME/host-executor.lock"
 PIDFILE="$RUNTIME/host-executor.pid"
-HEALTH_LOOP_PIDFILE="$RUNTIME/health-loop.pid"
-DEBIAN_EXEC="${Y700_DEBIAN_EXEC:-/data/local/y700-linux/exec.sh}"
-DEBIAN_START_HEALTH="${Y700_DEBIAN_START_HEALTH:-/opt/y700/workspaces/y700-agent/scripts/start-health-loop.sh}"
-HEALTH_LOOP_SUPERVISE_MS="${Y700_HEALTH_LOOP_SUPERVISE_MS:-10000}"
 
 SELF_PID=$$
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || printf unknown)"
@@ -56,7 +54,6 @@ STARTED_AT=""
 LAST_HEARTBEAT_MS=0
 LAST_RECONCILE_MS=0
 LAST_METRICS_MS=0
-LAST_HEALTH_LOOP_SUPERVISE_MS=0
 RESTART_COUNT=1
 LAST_SUBMIT_TO_CLAIM_MS=0
 LAST_CLAIM_TO_START_MS=0
@@ -144,52 +141,23 @@ executor_pid_matches() {
     "$TOYBOX" grep -q '/bridge/host-executor.sh'
 }
 
-health_loop_pid_matches() {
-  pid="$(cat "$HEALTH_LOOP_PIDFILE" 2>/dev/null || true)"
-  case "$pid" in
-    ''|*[!0-9]*) return 1 ;;
-  esac
-  [ -r "/proc/$pid/cmdline" ] || return 1
-  "$TOYBOX" tr '\000' ' ' <"/proc/$pid/cmdline" 2>/dev/null | \
-    "$TOYBOX" grep -q '/scripts/health-loop.sh'
-}
-
-ensure_health_loop() {
-  now_ms="$(uptime_ms)"
-  if [ "$LAST_HEALTH_LOOP_SUPERVISE_MS" -ne 0 ] && \
-     [ $((now_ms - LAST_HEALTH_LOOP_SUPERVISE_MS)) -lt "$HEALTH_LOOP_SUPERVISE_MS" ]; then
-    return 0
-  fi
-  LAST_HEALTH_LOOP_SUPERVISE_MS="$now_ms"
-
-  if [ ! -x "$DEBIAN_EXEC" ]; then
-    append_log "health-loop supervisor unavailable debian_exec=$DEBIAN_EXEC"
-    return 0
-  fi
-
-  # Always delegate the periodic check to start-health-loop.sh. That script is
-  # version-aware: a live PID with a stale/missing PID+SHA marker is replaced,
-  # while an exact-current process returns ALREADY_RUNNING without churn.
-  if result="$("$DEBIAN_EXEC" /bin/bash "$DEBIAN_START_HEALTH" 2>&1)"; then
-    printf '%s\n' "$result" >>"$RUNTIME/health-loop-supervisor.log"
-    case "$result" in
-      *ALREADY_RUNNING*) return 0 ;;
-    esac
-    if health_loop_pid_matches; then
-      append_log "health-loop supervisor action=$result pid=$(cat "$HEALTH_LOOP_PIDFILE" 2>/dev/null || true)"
-    else
-      append_log "health-loop supervisor recovery_unverified action=$result"
-    fi
-  else
-    rc=$?
-    printf '%s\n' "$result" >>"$RUNTIME/health-loop-supervisor.log"
-    append_log "health-loop supervisor recovery_failed rc=$rc"
-  fi
+screen_off() {
+  [ "$ONESHOT" = 1 ] || return 1
+  [ "${Y700_BRIDGE_ALLOW_SCREEN_OFF:-0}" != 1 ] || return 1
+  sensor="${Y700_BACKLIGHT_POWER_PATH:-/sys/class/backlight/panel0-backlight/bl_power}"
+  [ -r "$sensor" ] || return 1
+  [ "$(cat "$sensor" 2>/dev/null)" = 4 ]
 }
 
 release_singleton() {
   owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
   if [ "$owner" = "$SELF_PID" ]; then
+    # An idle one-shot executor must not advertise an active lease.
+    if [ "$ONESHOT" = 1 ]; then
+      atomic_text "$CONTROL/executor.json" \
+        '{"status":"IDLE","mode":"on_demand","supported_protocol_versions":[1,2]}'
+    fi
+    "$TOYBOX" rm -f "$PIDFILE" 2>/dev/null || true
     "$TOYBOX" rm -rf "$LOCK_DIR" 2>/dev/null || true
   fi
 }
@@ -869,9 +837,21 @@ execute_v2() {
     archived="$LAST_ARCHIVE_DIR"
     if [ -n "$start_ticks" ]; then
       set_live_orphan "$child" "$start_ticks" "$job" "$archived"
-      while check_live_orphan_block; do
-        "$TOYBOX" sleep "$POLL_SEC"
-      done
+      if [ "$ONESHOT" != 1 ]; then
+        while check_live_orphan_block; do
+          "$TOYBOX" sleep "$POLL_SEC"
+        done
+      fi
+    elif [ "$ONESHOT" = 1 ]; then
+      # Without a verified PID identity, refuse future dispatch until review.
+      atomic_text "$CONTROL/live-orphan.json" \
+        "$(printf '{"job_id":"%s","child_pid":%s,"status":"IDENTITY_UNKNOWN"}' "$job" "$child")"
+      LIVE_ORPHAN_PID=CORRUPT
+      append_log "orphan_identity_unknown_dispatch_blocked job=$job pid=$child"
+    fi
+    if [ "$ONESHOT" = 1 ]; then
+      append_log "timed_out_child_detached_reconcile_required job=$job pid=$child"
+      return 0
     fi
     wait "$child" 2>/dev/null || true
     append_log "timed_out_child_exited job=$job pid=$child"
@@ -982,17 +962,21 @@ load_android_runtime_environment
 STARTED_AT="$(now_iso)"
 load_restart_count
 write_protocol
+if screen_off; then
+  # A request committed while standby was entered stays durable and unclaimed.
+  append_log "ON_DEMAND_DEFERRED_SCREEN_OFF"
+  write_metrics
+  exit 0
+fi
 recover_live_orphan_control || true
 write_executor_heartbeat
-append_log "host-executor v2 start pid=$SELF_PID executor_id=$EXECUTOR_ID"
-ensure_health_loop
+append_log "host-executor v2 start pid=$SELF_PID executor_id=$EXECUTOR_ID mode=$ONESHOT"
 reconcile_stale_v1_startup
 reconcile_v2 all
 write_metrics
 
 while true; do
   write_executor_heartbeat
-  ensure_health_loop
 
   if check_live_orphan_block; then
     [ "$ONESHOT" = 1 ] && exit 0
@@ -1021,6 +1005,7 @@ while true; do
 
   for req in "$ACTIVE"/*/request.json; do
     [ -f "$req" ] || continue
+    screen_off && break
     execute_v2 "$("$TOYBOX" dirname "$req")"
     check_live_orphan_block && break
   done
@@ -1028,6 +1013,7 @@ while true; do
   if ! check_live_orphan_block; then
     for req in "$JOBS"/*/request.json; do
       [ -f "$req" ] || continue
+      screen_off && break
       execute_v1 "$req"
     done
   fi

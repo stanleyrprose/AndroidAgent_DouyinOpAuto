@@ -13,10 +13,12 @@ RUNTIME="${Y700_RUNTIME:-/opt/y700/runtime}"
 TIMEOUT_MS="${Y700_BRIDGE_TIMEOUT_MS:-90000}"
 CMD="$*"
 
-# Safe rolling migration: do not emit v2 jobs until the running host executor
-# has durably advertised v2 support.
-if [ -f "$JOBS/control/protocol.json" ] &&
-   grep -q '"preferred_protocol_version"[[:space:]]*:[[:space:]]*2'      "$JOBS/control/protocol.json" 2>/dev/null; then
+# Y700 on-demand dispatch supports v2 without a resident executor. Preserve
+# the protocol-advertised v2 and legacy v1 fallback for other environments.
+if [ -x /proc/1/root/system/bin/sh ] || [ "${Y700_BRIDGE_DISPATCH_MODE:-}" = on_demand ] || {
+   [ -f "$JOBS/control/protocol.json" ] &&
+   grep -q '"preferred_protocol_version"[[:space:]]*:[[:space:]]*2' "$JOBS/control/protocol.json" 2>/dev/null
+}; then
   exec python3 "$SCRIPT_DIR/bridge_client.py" exec-root     --timeout-ms "$TIMEOUT_MS" -- "$@"
 fi
 
