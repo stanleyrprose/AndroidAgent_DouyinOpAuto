@@ -4,6 +4,19 @@ Date: 2026-10-04
 
 This is the public-safe acceptance snapshot. Private runtime identifiers, endpoints, test screenshots, real sample URLs and device backup names are intentionally omitted.
 
+## 2026-11-06 — Android Bridge One-shot low-power cutover — LIVE PASS / reboot pending
+
+Source: GitHub main, PR #67 (on-demand Android Bridge), PR #68 (final queue metrics), accepted through passing pull-request and post-merge CI.
+
+- The active Y700 runtime was upgraded **surgically**: only the affected Bridge/launcher/health-report code and Android-host boot launcher were replaced from accepted main. The older active release and unrelated locally modified files were retained instead of promoting a new whole-repository release.
+- Original runtime/Android-host files were backed up outside Git with SHA-256 checksums and a deployment manifest for rollback. No runtime state or private backup path was committed.
+- Durable Bridge protocol v1/v2, claim/lock, cancellation, reconciliation and result archival were preserved. The root-command round trip and Android screen-state query passed on the physical TB323FU.
+- Screen-off synchronous invocation returned exit 75 without enqueuing a job. Screen-on invocation succeeded without a special override. One-shot executor exited after the batch; idle executor process count was **0**, executor state was **IDLE**, and final queue metrics matched the actual empty active queue.
+- Resident `health-loop` was stopped and its prior supervision by `host-executor` removed. Android-host boot launcher no longer starts either periodic script; SELinux labels/permissions of the modified Android runtime copies were preserved.
+- **27 pre-existing reconcile-required archives remain untouched.** Cloudflare Tunnel and CodexPro were not restarted or killed during cutover.
+- **Not yet verified:** full reboot/reconnection, physical screen-on after deep sleep with the tunnel down, and a comparable 60-minute unplugged screen-off battery baseline. A separate authenticated Mac SSH/USB ADB recovery path was not available, so no device reboot was attempted.
+- This release does not establish that Qualcomm Wi-Fi/PCIe suspend errors or all periodic Android timers have been fixed. Prior historical checkpoint statements below describe earlier releases, not the latest one-shot operating mode.
+
 ## Device foundation — PASS
 
 - Target: Lenovo TB323FU / Android 16 / aarch64
