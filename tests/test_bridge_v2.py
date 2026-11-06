@@ -179,6 +179,48 @@ class BridgeV2ClientTests(unittest.TestCase):
         with self.assertRaisesRegex(bc.BridgeError, "SYMLINK_JOB_ROOT"):
             bc.status("root-symlink", paths=self.paths)
 
+    def test_screen_off_defers_on_demand_jobs_without_starting_executor(self) -> None:
+        with mock.patch.dict(os.environ, {"Y700_BRIDGE_DISPATCH_MODE": "on_demand"}), \
+             mock.patch.object(bc, "screen_off", return_value=True), \
+             mock.patch.object(bc.subprocess, "Popen") as launch:
+            job = bc.submit_root("echo deferred", timeout_ms=5000, paths=self.paths)
+        launch.assert_not_called()
+        self.assertEqual(bc.status(job, paths=self.paths)["state"]["state"], "QUEUED")
+
+    def test_on_demand_dispatch_launches_serialized_host_once(self) -> None:
+        with mock.patch.dict(os.environ, {"Y700_BRIDGE_DISPATCH_MODE": "on_demand"}), \
+             mock.patch.object(bc, "screen_off", return_value=False), \
+             mock.patch.object(bc.Path, "exists", return_value=True), \
+             mock.patch.object(bc.Path, "is_file", return_value=True), \
+             mock.patch.object(bc.subprocess, "Popen") as launch:
+            result = bc.dispatch_on_demand(self.paths)
+        self.assertEqual(result, "STARTED")
+        args, kwargs = launch.call_args
+        self.assertEqual(args[0][:2], ["/usr/bin/flock", "-x"])
+        self.assertIn("chroot", " ".join(args[0]))
+        self.assertEqual(kwargs["env"]["Y700_BRIDGE_ONESHOT"], "1")
+        self.assertTrue(kwargs["start_new_session"])
+
+    def test_exec_root_during_standby_fails_fast_without_enqueuing(self) -> None:
+        with mock.patch.dict(os.environ, {"Y700_BRIDGE_DISPATCH_MODE": "on_demand"}), \
+             mock.patch.object(bc, "screen_off", return_value=True), \
+             mock.patch.object(bc, "wait") as waiting:
+            rc = bc.exec_root("echo later", timeout_ms=5000, paths=self.paths)
+        self.assertEqual(rc, 75)
+        waiting.assert_not_called()
+        self.assertEqual(len(list(self.paths.active.iterdir())), 0)
+
+    def test_timed_out_synchronous_job_is_cancelled_if_unclaimed(self) -> None:
+        with mock.patch.dict(os.environ, {"Y700_BRIDGE_DISPATCH_MODE": "on_demand"}), \
+             mock.patch.object(bc, "screen_off", return_value=False), \
+             mock.patch.object(bc, "dispatch_on_demand", return_value="STARTED"), \
+             mock.patch.object(bc, "wait", side_effect=bc.BridgeError("WAIT_TIMEOUT")):
+            rc = bc.exec_root("echo timeout", timeout_ms=5000, paths=self.paths)
+        self.assertEqual(rc, 124)
+        jobs = list(self.paths.active.iterdir())
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(bc.read_json(jobs[0] / "cancel.json")["reason"], "synchronous_wait_timeout")
+
     def test_cli_separator_is_not_executed_as_command_text(self) -> None:
         argv = ["bridge_client.py", "exec-root", "--timeout-ms", "5000", "--", "echo", "ok"]
         with mock.patch.object(sys, "argv", argv), mock.patch.object(bc, "exec_root", return_value=0) as call:

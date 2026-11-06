@@ -4,6 +4,11 @@ PIDFILE=/data/local/y700-agent/runtime/host-executor.pid
 LOG=/data/local/y700-agent/runtime/host-executor-launch.log
 SCRIPT=/data/local/y700-agent/workspaces/y700-agent/bridge/host-executor.sh
 
+if [ "${Y700_BRIDGE_ONESHOT:-1}" = 1 ]; then
+  # Do not kill an in-flight one-shot job. Run only a separate batch.
+  exec /system/bin/sh /data/local/y700-agent/runtime/start-host-executor.sh
+fi
+
 old="$(cat "$PIDFILE" 2>/dev/null || true)"
 nohup /system/bin/sh -c '
   sleep 2

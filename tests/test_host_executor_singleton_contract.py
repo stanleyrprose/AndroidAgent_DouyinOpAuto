@@ -18,7 +18,12 @@ class HostExecutorSingletonContractTests(unittest.TestCase):
         self.assertIn("trap 'exit 143' TERM", text)
         self.assertNotIn("trap release_singleton EXIT HUP INT TERM", text)
 
-    def test_restart_kills_all_matching_old_executors_not_only_pidfile(self) -> None:
+    def test_default_restart_preserves_in_flight_on_demand_tasks(self) -> None:
+        text = (ROOT / "scripts" / "restart-host-executor.sh").read_text()
+        self.assertIn('if [ "${Y700_BRIDGE_ONESHOT:-1}" = 1 ]; then', text)
+        self.assertLess(text.index('Y700_BRIDGE_ONESHOT:-1'), text.index('kill "$pid"'))
+
+    def test_legacy_restart_kills_old_executors_not_only_pidfile(self) -> None:
         text = (ROOT / "scripts" / "restart-host-executor.sh").read_text()
         self.assertIn("for proc in /proc/[0-9]*", text)
         self.assertIn("/bridge/host-executor.sh", text)
@@ -42,7 +47,7 @@ class HostExecutorSingletonContractTests(unittest.TestCase):
         text = (ROOT / "scripts" / "health-check.sh").read_text()
         self.assertIn("count_host_executors", text)
         self.assertIn('android_bridge_instances', text)
-        self.assertIn('[ "$bridge_instances" -ne 1 ]', text)
+        self.assertIn('[ "$bridge_instances" -gt 1 ]', text)
         self.assertIn("while IFS= read -r arg", text)
         self.assertIn("*/bridge/host-executor.sh)", text)
         self.assertNotIn('*"/bridge/host-executor.sh"*', text)

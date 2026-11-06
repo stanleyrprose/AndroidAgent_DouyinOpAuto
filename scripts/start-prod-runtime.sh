@@ -45,10 +45,21 @@ if [ ! -s "$AUTH_FILE" ]; then
 fi
 chmod 600 "$AUTH_FILE"
 
-if ! acquire_remote_wake_lock; then
-  echo "REMOTE_WAKE_LOCK_ACQUIRE_FAILED name=$WAKE_LOCK_NAME" >&2
-  exit 5
-fi
+WAKE_LOCK_POLICY="${Y700_REMOTE_WAKE_LOCK_POLICY:-external}"
+case "$WAKE_LOCK_POLICY" in
+  persistent)
+    if ! acquire_remote_wake_lock; then
+      echo "REMOTE_WAKE_LOCK_ACQUIRE_FAILED name=$WAKE_LOCK_NAME" >&2
+      exit 5
+    fi
+    ;;
+  external)
+    # Low-power default. The Android kernel is allowed to suspend the tablet;
+    # the existing tunnel resumes as the device/network wakes naturally.
+    echo "REMOTE_WAKE_LOCK_EXTERNAL_MANAGEMENT name=$WAKE_LOCK_NAME"
+    ;;
+  *) echo "INVALID_REMOTE_WAKE_LOCK_POLICY=$WAKE_LOCK_POLICY" >&2; exit 5 ;;
+esac
 
 if [ -f "$CP_PID" ]; then
   old="$(cat "$CP_PID" 2>/dev/null || true)"

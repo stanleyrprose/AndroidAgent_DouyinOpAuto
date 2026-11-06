@@ -17,9 +17,10 @@ if [ "$(getprop sys.boot_completed)" != "1" ]; then
 fi
 
 /data/local/y700-linux/mount.sh
-/data/local/y700-agent/runtime/start-host-executor.sh
+# The bridge is on-demand: no resident executor or health-loop at boot.
+# Android can suspend normally; existing cloudflared/CodexPro processes recover
+# connectivity on screen wake, and the next bridge request launches one shot.
 /data/local/y700-linux/exec.sh /bin/bash /opt/y700/workspaces/y700-agent/scripts/start-prod-runtime.sh
 /data/local/y700-linux/exec.sh /bin/bash /opt/y700/workspaces/y700-agent/scripts/start-sshd.sh
-/data/local/y700-linux/exec.sh /bin/bash /opt/y700/workspaces/y700-agent/scripts/start-health-loop.sh
 
 echo "BOOT_START_OK"

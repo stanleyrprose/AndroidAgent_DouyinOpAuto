@@ -8,15 +8,23 @@ START = ROOT / "scripts" / "start-health-loop.sh"
 
 
 class HealthLoopSupervisionContractTest(unittest.TestCase):
-    def test_host_executor_supervises_health_loop_without_new_daemon(self):
+    def test_host_executor_no_longer_supervises_health_loop(self):
         text = HOST.read_text(encoding="utf-8")
-        self.assertIn('HEALTH_LOOP_SUPERVISE_MS="${Y700_HEALTH_LOOP_SUPERVISE_MS:-10000}"', text)
-        self.assertIn("ensure_health_loop()", text)
-        self.assertIn('DEBIAN_EXEC="${Y700_DEBIAN_EXEC:-/data/local/y700-linux/exec.sh}"', text)
-        self.assertIn('DEBIAN_START_HEALTH="${Y700_DEBIAN_START_HEALTH:-/opt/y700/workspaces/y700-agent/scripts/start-health-loop.sh}"', text)
-        self.assertIn('\"$DEBIAN_EXEC\" /bin/bash \"$DEBIAN_START_HEALTH\"', text)
-        self.assertIn('health-loop supervisor action=', text)
-        self.assertIn('*ALREADY_RUNNING*) return 0', text)
+        self.assertIn('[ -n "$ONESHOT" ] || ONESHOT=1', text)
+        self.assertNotIn("ensure_health_loop()", text)
+        self.assertNotIn("HEALTH_LOOP_SUPERVISE_MS", text)
+        self.assertIn("ON_DEMAND_DEFERRED_SCREEN_OFF", text)
+
+    def test_boot_does_not_start_resident_bridge_or_health_loop(self):
+        boot = (ROOT / "scripts" / "boot-start.sh").read_text(encoding="utf-8")
+        self.assertNotIn("/runtime/start-host-executor.sh", boot)
+        self.assertNotIn("/scripts/start-health-loop.sh", boot)
+        self.assertIn("/scripts/start-prod-runtime.sh", boot)
+
+    def test_health_report_accepts_idle_bridge(self):
+        health = (ROOT / "scripts" / "health-check.sh").read_text(encoding="utf-8")
+        self.assertIn("bridge=IDLE", health)
+        self.assertNotIn('[ "$bridge_instances" -ne 1 ]', health)
 
     def test_start_health_loop_repairs_stale_pidfile_from_proc(self):
         text = START.read_text(encoding="utf-8")
