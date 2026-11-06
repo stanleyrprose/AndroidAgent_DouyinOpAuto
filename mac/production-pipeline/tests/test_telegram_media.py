@@ -38,7 +38,7 @@ class TelegramMediaTest(unittest.TestCase):
         self.assertEqual(first['status'], 'SENT')
 
     def test_all_intents_select_correct_mp4(self):
-        for intent in ('DIRECT_DOWNLOAD', 'STORE_ALBUM', 'AUTO_PUBLISH'):
+        for intent in ('DIRECT_DOWNLOAD', 'STORE_ALBUM', 'AUTO_PUBLISH', 'TG_LOCALIZED'):
             with self.subTest(intent=intent):
                 record = self.job / 'export/telegram-media-receipt.json'
                 record.unlink(missing_ok=True)
