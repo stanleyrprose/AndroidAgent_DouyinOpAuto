@@ -1024,6 +1024,11 @@ while true; do
     LAST_METRICS_MS="$now_ms"
   fi
 
-  [ "$ONESHOT" = 1 ] && exit 0
+  if [ "$ONESHOT" = 1 ]; then
+    # Initial and in-flight metrics may still say QUEUED while a job archives.
+    # Publish the final queue state before leaving no resident executor.
+    write_metrics
+    exit 0
+  fi
   "$TOYBOX" sleep "$POLL_SEC"
 done
