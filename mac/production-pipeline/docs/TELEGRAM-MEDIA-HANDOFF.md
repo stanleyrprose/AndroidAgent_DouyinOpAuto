@@ -1,5 +1,29 @@
 # Telegram MP4 handoff
 
+## Telegram-only localized download
+
+The explicit Telegram intent `下载并缅语化` (English:
+`Download and Localize`, stored as `TG_LOCALIZED`) uses the same
+`sendDocument` MP4 delivery and durable identity-bound receipt, but
+**does not** export to Y700, modify Notes, or open TikTok. After the
+Mac `localize` and `render` steps, call `pipeline.sh tg-finish <job>`.
+
+Only an exact matching `SENT` receipt (correct job/intent/destination,
+size, SHA-256, positive Telegram `message_id`) allows deletion of that
+job's generated source, analysis, localization, production, evidence and
+export directories and exact job-scoped temporary directory.
+Before deletion, a minimal receipt and
+`TG_DELIVERED_CLEANUP_PENDING` checkpoint are durably recorded.
+After deletion, `TG_DELIVERED` means all scoped media are gone.
+Only `state.json`, compact delivery-receipt metadata and the lock file
+remain; this prevents accidental replay or loss of proof.
+
+A failed, rejected, ambiguous or oversized Telegram delivery retains all
+media; `SENDING` / `UNCERTAIN` must be reconciled before any resend.
+A crash after durable `SENT` resumes cleanup without re-uploading.
+The original `STORE_ALBUM` and `DIRECT_DOWNLOAD` flows are unchanged.
+
+
 Intent-marked DIRECT_DOWNLOAD, STORE_ALBUM and AUTO_PUBLISH jobs send the
 finished Mac MP4 before exporting a capability and before the supported Y700
 pull entrances. DIRECT_DOWNLOAD sends the original Douzy MP4; the other two

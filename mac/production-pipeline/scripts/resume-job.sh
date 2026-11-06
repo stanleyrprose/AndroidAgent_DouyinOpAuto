@@ -79,7 +79,7 @@ PY
 if [ "$mac_state" = "INVALID" ]; then
   block "invalid Mac job state"
 fi
-if [ "$intent" != "STORE_ALBUM" ] && [ "$intent" != "AUTO_PUBLISH" ] && [ "$intent" != "DIRECT_DOWNLOAD" ]; then
+if [ "$intent" != "STORE_ALBUM" ] && [ "$intent" != "AUTO_PUBLISH" ] && [ "$intent" != "DIRECT_DOWNLOAD" ] && [ "$intent" != "TG_LOCALIZED" ]; then
   block "workflow_intent missing; refusing to infer or upgrade legacy job"
 fi
 
@@ -149,6 +149,32 @@ if [ "$intent" = "DIRECT_DOWNLOAD" ]; then
   refresh_export_if_needed
   if ! bash "$DIRECT_CMD" "$JOB_ID" Y700Agent; then
     waiting "Y700 下载包或相册验收未完成；Mac 原视频已保留。请检查 Android Host Executor、MediaStore 及连接状态，再执行 继续任务 / Resume Task"
+  fi
+  exit 0
+fi
+
+if [ "$intent" = "TG_LOCALIZED" ]; then
+  case "$mac_state" in
+    TG_DELIVERED)
+      emit "{\"status\":\"ALREADY_COMPLETE\",\"job_id\":\"$JOB_ID\",\"workflow_intent\":\"TG_LOCALIZED\"}"
+      exit 0
+      ;;
+    LOCALIZED)
+      if ! bash "$PIPELINE_CMD" render "$JOB_ID" >/dev/null; then
+        waiting "localized video render failed; source and localized artifacts retained"
+      fi
+      ;;
+    RENDERED|TG_DELIVERED_CLEANUP_PENDING)
+      ;;
+    ANALYZED)
+      waiting "localization required from saved analysis evidence; source media retained; no Telegram send attempted"
+      ;;
+    *)
+      block "TG_LOCALIZED resume unsupported for state=$mac_state"
+      ;;
+  esac
+  if ! bash "$PIPELINE_CMD" tg-finish "$JOB_ID"; then
+    waiting "Telegram delivery or verified cleanup incomplete; do not resend an uncertain delivery"
   fi
   exit 0
 fi

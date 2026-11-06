@@ -104,6 +104,27 @@ class ResumeScriptTests(unittest.TestCase):
         })
         return job, env, log
 
+    def test_tg_localized_resume_reuses_render_and_never_contacts_y700(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job, env, log = self._base(Path(tmp), state="RENDERED", intent="TG_LOCALIZED")
+            p = subprocess.run([str(RESUME), job], env=env, text=True, capture_output=True)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            calls = log.read_text()
+            self.assertIn("pipeline tg-finish dy-1", calls)
+            self.assertNotIn("album ", calls)
+            self.assertNotIn("direct ", calls)
+            self.assertNotIn("closure ", calls)
+
+    def test_tg_localized_analyzed_waits_for_evidence_based_translation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job, env, log = self._base(Path(tmp), state="ANALYZED", intent="TG_LOCALIZED")
+            p = subprocess.run([str(RESUME), job], env=env, text=True, capture_output=True)
+            self.assertEqual(p.returncode, 5)
+            self.assertIn("RESUME_WAITING", p.stdout)
+            calls = log.read_text()
+            self.assertNotIn("pipeline tg-finish", calls)
+            self.assertNotIn("album ", calls)
+
     def test_missing_intent_blocks_without_remote_or_album(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             job, env, log = self._base(Path(tmp), state="EXPORTED", intent=None)
