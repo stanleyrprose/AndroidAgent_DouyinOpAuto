@@ -18,6 +18,12 @@ class HostExecutorSingletonContractTests(unittest.TestCase):
         self.assertIn("trap 'exit 143' TERM", text)
         self.assertNotIn("trap release_singleton EXIT HUP INT TERM", text)
 
+    def test_one_shot_publishes_final_metrics_before_exit(self) -> None:
+        text = (ROOT / "bridge" / "host-executor.sh").read_text()
+        self.assertIn('if [ "$ONESHOT" = 1 ]; then\n    # Initial and in-flight metrics', text)
+        end = text.rsplit('if [ "$ONESHOT" = 1 ]; then', 1)[1]
+        self.assertLess(end.index("write_metrics"), end.index("exit 0"))
+
     def test_default_restart_preserves_in_flight_on_demand_tasks(self) -> None:
         text = (ROOT / "scripts" / "restart-host-executor.sh").read_text()
         self.assertIn('if [ "${Y700_BRIDGE_ONESHOT:-1}" = 1 ]; then', text)
