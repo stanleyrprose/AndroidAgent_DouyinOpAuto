@@ -7,6 +7,7 @@ set -u
 # it succeeds. A visible default route remains a useful fallback when the probe
 # endpoint itself is blocked.
 PROBE_URL="${Y700_NETWORK_PROBE_URL:-https://www.cloudflare.com/cdn-cgi/trace}"
+FALLBACK_PROBE_URL="${Y700_NETWORK_FALLBACK_PROBE_URL:-https://1.1.1.1/cdn-cgi/trace}"
 CONNECT_TIMEOUT="${Y700_NETWORK_CONNECT_TIMEOUT_SEC:-3}"
 MAX_TIME="${Y700_NETWORK_MAX_TIME_SEC:-5}"
 
@@ -15,11 +16,18 @@ has_default_route() {
 }
 
 http_probe_ok() {
+  local url="${1:-$PROBE_URL}"
   curl -fsS --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" \
-    "$PROBE_URL" >/dev/null 2>&1
+    "$url" >/dev/null 2>&1
 }
 
 if http_probe_ok; then
+  echo ONLINE
+  exit 0
+fi
+
+# A blocked probe host does not prove that the Android network is offline.
+if [ "$FALLBACK_PROBE_URL" != "$PROBE_URL" ] && http_probe_ok "$FALLBACK_PROBE_URL"; then
   echo ONLINE
   exit 0
 fi

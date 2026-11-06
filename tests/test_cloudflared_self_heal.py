@@ -181,6 +181,40 @@ class CloudflaredSelfHealContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "ONLINE")
 
+    def test_network_status_runtime_secondary_probe_recovers_primary_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp)
+            (fake / "curl").write_text(
+                '#!/bin/sh\ncase "$*" in\n'
+                '  *"https://www.cloudflare.com/cdn-cgi/trace"*) exit 28 ;;\n'
+                '  *"https://1.1.1.1/cdn-cgi/trace"*) exit 0 ;;\n'
+                'esac\nexit 1\n'
+            )
+            (fake / "ip").write_text("#!/bin/sh\nexit 0\n")
+            os.chmod(fake / "curl", 0o755)
+            os.chmod(fake / "ip", 0o755)
+            env = os.environ.copy()
+            env["PATH"] = f"{fake}:/usr/bin:/bin"
+            env.pop("Y700_NETWORK_PROBE_URL", None)
+            env.pop("Y700_NETWORK_FALLBACK_PROBE_URL", None)
+            result = subprocess.run(
+                ["bash", str(NETWORK)], text=True, capture_output=True,
+                env=env, check=False,
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout.strip(), "ONLINE")
+
+    def test_health_loop_reconciles_stale_tunnel_pid(self) -> None:
+        text = HEALTH_LOOP.read_text()
+        self.assertIn("pgrep -x cloudflared", text)
+        self.assertIn('if reconcile_cloudflared_pid; then', text)
+        self.assertIn("CLOUDFLARED_PID_RECONCILED", text)
+        self.assertIn('"$cmdline" == *"tunnel run y700-codexpro"*', text)
+        self.assertLess(
+            text.index('probe_http="$(remote_probe_http_status)"'),
+            text.index('network="$("$NETWORK_STATUS"'),
+        )
+
     def test_network_status_runtime_route_only_fallback(self) -> None:
         result = self._run_network_status(curl_ok=False, route_ok=True)
         self.assertEqual(result.returncode, 0)
