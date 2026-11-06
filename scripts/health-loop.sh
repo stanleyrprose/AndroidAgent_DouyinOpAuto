@@ -17,7 +17,7 @@ DISCONNECTED_GRACE_CYCLES="${Y700_CLOUDFLARED_DISCONNECTED_GRACE_CYCLES:-1}"
 REMOTE_FAILURE_GRACE_CYCLES="${Y700_CLOUDFLARED_REMOTE_FAILURE_GRACE_CYCLES:-2}"
 REMOTE_VERIFY_ATTEMPTS="${Y700_CLOUDFLARED_REMOTE_VERIFY_ATTEMPTS:-3}"
 REMOTE_VERIFY_DELAY_SEC="${Y700_CLOUDFLARED_REMOTE_VERIFY_DELAY_SEC:-2}"
-LOOP_INTERVAL_SEC="${Y700_HEALTH_LOOP_INTERVAL_SEC:-10}"
+LOOP_INTERVAL_SEC="${Y700_HEALTH_LOOP_INTERVAL_SEC:-1800}"
 HEALTH_CHECK_INTERVAL_SEC="${Y700_HEALTH_CHECK_INTERVAL_SEC:-60}"
 HEALTH_CHECK_TIMEOUT_SEC="${Y700_HEALTH_CHECK_TIMEOUT_SEC:-10}"
 
@@ -65,6 +65,19 @@ maybe_self_update() {
     echo "$(date -Is) HEALTH_LOOP_SELF_UPDATE old_sha=$SCRIPT_SHA new_sha=$current_sha" >>"$LOG"
     exec /bin/bash "$SCRIPT_PATH"
   fi
+}
+
+# The supervisor considers a heartbeat stale after 35 seconds. Keep the
+# lightweight heartbeat and script-update check alive during a long idle.
+wait_with_heartbeat() {
+  local remaining="$1"
+  while [[ "$remaining" =~ ^[0-9]+$ ]] && [ "$remaining" -gt 10 ]; do
+    sleep 10
+    publish_heartbeat
+    maybe_self_update
+    remaining=$((remaining - 10))
+  done
+  sleep "$remaining"
 }
 
 cloudflared_pid_matches() {
@@ -306,5 +319,11 @@ while true; do
     last_health_check_epoch="$(date +%s)"
     publish_heartbeat
   fi
-  sleep "$LOOP_INTERVAL_SEC"
+  # Full probes use the 30-minute default when healthy. Preserve fast retry while
+  # the remote plane is unavailable; otherwise a failed recovery could stall.
+  if [ "$remote_ready" -eq 1 ]; then
+    wait_with_heartbeat "$LOOP_INTERVAL_SEC"
+  else
+    wait_with_heartbeat 10
+  fi
 done
