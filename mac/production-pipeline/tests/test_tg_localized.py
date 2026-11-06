@@ -140,6 +140,17 @@ class TelegramLocalizedCompletionTests(unittest.TestCase):
         self.assertEqual(sender.call_count, 1)
         self.assertEqual(external.read_text(), "must remain")
 
+    def test_unsafe_job_log_blocks_cleanup_before_any_deletion(self):
+        external = self.jobs.parent / "outside.log"
+        external.write_text("preserved", encoding="utf-8")
+        (self.job.dir / "events.jsonl").symlink_to(external)
+        with patch("pipeline.telegram_media._send", return_value=self.success) as sender:
+            with self.assertRaisesRegex(TelegramCleanupError, "job log"):
+                finish(self.job)
+            self.assertEqual(sender.call_count, 1)
+        self.assertTrue((self.job.dir / "source" / "original.mp4").exists())
+        self.assertEqual(external.read_text(), "preserved")
+
     def test_non_tg_intent_never_sends_or_cleans(self):
         self.job.write_state("RENDERED", workflow_intent="STORE_ALBUM")
         with patch("pipeline.telegram_media._send") as sender:

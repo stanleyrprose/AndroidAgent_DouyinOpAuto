@@ -74,15 +74,15 @@ def _cleanup(job_dir: Path) -> None:
         if path.parent.resolve() not in {job_dir.resolve(), TMP.resolve()}:
             raise TelegramCleanupError("cleanup path escapes its owner")
         _check_tree(path)
+    # Validate the job log before deleting any directories; failure keeps media.
+    log = job_dir / "events.jsonl"
+    if log.is_symlink() or (log.exists() and not log.is_file()):
+        raise TelegramCleanupError("invalid job log in cleanup scope")
     for path in locations:
         if path.exists():
             shutil.rmtree(path)
-    for name in ("events.jsonl",):
-        p = job_dir / name
-        if p.is_symlink():
-            raise TelegramCleanupError("symlink in job log")
-        if p.is_file():
-            p.unlink()
+    if log.exists():
+        log.unlink()
 
 
 def finish(job: Job) -> dict:
