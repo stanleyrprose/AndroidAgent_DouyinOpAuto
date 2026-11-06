@@ -67,15 +67,34 @@ maybe_self_update() {
   fi
 }
 
-pid_matches() {
-  local pid_file="$1" needle="$2"
-  [ -s "$pid_file" ] || return 1
-  local p
-  p="$(cat "$pid_file" 2>/dev/null || true)"
-  [ -n "$p" ] || return 1
-  kill -0 "$p" 2>/dev/null || return 1
+cloudflared_pid_matches() {
+  local p="$1" cmdline
+  [[ "$p" =~ ^[0-9]+$ ]] || return 1
   [ -r "/proc/$p/cmdline" ] || return 1
-  tr '\0' ' ' <"/proc/$p/cmdline" | grep -q "$needle"
+  [ "$(cat "/proc/$p/comm" 2>/dev/null)" = cloudflared ] || return 1
+  cmdline="$(tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null || true)"
+  [[ "$cmdline" == *"/root/.codexpro/bin/cloudflared --config /root/.cloudflared/config.yml"* &&
+     "$cmdline" == *"tunnel run y700-codexpro"* ]]
+}
+
+reconcile_cloudflared_pid() {
+  local old="" candidate="" found="" count=0 tmp
+  old="$(cat "$CF_PID" 2>/dev/null || true)"
+  if cloudflared_pid_matches "$old"; then
+    return 0
+  fi
+
+  # Adopt only one live process with the expected tunnel identity.
+  while IFS= read -r candidate; do
+    if cloudflared_pid_matches "$candidate"; then
+      found="$candidate"
+      count=$((count + 1))
+    fi
+  done < <(pgrep -x cloudflared 2>/dev/null || true)
+  [ "$count" -eq 1 ] && cloudflared_pid_matches "$found" || return 1
+  tmp="$CF_PID.tmp.$BASHPID"
+  printf '%s\n' "$found" >"$tmp" && mv "$tmp" "$CF_PID" || return 1
+  echo "$(date -Is) CLOUDFLARED_PID_RECONCILED old=$old new=$found" >>"$LOG"
 }
 
 tunnel_connection_count() {
@@ -179,23 +198,27 @@ while true; do
   maybe_self_update
   publish_heartbeat
   now="$(date +%s)"
-  network="$("$NETWORK_STATUS" 2>/dev/null || true)"
+  # A successful remote HTTPS probe proves Internet reachability even when
+  # the chroot cannot expose Android's route or the generic probe host times out.
+  probe_http="$(remote_probe_http_status)"
+  if remote_probe_ready "$probe_http"; then
+    network=ONLINE
+  else
+    network="$("$NETWORK_STATUS" 2>/dev/null || true)"
+  fi
   case "$network" in
     ONLINE|ONLINE_ROUTE_ONLY|OFFLINE) ;;
     *) network=UNKNOWN ;;
   esac
 
-  # The chroot may not expose Android's default route. Tunnel health is therefore
-  # authoritative when edge connections exist. When they do not, UNKNOWN network
-  # must not suppress recovery; bounded restart/backoff is safer for a mobile node.
-  if pid_matches "$CF_PID" cloudflared; then
+  # A stale PID file must not hide the one live tunnel or trigger a duplicate.
+  if reconcile_cloudflared_pid; then
     tunnel_process=HEALTHY
     connections="$(tunnel_connection_count)"
   else
     tunnel_process=OFFLINE
     connections=0
   fi
-  probe_http="$(remote_probe_http_status)"
   remote_ready=0
   path_recovered=0
 
