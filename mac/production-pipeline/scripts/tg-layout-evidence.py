@@ -8,7 +8,7 @@ from pipeline.common import JOBS,atomic_json,read_json
 from pipeline.subtitle_layout import plan_timeline
 from pipeline.subtitle_render import _transform
 
-SENDER=Path('/Users/xu/Documents/mcpx-projects/macmini_automation/scripts/telegram_y700_send.py')
+SENDER=Path.home()/'Documents/mcpx-projects/macmini_automation/scripts/telegram_y700_send.py'
 
 def prepare(job_id):
     job=JOBS/job_id

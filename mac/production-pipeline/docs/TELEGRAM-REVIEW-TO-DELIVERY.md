@@ -30,6 +30,8 @@ Hermes `gateway/run_inbound.py` is minimally patched **after platform admission/
 
 The Hermes source injection is a small **reversible** runtime adapter, not the repo's SOT. It is intentionally protected by an anchored installer to reject incompatible upstream changes; upgrade/reinstall requires re-applying the installer and verifying its status. Rollback: `install-hermes-review-ingress.py remove --gateway-file <Hermes gateway/run_inbound.py>` then restart the dedicated gateway. Original prepatch file is saved beside the Hermes module as `run_inbound.py.y700-review-prepatch`.
 
+The review ingress template now resolves the user's home directory instead of embedding a Mac account path. This intentionally changes its anchored block signature: an already installed legacy block must first be removed with the matching **old** installer, then the updated installer may apply the new block, with a gateway restart and fresh Telegram Reply verification at the separately authorized deployment gate. The updated installer refuses an unrecognized existing block; do not force an in-place string replacement or restart a production gateway during code development.
+
 ## QA → TG routing
 
 1. Download and analyze: Chinese ASR/OCR event IDs and timestamps remain immutable; questionable low-confidence text stays `review_required`, not silently dropped.

@@ -82,7 +82,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('job_id')
     parser.add_argument('--sender', type=Path, default=Path(os.environ.get(
-        'Y700_REVIEW_TG_SENDER', '/Users/xu/Documents/mcpx-projects/macmini_automation/scripts/telegram_y700_send.py')))
+        'Y700_REVIEW_TG_SENDER', str(Path.home()/'Documents/mcpx-projects/macmini_automation/scripts/telegram_y700_send.py'))))
     args = parser.parse_args()
     result = deliver(args.job_id, sender=args.sender)
     print(json.dumps(result, ensure_ascii=False))

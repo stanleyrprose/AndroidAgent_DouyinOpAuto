@@ -17,7 +17,7 @@ SUPPORTED = {
 }
 COMMAND = re.compile(rf'^审核\s*[：:]\s*{JOB}\s*[：:]\s*(英文OCR=误识别|布局=通过)\s*$')
 SEMANTIC = re.compile(rf'^审核\s*[：:]\s*{JOB}\s*[：:]\s*语义[：:]\s*(evt-[0-9a-f]{{16}})[：:]\s*含义=(.{{4,180}})$', re.DOTALL)
-RUNNER = Path('/Users/xu/Library/Application Support/Y700Automation/AndroidAgent_DouyinOpAuto/mac/production-pipeline/scripts/tg-review-and-resume.sh')
+RUNNER = Path.home() / 'Library/Application Support/Y700Automation/AndroidAgent_DouyinOpAuto/mac/production-pipeline/scripts/tg-review-and-resume.sh'
 
 
 def classify(text: str):
