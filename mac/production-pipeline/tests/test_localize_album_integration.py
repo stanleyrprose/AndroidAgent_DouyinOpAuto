@@ -1,4 +1,5 @@
 """Contract and state-flow tests for existing Mac-to-Y700 album integration."""
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -29,9 +30,19 @@ def test_shell_syntax():
     subprocess.run(['bash', '-n', str(SCRIPT)], check=True)
 
 
-def _invoke(tmp_path, blocked_step='', duplicate_job=''):
+def _invoke(tmp_path, blocked_step='', duplicate_job='', confirmed_review=False):
     qa_dir=tmp_path/'jobs'/'safe-job-1'/'production'
     qa_dir.mkdir(parents=True)
+    if confirmed_review:
+        localization = qa_dir.parent / 'localization'
+        localization.mkdir()
+        (localization / 'semantic_audit.json').write_text(
+            json.dumps({'audit_request_sha256': 'verified-audit'}))
+        (qa_dir / 'tg-semantic-evidence.json').write_text(json.dumps({
+            'job_id': 'safe-job-1', 'review_kind': 'semantic_meaning',
+            'status': 'SENT_CONFIRMED', 'message_id': '123456',
+            'chat_id': '7890', 'audit_request_sha256': 'verified-audit',
+        }))
     pipe = tmp_path / 'pipeline.sh'
     store = tmp_path / 'album.sh'
     tg = tmp_path / 'tg.sh'
@@ -95,14 +106,14 @@ def test_direct_download_duplicate_can_be_localized_separately(tmp_path):
 def test_already_localized_duplicate_cannot_reprocess(tmp_path):
     result, events = _invoke(tmp_path, duplicate_job='dy-1234567890123456789')
     assert result.returncode == 3
-    assert events == ['submit', 'NOTIFIED:QUALITY_REVIEW_REQUIRED']
+    assert events == ['submit', 'NOTIFIED:LEGACY_UPGRADE_BLOCKED']
 
 
 def test_render_failure_notifies_and_blocks_delivery(tmp_path):
     result, events = _invoke(tmp_path, 'render')
     assert result.returncode == 7
     assert 'TG_DELIVERED:safe-job-1:localized' not in events
-    assert events[-1] == 'NOTIFIED:QUALITY_REVIEW_REQUIRED'
+    assert events[-1] == 'NOTIFIED:QUALITY_BLOCKED'
 
 
 def test_delivery_failure_notifies_and_keeps_control(tmp_path):
@@ -115,4 +126,11 @@ def test_quality_failure_does_not_transfer(tmp_path):
     result, events = _invoke(tmp_path,'quality-check')
     assert result.returncode == 20
     assert events[:4] == ['submit','set-intent','translate-auto','quality-check']
+    assert events[-1] == 'NOTIFIED:QUALITY_BLOCKED'
+
+
+def test_verified_telegram_evidence_allows_actionable_review_notice(tmp_path):
+    result, events = _invoke(tmp_path, 'quality-check', confirmed_review=True)
+    assert result.returncode == 20
     assert events[-1] == 'NOTIFIED:QUALITY_REVIEW_REQUIRED'
+    assert not any(x.startswith('TG_DELIVERED:') for x in events)

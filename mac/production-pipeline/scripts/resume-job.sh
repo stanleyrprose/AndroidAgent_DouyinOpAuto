@@ -69,11 +69,11 @@ if [ ! -f "$STATE" ]; then
   block "unknown job or missing durable state"
 fi
 
-read -r mac_state intent < <(python3 - "$STATE" <<'PY'
+read -r mac_state intent subtitle_mode < <(python3 - "$STATE" <<'PY'
 import json,sys
 try: d=json.load(open(sys.argv[1],encoding='utf-8'))
-except Exception: print('INVALID -')
-else: print(d.get('state',''), d.get('workflow_intent','-'))
+except Exception: print('INVALID - -')
+else: print(d.get('state',''), d.get('workflow_intent','-'), d.get('subtitle_mode','-'))
 PY
 )
 if [ "$mac_state" = "INVALID" ]; then
@@ -81,6 +81,11 @@ if [ "$mac_state" = "INVALID" ]; then
 fi
 if [ "$intent" != "STORE_ALBUM" ] && [ "$intent" != "AUTO_PUBLISH" ] && [ "$intent" != "DIRECT_DOWNLOAD" ]; then
   block "workflow_intent missing; refusing to infer or upgrade legacy job"
+fi
+# Dynamic v04 uses the historical STORE_ALBUM marker for Telegram-only delivery.
+# Never run its legacy Y700 album resume path, even on a generic resume request.
+if [ "$intent" = "STORE_ALBUM" ] && { [ "$subtitle_mode" = "dynamic_v04" ] || [[ "$JOB_ID" =~ ^my-[0-9]{18,20}-v04(-r[0-9]{3})?$ ]]; }; then
+  block "TG-only dynamic_v04 cannot use Y700 album resume; reply to the job's verified Telegram review evidence or reconcile its delivery receipt"
 fi
 
 notify RESUMING "intent=${intent}; durable_state=${mac_state}; resume completed steps only"

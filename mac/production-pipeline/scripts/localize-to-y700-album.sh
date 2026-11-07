@@ -32,16 +32,28 @@ if [ "$submit_rc" -eq 10 ]; then
     response="$(bash "$PIPE" submit "$URL" --dynamic-subtitles --allow-duplicate)" || { echo "$response" >&2; exit 3; }
     submit_rc=0
   elif [[ "$existing_id" =~ ^dy-[0-9]{18,20}$ ]]; then
-    extra=()
-    if [[ "$REPEAT" == repeat ]]; then extra=(--repeat); fi
-    response="$("$ROOT/.venv/bin/python" "$ROOT/scripts/upgrade_legacy_to_dynamic.py" "$existing_id" "${extra[@]}")" || {
-      echo "$response" >&2
-      bash "$NOTIFY" QUALITY_REVIEW_REQUIRED "$existing_id" --detail '历史任务升级失败；未覆盖旧任务，也未向Y700交付视频' || true
-      exit 3
-    }
+    # Keep historical jobs immutable. If they cannot be upgraded from saved media,
+    # re-download into an independent version, binding the expected Aweme ID.
+    if upgrade_result="$("$ROOT/.venv/bin/python" "$ROOT/scripts/upgrade_legacy_to_dynamic.py" "$existing_id")"; then
+      response="$upgrade_result"
+    else
+      echo "$upgrade_result" >&2
+      if ! response="$("$ROOT/.venv/bin/python" "$ROOT/scripts/reprocess_douyin_dynamic.py" "$URL" --expected-aweme-id "${existing_id#dy-}")"; then
+        echo "$response" >&2
+        upgrade_reason="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("reason","unknown"))' <<<"$upgrade_result" 2>/dev/null || echo unknown)"
+        bash "$NOTIFY" LEGACY_UPGRADE_BLOCKED "$existing_id" --detail "升级原因=${upgrade_reason}；独立版本重新下载失败；旧任务与媒体保留，请检查下载服务后恢复" || true
+        exit 3
+      fi
+      recovered_id="$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("job_id","") if d.get("status")=="ANALYZED" and d.get("subtitle_mode")=="dynamic_v04" else "")' <<<"$response")"
+      if [[ ! "$recovered_id" =~ ^my-[0-9]{18,20}-v04-r[0-9]{3}$ ]]; then
+        bash "$NOTIFY" LEGACY_UPGRADE_BLOCKED "$existing_id" --detail '新版本任务回执无效；旧任务未修改，请人工核对' || true
+        exit 3
+      fi
+      bash "$NOTIFY" RECOVERY_STARTED "$recovered_id" --detail "旧任务=${existing_id}；已独立重新下载，继续缅语化并仅投递TG" || true
+    fi
     if [[ "$response" == *'"status": "EXISTING_DYNAMIC_JOB"'* ]]; then
       echo "$response" >&2
-      bash "$NOTIFY" QUALITY_REVIEW_REQUIRED "$existing_id" --detail '新版升级任务已存在；必须按状态恢复，禁止再次创建或重复投递' || true
+      bash "$NOTIFY" RESUME_BLOCKED "$existing_id" --detail '新版升级任务已存在；必须检查其实际状态并恢复，禁止再次创建或重复投递' || true
       exit 3
     fi
     submit_rc=0
@@ -75,15 +87,50 @@ if [[ "$status" != PASS ]]; then
   else
     /opt/anaconda3/bin/python3 "$ROOT/scripts/tg-review-next.py" "$job_id" || true
   fi
-  bash "$NOTIFY" QUALITY_REVIEW_REQUIRED "$job_id" --detail "当前状态=${status}，${codes}；请在TG直接回复审核证据，继续现有Job" || true
+  # Only ask for human review after its exact, current evidence has a durable TG receipt.
+  evidence_message_id="$(python3 - "$QA_JOBS_ROOT/$job_id" <<'PY'
+import json, pathlib, sys
+job=pathlib.Path(sys.argv[1])
+def load(path):
+    try: return json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError): return {}
+qa=load(job/'production/quality_report.json')
+codes=set(qa.get('codes',[]))
+candidates=[]
+if 'BLOCKED_UNRESOLVED_EVENT' in codes or 'REVIEW_REQUIRED_OCR' in codes:
+    candidates.append(('tg-review-evidence.json','latin_ocr'))
+if 'BLOCKED_SEMANTIC_AUDIT_UNCERTAIN' in codes or 'BLOCKED_SEMANTIC_AUDIT_FAILED' in codes:
+    candidates.append(('tg-semantic-evidence.json','semantic_meaning'))
+if 'REVIEW_REQUIRED_LAYOUT' in codes and not any(c.startswith('BLOCKED') for c in codes):
+    candidates.append(('tg-layout-evidence.json','layout'))
+for filename,kind in candidates:
+    evidence=load(job/'production'/filename)
+    if (evidence.get('job_id')!=job.name or evidence.get('review_kind')!=kind
+        or evidence.get('status')!='SENT_CONFIRMED'
+        or not str(evidence.get('message_id','')).isdigit()
+        or not str(evidence.get('chat_id','')).lstrip('-').isdigit()):
+        continue
+    if kind=='layout' and evidence.get('evidence_revision')!=qa.get('evidence_revision'):
+        continue
+    if kind=='semantic_meaning' and evidence.get('audit_request_sha256')!=load(job/'localization/semantic_audit.json').get('audit_request_sha256'):
+        continue
+    print(evidence['message_id'])
+    break
+PY
+)"
+  if [[ -n "$evidence_message_id" ]]; then
+    bash "$NOTIFY" QUALITY_REVIEW_REQUIRED "$job_id" --detail "当前状态=${status}，${codes}；请直接回复已送达的TG审核证据(message_id=${evidence_message_id})，不要回复此状态通知" || true
+  else
+    bash "$NOTIFY" QUALITY_BLOCKED "$job_id" --detail "当前状态=${status}，${codes}；无已确认送达的当前审核证据，暂不能人工复核；任务媒体保留待排查" || true
+  fi
   exit 20
 fi
 if ! bash "$PIPE" render "$job_id"; then
-  bash "$NOTIFY" QUALITY_REVIEW_REQUIRED "$job_id" --detail '视频渲染失败，保留媒体与审核证据' || true
+  bash "$NOTIFY" QUALITY_BLOCKED "$job_id" --detail '视频渲染失败；不是人工复核请求，保留任务媒体与现有证据' || true
   exit 7
 fi
 if ! bash "$PIPE" quality-check "$job_id" >/dev/null; then
-  bash "$NOTIFY" QUALITY_REVIEW_REQUIRED "$job_id" --detail '渲染后独立质量审核未通过，文件保留' || true
+  bash "$NOTIFY" QUALITY_BLOCKED "$job_id" --detail '渲染后独立质量审核未通过；尚无可操作的人工复核通知，文件保留' || true
   exit 7
 fi
 # Telegram is the sole delivery destination; no Y700 album/TikTok action.

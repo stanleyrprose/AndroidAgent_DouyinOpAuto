@@ -25,6 +25,8 @@ STATUS_TEXT = {
     "RESUMING": ("🔵", "正在恢复任务"),
     "RESUME_WAITING": ("🟡", "恢复暂停，等待设备/网络"),
     "RESUME_BLOCKED": ("🔴", "恢复被安全规则阻止"),
+    "RECOVERY_STARTED": ("🔵", "已创建独立缅语化恢复任务"),
+    "LEGACY_UPGRADE_BLOCKED": ("🔴", "历史任务升级或恢复受阻"),
     "QUALITY_REVIEW_REQUIRED": ("🟠", "缅语动态字幕待复核"),
     "QUALITY_BLOCKED": ("🔴", "缅语动态字幕质量阻断"),
 }

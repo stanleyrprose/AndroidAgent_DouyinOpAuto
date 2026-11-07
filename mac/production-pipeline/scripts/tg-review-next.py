@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from pipeline.common import JOBS,atomic_json,read_json
 
-SENDER=Path('/Users/xu/Documents/mcpx-projects/macmini_automation/scripts/telegram_y700_send.py')
+SENDER=Path.home()/'Documents/mcpx-projects/macmini_automation/scripts/telegram_y700_send.py'
 
 def send(job_id):
     job=JOBS/job_id

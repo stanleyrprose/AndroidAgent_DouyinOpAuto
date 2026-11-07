@@ -114,6 +114,21 @@ class ResumeScriptTests(unittest.TestCase):
             self.assertNotIn("album ", calls)
             self.assertNotIn("closure ", calls)
 
+    def test_dynamic_v04_tg_only_job_never_routes_to_y700_album(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            job, env, log = self._base(runtime, state="EXPORTED", intent="STORE_ALBUM")
+            path = runtime / "runtime" / "jobs" / job / "state.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["subtitle_mode"] = "dynamic_v04"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            p = subprocess.run([str(RESUME), job], env=env, text=True, capture_output=True)
+            self.assertEqual(p.returncode, 6)
+            self.assertIn("TG-only dynamic_v04", p.stdout)
+            actions = log.read_text().splitlines()
+            self.assertFalse(any(line.startswith("album ") for line in actions))
+            self.assertFalse(any(line.startswith("pipeline ") for line in actions))
+
     def test_album_resume_refreshes_only_expired_export_then_stores(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             job, env, log = self._base(Path(tmp), state="EXPORTED", intent="STORE_ALBUM", expires=900)

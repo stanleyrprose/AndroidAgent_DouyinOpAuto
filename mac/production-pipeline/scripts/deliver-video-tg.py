@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from pipeline.common import JOBS, RUNTIME, MEDIA_EXPORT, atomic_json, sha256_file
 
-SENDER=Path('/Users/xu/Documents/mcpx-projects/macmini_automation/scripts/telegram_y700_send.py')
+SENDER=Path.home()/'Documents/mcpx-projects/macmini_automation/scripts/telegram_y700_send.py'
 
 def cleanup_confirmed(job_id, output):
     """Finish a previously confirmed delivery without ever resending video."""

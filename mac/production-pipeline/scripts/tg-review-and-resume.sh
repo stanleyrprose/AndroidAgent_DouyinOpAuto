@@ -6,7 +6,7 @@ LIVE="$(cd "$(dirname "$0")/.." && pwd)"
 RELEASE="$LIVE/releases/dynamic-v04-20261030"
 PY="$RELEASE/.venv/bin/python"
 PIPE="$RELEASE/scripts/pipeline.sh"
-SENDER="/Users/xu/Documents/mcpx-projects/macmini_automation/scripts/telegram_y700_send.py"
+SENDER="${Y700_REVIEW_TG_SENDER:-$HOME/Documents/mcpx-projects/macmini_automation/scripts/telegram_y700_send.py}"
 JOB="${1:-}"; DECISION="${2:-}"; REPLY="${3:-}"; CHAT="${4:-}"
 REVIEWER="telegram:$CHAT"
 [[ "$JOB" =~ ^my-[0-9]{18,20}-v04(-r[0-9]{3})?$ ]] || { echo 'INVALID_JOB' >&2; exit 2; }

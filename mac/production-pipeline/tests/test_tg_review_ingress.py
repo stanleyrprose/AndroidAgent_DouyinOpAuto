@@ -24,8 +24,9 @@ def test_dispatch_rejects_invalid_evidence_without_spawning(monkeypatch):
     assert 'REVIEW_REJECTED' in module.dispatch('审核：my-7597434271141216881-v04-r001：布局=通过',platform='telegram',chat_id='123456',reply_to_id=None)
     assert 'REVIEW_REJECTED' in module.dispatch('审核：my-7597434271141216881-v04-r001：布局=通过',platform='slack',chat_id='123456',reply_to_id='416')
 
-def test_dispatch_passes_fixed_argv_without_shell(monkeypatch):
+def test_dispatch_passes_fixed_argv_without_shell(monkeypatch,tmp_path):
     module=load('tg-review-ingress.py')
+    monkeypatch.setattr(module,'RUNNER',tmp_path/'scripts'/'tg-review-and-resume.sh')
     calls=[]
     def fake(argv,**kwargs):
         calls.append((argv,kwargs));return type('Result',(),{'returncode':0})()

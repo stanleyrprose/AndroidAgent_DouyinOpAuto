@@ -14,7 +14,7 @@ BLOCK=(START+
 '''        if not is_internal and str(getattr(source.platform, 'value', source.platform)) == 'telegram':
             import importlib.util
             from pathlib import Path
-            _y700_review_module = Path('/Users/xu/Library/Application Support/Y700Automation/AndroidAgent_DouyinOpAuto/mac/production-pipeline/scripts/tg-review-ingress.py')
+            _y700_review_module = Path.home() / 'Library/Application Support/Y700Automation/AndroidAgent_DouyinOpAuto/mac/production-pipeline/scripts/tg-review-ingress.py'
             if _y700_review_module.is_file():
                 _y700_spec = importlib.util.spec_from_file_location('y700_review_ingress', _y700_review_module)
                 _y700_mod = importlib.util.module_from_spec(_y700_spec)
