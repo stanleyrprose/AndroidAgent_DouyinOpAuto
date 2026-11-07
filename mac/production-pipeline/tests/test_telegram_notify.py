@@ -18,6 +18,13 @@ class TelegramNotifyTests(unittest.TestCase):
         msg = render_message("RECONCILE_REQUIRED", "dy-456")
         self.assertIn("禁止重复发布", msg)
 
+    def test_legacy_failure_is_not_mislabeled_as_subtitle_review(self):
+        blocked = render_message("LEGACY_UPGRADE_BLOCKED", "dy-7999912345678901234")
+        self.assertIn("历史任务升级或恢复受阻", blocked)
+        self.assertNotIn("缅语动态字幕待复核", blocked)
+        started = render_message("RECOVERY_STARTED", "my-7999912345678901234-v04-r001")
+        self.assertIn("已创建独立缅语化恢复任务", started)
+
     @patch("pipeline.telegram_notify._resolve_sender", return_value=None)
     def test_missing_sender_is_best_effort(self, _sender):
         receipt = send_status("RECEIVED", "dy-1")

@@ -44,3 +44,45 @@ def test_separate_legacy_upgrade_and_durable_retry(tmp_path,monkeypatch):
 def test_upgrade_rejects_invalid_id():
     with pytest.raises(ValueError):
         module.upgrade('../../unsafe')
+
+
+def test_short_link_recovery_creates_verified_version_without_touching_legacy(tmp_path, monkeypatch):
+    repeat_path=PATH.with_name('reprocess_douyin_dynamic.py')
+    repeat_spec=spec_from_file_location('reprocess_dynamic',repeat_path)
+    repeat_module=module_from_spec(repeat_spec)
+    repeat_spec.loader.exec_module(repeat_module)
+    monkeypatch.setattr(state,'JOBS',tmp_path)
+    aweme='7999912345678901234'
+    old=state.Job.create(f'dy-{aweme}','https://v.douyin.com/ExampleAbc/')
+    old.write_state('ANALYZED',subtitle_mode='legacy')
+    old_before=old.state().copy()
+
+    class Download:
+        def download(self, url, output):
+            assert url=='https://v.douyin.com/ExampleAbc/'
+            (output/f'{aweme}.mp4').write_bytes(b'video-fixture')
+            return {'job_id':'douzy-test'}
+
+    monkeypatch.setattr(repeat_module,'Client',lambda:Download())
+    monkeypatch.setattr(repeat_module,'_find_video',lambda source:source/f'{aweme}.mp4')
+    monkeypatch.setattr(repeat_module,'analyze',lambda source,dest,allow_no_audio: {'route':'visual_review'})
+    monkeypatch.setattr(repeat_module,'analyze_dynamic',lambda source,dest,analysis: analysis)
+    result=repeat_module.reprocess('https://v.douyin.com/ExampleAbc/',expected_aweme_id=aweme)
+    assert result['job_id']==f'my-{aweme}-v04-r001'
+    assert state.Job(result['job_id']).state()['subtitle_mode']=='dynamic_v04'
+    assert old.state()==old_before
+
+    with pytest.raises(ValueError,match='conflicts'):
+        repeat_module.reprocess('https://www.douyin.com/video/7999912345678901235',expected_aweme_id=aweme)
+
+    class UnidentifiedDownload:
+        def download(self, url, output):
+            (output/'unlabeled.mp4').write_bytes(b'unknown-video')
+            return {'job_id':'douzy-test'}
+
+    monkeypatch.setattr(repeat_module,'Client',lambda:UnidentifiedDownload())
+    monkeypatch.setattr(repeat_module,'_find_video',lambda source:source/'unlabeled.mp4')
+    with pytest.raises(RuntimeError,match='missing or mismatched'):
+        repeat_module.reprocess('https://v.douyin.com/ExampleAbc/',expected_aweme_id=aweme)
+    assert state.Job(f'my-{aweme}-v04-r002').state()['state']=='FAILED'
+    assert old.state()==old_before
