@@ -14,6 +14,8 @@ When a localized TG-only request encounters an existing `dy-<aweme>` job, the wr
 
 `QUALITY_REVIEW_REQUIRED` is reserved for OCR, semantic or layout review **with a confirmed, current Telegram evidence message ID**. If the evidence send is unconfirmed, the receipt is stale, or the QA issue is not human-reviewable, report `QUALITY_BLOCKED`; do not tell the user to reply to a generic status notification.
 
+Dynamic v04 TG-only Jobs still carry the old internal `STORE_ALBUM` marker. The generic legacy `继续任务` album-resume script **fails closed** for `subtitle_mode=dynamic_v04` or a `my-<aweme>-v04[-rNNN]` Job ID; it must never export media to Y700. Human review continues exclusively by replying to the current verified evidence via `tg-review-and-resume.sh`. Restoring an interrupted TG-only job outside that review path requires an explicit, separate, state-aware resume implementation; no automatic retry of an ambiguous Telegram send is authorized.
+
 ### Review commands
 
 - OCR noise: Reply to the bot's annotated OCR screenshot with `审核：<job_id>：英文OCR=误识别`. This excludes only the current bound `LATIN_ONLY_OCR_REVIEW` events and retains the original OCR observations and evidence hashes.

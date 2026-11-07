@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import sys
+from urllib.parse import urlsplit
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from pipeline import state
@@ -15,6 +16,9 @@ from pipeline.subtitle_analyze import analyze_dynamic
 
 
 def reprocess(url, expected_aweme_id=None):
+    parsed=urlsplit(url)
+    if parsed.scheme!='https' or parsed.hostname not in {'v.douyin.com','www.douyin.com','douyin.com','v.iesdouyin.com','www.iesdouyin.com'} or parsed.port or parsed.username or parsed.password:
+        raise ValueError('a supported HTTPS Douyin video link is required')
     found=re.search(r'(?:share/video/|video/)(\d{18,20})',url)
     if expected_aweme_id is not None:
         if not re.fullmatch(r'\d{18,20}', expected_aweme_id):
